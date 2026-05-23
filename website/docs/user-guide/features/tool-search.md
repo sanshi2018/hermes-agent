@@ -19,7 +19,7 @@ specific tool's schema on demand.
 The tools that make up Hermes' core capability set (`terminal`,
 `read_file`, `write_file`, `patch`, `search_files`, `todo`, `memory`,
 `browser_*`, `web_search`, `web_extract`, `clarify`, `execute_code`,
-`delegate_task`, `session_search`, and the rest of
+`delegate_task`, `session_search`, `send_message`, and the rest of
 `_HERMES_CORE_TOOLS`) are *always* loaded directly. Only MCP tools and
 non-core plugin tools are eligible for deferral.
 :::
@@ -139,13 +139,6 @@ to any progressive-disclosure design, not specific to this implementation:
   tool-defs list every assembly — no session-keyed `Map`. This avoids
   the class of bug where a stored catalog drifts out of sync with the
   live tool registry.
-- **The catalog is scoped to the session's toolsets.** `tool_search`,
-  `tool_describe`, and `tool_call` only ever see and invoke tools the
-  session was actually granted. A subagent, kanban worker, or gateway
-  session restricted to a subset of toolsets cannot use the bridge to
-  discover or call a tool outside that subset — the deferred catalog is
-  the deferrable slice of the session's own enabled/disabled toolsets,
-  not the whole process registry.
 - **No JS sandbox.** Hermes uses the simpler "structured tools" mode
   (search / describe / call as plain functions). The JS-sandbox "code
   mode" some other implementations offer is a large surface area; we

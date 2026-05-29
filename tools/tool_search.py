@@ -670,14 +670,16 @@ def dispatch_tool_describe(args: Dict[str, Any],
 
 
 def scoped_deferrable_names(tool_defs: List[Dict[str, Any]]) -> frozenset[str]:
-    """返回 ``tool_defs`` 中存在的延迟加载（deferrable）工具名称集合。
+    """Return the set of deferrable tool names present in ``tool_defs``.
 
-    ``tool_defs`` 预期为当前会话工具集范围内的*组装前（pre-assembly）*
-    工具列表（即 ``get_tool_definitions(skip_tool_search_assembly=True)``
-    为该会话已启用/已禁用的工具集所返回的内容）。最终得到的集合是该会话
-    可以通过 ``tool_call`` 合理触达的工具全集。它被 ``model_tools``
-    桥接分发（bridge dispatch）和 ``tool_executor`` 解包（unwrap）共同用作
-    作用域把关，从而确保受限制工具集的会话永远无法通过桥接器调用超出作用域的工具。
+    ``tool_defs`` is expected to be the *pre-assembly* tool list for the
+    current session's toolset scope (i.e. what
+    ``get_tool_definitions(skip_tool_search_assembly=True)`` returns for the
+    session's enabled/disabled toolsets). The resulting set is the universe of
+    tools the session may legitimately reach through ``tool_call``. Used as a
+    scoping gate by both the ``model_tools`` bridge dispatch and the
+    ``tool_executor`` unwrap so a restricted-toolset session can never invoke
+    an out-of-scope tool via the bridge.
     """
     names: set[str] = set()
     for td in tool_defs:

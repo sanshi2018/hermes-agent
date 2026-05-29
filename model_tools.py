@@ -262,8 +262,8 @@ def _clear_tool_defs_cache() -> None:
 
 
 def get_tool_definitions(
-    enabled_toolsets: List[str] = None,
-    disabled_toolsets: List[str] = None,
+    enabled_toolsets: Optional[List[str]] = None,
+    disabled_toolsets: Optional[List[str]] = None,
     quiet_mode: bool = False,
     skip_tool_search_assembly: bool = False,
 ) -> List[Dict[str, Any]]:
@@ -334,8 +334,8 @@ def get_tool_definitions(
 
 
 def _compute_tool_definitions(
-    enabled_toolsets: List[str] = None,
-    disabled_toolsets: List[str] = None,
+    enabled_toolsets: Optional[List[str]] = None,
+    disabled_toolsets: Optional[List[str]] = None,
     quiet_mode: bool = False,
     skip_tool_search_assembly: bool = False,
 ) -> List[Dict[str, Any]]:
@@ -806,6 +806,8 @@ def handle_function_call(
     user_task: Optional[str] = None,
     enabled_tools: Optional[List[str]] = None,
     skip_pre_tool_call_hook: bool = False,
+    enabled_toolsets: Optional[List[str]] = None,
+    disabled_toolsets: Optional[List[str]] = None,
 ) -> str:
     """
     将调用路由至工具注册表的主函数调用调度器。
@@ -850,7 +852,19 @@ def handle_function_call(
             # Use skip_tool_search_assembly=True so we see the real catalog,
             # not the already-collapsed bridge-only list (the bridge would
             # otherwise be searching only itself).
+            #
+            # Scope the catalog to the session's toolsets so the bridge can
+            # only surface and invoke tools the session was actually granted.
+            # Without this, a restricted-toolset session (subagent, kanban
+            # worker, curated gateway session) would see and be able to call
+            # the entire process registry via the bridge. Passing the same
+            # enabled/disabled toolsets the session was assembled with keeps
+            # the deferred catalog identical to the deferrable subset of the
+            # session's own tool list, and avoids polluting the process-global
+            # _last_resolved_tool_names with out-of-scope tools.
             current_defs = get_tool_definitions(
+                enabled_toolsets=enabled_toolsets,
+                disabled_toolsets=disabled_toolsets,
                 quiet_mode=True, skip_tool_search_assembly=True,
             ) or []
         except Exception:
@@ -866,6 +880,20 @@ def handle_function_call(
             if err or not underlying_name:
                 return json.dumps({"error": err or "tool_call could not be resolved"},
                                   ensure_ascii=False)
+            # Defense in depth: the underlying tool MUST be in the session's
+            # scoped deferrable catalog. resolve_underlying_call() only checks
+            # that the name is deferrable in the global registry; this gate
+            # additionally rejects any tool the session was not granted, so a
+            # restricted session can never invoke an out-of-scope tool through
+            # the bridge even if the catalog scoping above regressed.
+            _scoped_deferrable = _ts_mod.scoped_deferrable_names(current_defs)
+            if underlying_name not in _scoped_deferrable:
+                return json.dumps({
+                    "error": (
+                        f"'{underlying_name}' is not available in this session. "
+                        "Use tool_search to find tools you can call."
+                    ),
+                }, ensure_ascii=False)
             # Recurse with the underlying tool. All hooks fire against the
             # real tool name. The bridge is invisible to hooks by design.
             return handle_function_call(
@@ -877,6 +905,8 @@ def handle_function_call(
                 user_task=user_task,
                 enabled_tools=enabled_tools,
                 skip_pre_tool_call_hook=skip_pre_tool_call_hook,
+                enabled_toolsets=enabled_toolsets,
+                disabled_toolsets=disabled_toolsets,
             )
 
     try:

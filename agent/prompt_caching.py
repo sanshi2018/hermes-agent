@@ -25,10 +25,10 @@ def _apply_cache_marker(msg: dict, cache_marker: dict, native_anthropic: bool = 
 
     if content is None or content == "":
         if role == "tool" and not native_anthropic:
-            # OpenRouter rejects top-level cache_control on role:tool (silent
-            # hang) and an empty message has no content part to carry the
-            # marker — skip. Non-empty tool content falls through below and
-            # gets the marker on a content part, which OpenRouter honors.
+            # OpenRouter 会拒绝在 role:tool 消息的顶层使用 cache_control（会导致静默挂起），
+            # 且空消息没有可以携带该标记的 content 部分 —— 因此跳过。
+            # 非空的工具内容会落入下方的处理逻辑，并将标记放置在 content 部分中，
+            # 这是 OpenRouter 所支持的。
             return
         if role == "assistant" and not native_anthropic:
             # Empty assistant turns are pure tool_calls. A top-level marker
@@ -50,14 +50,13 @@ def _apply_cache_marker(msg: dict, cache_marker: dict, native_anthropic: bool = 
 
 
 def _can_carry_marker(msg: dict, native_anthropic: bool) -> bool:
-    """True if a marker on this message is actually honored by the provider.
+    """如果该消息上的标记确实能被服务商识别并遵循，则返回 True。
 
-    On the native Anthropic layout every message works (top-level markers are
-    relocated by the adapter). On the envelope layout (OpenRouter et al.) only
-    markers inside content parts are honored: empty-content messages (e.g.
-    assistant turns that are pure tool_calls) and empty tool messages would
-    receive a top-level marker the provider ignores — wasting one of the four
-    breakpoints. Skip those so the breakpoints land on messages that count.
+    在原生的 Anthropic 布局中，每条消息都有效（顶层标记会被适配器重新定位）。
+    但在信封（envelope）布局中（如 OpenRouter 等），只有放置在 content 部分内部的
+    标记才会被识别：空内容的消息（例如纯 tool_calls 的助手回合）以及空的工具消息
+    会接收到一个被服务商忽略的顶层标记 —— 从而白白浪费了四个断点中的一个。
+    跳过这些消息，以便让断点落在真正起作用的消息上。
     """
     if native_anthropic:
         return True
@@ -65,10 +64,10 @@ def _can_carry_marker(msg: dict, native_anthropic: bool) -> bool:
     if content is None or content == "":
         return False
     if isinstance(content, list):
-        # _apply_cache_marker only marks the LAST content part, so the carrier
-        # predicate must agree: a list whose last element isn't a dict cannot
-        # actually receive a marker and would waste a breakpoint. Mirror the
-        # `content` truthiness + last-element-dict check in _apply_cache_marker.
+        # _apply_cache_marker 仅对“最后一个” content 部分进行标记，所以载体
+        # 断言（predicate）必须与其保持一致：如果一个列表的最后一个元素不是字典（dict），
+        # 它实际上就无法接收到标记，从而会浪费一个断点。此处需要镜像复现
+        # _apply_cache_marker 中针对 `content` 真值以及“最后一个元素是否为字典”的检查逻辑。
         return bool(content) and isinstance(content[-1], dict)
     return isinstance(content, str)
 
@@ -86,13 +85,13 @@ def apply_anthropic_cache_control(
     cache_ttl: str = "5m",
     native_anthropic: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Apply system_and_3 caching strategy to messages for Anthropic models.
+    """针对 Anthropic 模型将 system_and_3 缓存策略应用于消息列表。
 
-    Places up to 4 cache_control breakpoints: system prompt + last 3 non-system
-    messages, all at the same TTL.
+    最多放置 4 个 cache_control 断点：系统提示词 + 最后的 3 条非系统消息，
+    它们全部具有相同的生存时间（TTL）。
 
-    Returns:
-        Deep copy of messages with cache_control breakpoints injected.
+    返回值:
+        注入了 cache_control 断点后的消息列表的深拷贝（Deep copy）。
     """
     messages = copy.deepcopy(api_messages)
     if not messages:

@@ -241,7 +241,11 @@ def convert_to_trajectory_format(agent, messages: List[Dict[str, Any]], user_que
     return trajectory
 
 
-
+# 它保证发给 API 的历史里每个 tool_call 的参数都是合法 JSON——坏的替换成 {}，
+# 同时给对应的 tool 结果打上"参数已损坏"的标记（必要时补插占位结果），
+# 既让请求能通过 provider 的校验，又让模型知道那次调用不可信。
+# 它和后面的 repair_message_sequence（修复角色交替错乱）
+# 同属请求前的"消息history消毒"防线。
 def sanitize_tool_call_arguments(
     messages: list,
     *,
@@ -558,24 +562,20 @@ def repair_message_sequence(agent, messages: List[Dict]) -> int:
 
 
 def repair_message_sequence_with_cursor(agent, messages: List[Dict]) -> int:
-    """Run :func:`repair_message_sequence` and keep the SessionDB flush
-    cursor consistent with the compacted list (#44837).
-
-    ``repair_message_sequence`` merges/drops messages in place, shrinking
-    the list. ``_last_flushed_db_idx`` (the DB-write cursor) indexes into
-    that list, so after compaction it can point past the new end — the
-    turn-end flush would then skip the assistant/tool chain entirely — or
-    past unflushed messages shifted to lower indexes.
-
-    Repair preserves object identity for surviving messages, so counting
-    the survivors from the previously-flushed prefix gives the exact new
-    cursor even when messages are dropped/merged at indexes *before* the
-    cursor — a plain ``min()`` clamp would silently skip that many
-    unflushed rows. Falls back to the clamp when no prefix snapshot is
-    available.
-
-    Returns the number of repairs made (same as ``repair_message_sequence``).
-    """
+    # 运行 :func:`repair_message_sequence` 并保持 SessionDB 刷新游标
+    # 与压缩后的列表一致 (#44837)。
+    #
+    # ``repair_message_sequence`` 会就地合并/丢弃消息，从而缩减列表长度。
+    # ``_last_flushed_db_idx``（数据库写入游标）作为该列表的索引，在列表压缩后
+    # 可能会指向超出新末尾的位置 —— 导致回合结束时的刷新完全跳过助手/工具链 ——
+    # 或者指向被移动到较低索引处的未刷新消息之后。
+    #
+    # 修复操作会保留存活消息的对象标识（identity），因此，即使在游标*之前*的
+    # 索引处发生了消息丢弃/合并，通过计算先前已刷新前缀中存活下来的消息数量，
+    # 也能得出准确的新游标位置 —— 而单纯使用 ``min()`` 进行截断（clamp）会悄悄地
+    # 跳过同等数量的未刷新行。当没有可用的前缀快照时，则回退到截断处理。
+    #
+    # 返回执行的修复次数（与 ``repair_message_sequence`` 的返回值相同）。
     pre_repair_flushed_ids = None
     flush_cursor = getattr(agent, "_last_flushed_db_idx", None)
     if isinstance(flush_cursor, int) and flush_cursor > 0:
@@ -2725,24 +2725,20 @@ def copy_reasoning_content_for_api(agent, source_msg: dict, api_msg: dict) -> No
 
     needs_thinking_pad = agent._needs_thinking_reasoning_pad()
 
-    # 1. Explicit reasoning_content already set.
+    # 1. 已设置显式的 reasoning_content。
     #
-    # When the active provider enforces the thinking-mode echo-back
-    # (DeepSeek / Kimi / MiMo), preserve it verbatim — that includes their
-    # own space-placeholder written at creation time and any valid reasoning
-    # from the same provider. Sessions persisted BEFORE #17341 have
-    # empty-string placeholders pinned at creation time; DeepSeek V4 Pro
-    # rejects those with HTTP 400, so upgrade "" → " " on replay.
+    # 当当前活跃的服务商强制要求回显思考模式（思维内容）（如 DeepSeek / Kimi / MiMo）时，
+    # 原样保留它 —— 这包括它们在创建时写入的空格占位符，以及来自该服务商的任何有效推理内容。
+    # 在 #17341 之前持久化的会话在创建时固定使用了空字符串占位符；DeepSeek V4 Pro
+    # 会拒绝这些空字符串并返回 HTTP 400，因此在重放（replay）时将 "" 升级为 " "。
     #
-    # When the active provider does NOT enforce echo-back, strip the field
-    # entirely. Strict OpenAI-compatible providers (Mistral, Cerebras, Groq,
-    # SambaNova, …) reject ANY reasoning_content key in input messages with
-    # HTTP 400/422 ("Extra inputs are not permitted"), even an empty string
-    # or a single-space pad. This is the cross-provider fallback case: a
-    # reasoning primary (DeepSeek/Kimi/MiMo) pads history with " ", then a
-    # fallback to a strict provider replays that pad and 422s. Stripping
-    # here covers the rebuild path; reapply_reasoning_echo_for_provider()
-    # covers the already-built api_messages path. Refs #45655.
+    # 当当前活跃的服务商不强制要求回显时，则完全移除该字段。严格兼容 OpenAI 的服务商
+    # （如 Mistral、Cerebras、Groq、SambaNova 等）会拒绝输入消息中的任何 reasoning_content 键，
+    # 并返回 HTTP 400/422 错误（“不允许额外的输入”），即使是空字符串或单个空格的填充也不行。
+    # 这属于跨服务商回退（fallback）的情况：原生支持推理的服务商（DeepSeek/Kimi/MiMo）
+    # 用 " " 填充了历史记录，随后回退到严格的服务商时重放了该填充内容，从而导致 422 错误。
+    # 在此处进行移除处理覆盖了重新构建（rebuild）路径；而 reapply_reasoning_echo_for_provider()
+    # 则覆盖了已经构建好的 api_messages 路径。参见 #45655。
     existing = source_msg.get("reasoning_content")
     if isinstance(existing, str):
         if not needs_thinking_pad:
@@ -2753,17 +2749,16 @@ def copy_reasoning_content_for_api(agent, source_msg: dict, api_msg: dict) -> No
             api_msg["reasoning_content"] = existing
         return
 
-    # 2. Cross-provider poisoned history (#15748): on DeepSeek/Kimi,
-    # if the source turn has tool_calls AND a 'reasoning' field but no
-    # 'reasoning_content' key, the 'reasoning' text was written by a
-    # prior provider (e.g. MiniMax) — DeepSeek's own _build_assistant_message
-    # pins reasoning_content at creation time for tool-call turns, so the
-    # shape (reasoning set, reasoning_content absent, tool_calls present)
-    # is unreachable from same-provider DeepSeek history after this fix.
-    # Inject a single space to satisfy the API without leaking another
-    # provider's chain of thought to DeepSeek/Kimi. Space (not "")
-    # because DeepSeek V4 Pro rejects empty-string reasoning_content
-    # in thinking mode (refs #17341).
+    # 2. 跨服务商污染的历史记录 (#15748)：在 DeepSeek/Kimi 上，
+    # 如果源回合同时包含 tool_calls 和 'reasoning' 字段，但没有
+    # 'reasoning_content' 键，则说明该 'reasoning' 文本是由之前的
+    # 服务商（例如 MiniMax）写入的 —— 在此修复之后，DeepSeek 自身的
+    # _build_assistant_message 会在创建时为工具调用回合固定填充
+    # reasoning_content，因此在同服务商的 DeepSeek 历史记录中，是无法到达
+    # 该形态的（即：设置了 reasoning、缺失 reasoning_content、存在 tool_calls）。
+    # 此处注入一个单个空格以满足 API 的要求，同时避免将另一个服务商的思维链
+    # 泄露给 DeepSeek/Kimi。使用空格（而非 ""）是因为 DeepSeek V4 Pro
+    # 在思考模式下会拒绝空字符串形式的 reasoning_content（参见 #17341）。
     normalized_reasoning = source_msg.get("reasoning")
     if (
         needs_thinking_pad
@@ -2774,12 +2769,11 @@ def copy_reasoning_content_for_api(agent, source_msg: dict, api_msg: dict) -> No
         api_msg["reasoning_content"] = " "
         return
 
-    # 3. Healthy session: promote 'reasoning' field to 'reasoning_content'
-    # for providers that use the internal 'reasoning' key.
-    # This must happen before the unconditional empty-string fallback so
-    # genuine reasoning content is not overwritten (#15812 regression in
-    # PR #15478). Only promote for providers that enforce echo-back —
-    # strict providers reject the field (refs #45655).
+    # 3. 正常会话：针对使用内部 'reasoning' 键的服务商，
+    # 将 'reasoning' 字段提升（promote）为 'reasoning_content'。
+    # 此操作必须在无条件空字符串回退处理之前执行，以防止真实的推理内容
+    # 被覆盖（PR #15478 中引入的 #15812 回归问题）。仅针对强制要求
+    # 回显的服务商进行提升 —— 严格的服务商会拒绝该字段（参见 #45655）。
     if isinstance(normalized_reasoning, str) and normalized_reasoning:
         if needs_thinking_pad:
             api_msg["reasoning_content"] = normalized_reasoning
@@ -2787,14 +2781,12 @@ def copy_reasoning_content_for_api(agent, source_msg: dict, api_msg: dict) -> No
             api_msg.pop("reasoning_content", None)
         return
 
-    # 4. DeepSeek / Kimi thinking mode: all assistant messages need
-    # reasoning_content. Inject a single space to satisfy the provider's
-    # requirement when no explicit reasoning content is present. Covers
-    # both tool-call turns (already-poisoned history with no reasoning
-    # at all) and plain text turns. Space (not "") because DeepSeek V4
-    # Pro tightened validation and rejects empty string with HTTP 400
-    # ("The reasoning content in the thinking mode must be passed back
-    # to the API"). Refs #17341.
+    # 4. DeepSeek / Kimi 思考模式：所有助手（assistant）消息都需要
+    # reasoning_content。当没有显式的推理内容存在时，注入一个单个空格以满足
+    # 服务商的要求。这同时涵盖了工具调用回合（完全没有推理内容的已被污染的历史记录）
+    # 和纯文本回合。使用空格（而非 ""）是因为 DeepSeek V4 Pro 缩紧了校验规则，
+    # 会拒绝空字符串并返回 HTTP 400 错误（“思考模式下的推理内容必须传递回
+    # API”）。参见 #17341。
     if needs_thinking_pad:
         api_msg["reasoning_content"] = " "
         return

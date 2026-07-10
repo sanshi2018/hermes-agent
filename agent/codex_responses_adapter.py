@@ -128,21 +128,19 @@ def _chat_content_to_responses_parts(content: Any, *, role: str = "user") -> Lis
 
 
 def _summarize_user_message_for_log(content: Any, *, sep: str = " ") -> str:
-    """Flatten message content to a plain-text summary.
-
-    Multimodal messages arrive as a list of ``{type:"text"|"image_url", ...}``
-    parts from the API server.  Several consumers want a plain string:
-
-    - Logging, spinner previews, and trajectory files (the default ``sep=" "``).
-    - External memory providers, which feed the text to regexes
-      (``sanitize_context``) and text APIs — a raw list crashes the sync with
-      ``expected string or bytes-like object, got 'list'`` (use ``sep="\\n"``).
-
-    Text parts are joined with ``sep``; images become a ``[N image(s)]`` marker
-    so the turn isn't recorded as if the attachment never existed.  Returns an
-    empty string for empty lists and ``str(content)`` for unexpected scalar
-    types.
-    """
+    # 将消息内容扁平化为纯文本摘要。
+    #
+    # 来自 API 服务器的多模态消息是以 ``{type:"text"|"image_url", ...}``
+    # 部分组成的列表形式到达的。一些消费者需要一个纯字符串：
+    #
+    # - 日志记录、加载动画（spinner）预览和轨迹文件（默认 ``sep=" "``）。
+    # - 外部记忆提供商，它们会将文本输入给正则表达式
+    #   （``sanitize_context``）和文本 API —— 原始列表会导致同步崩溃，并报错
+    #   ``expected string or bytes-like object, got 'list'``（使用 ``sep="\\n"``）。
+    #
+    # 文本部分用 ``sep`` 连接；图片会变成 ``[N image(s)]`` 标记，
+    # 这样该轮对话就不会被记录得像附件从未存在过一样。对于空列表返回
+    # 空字符串，对于非预期的标量类型返回 ``str(content)``。
     if content is None:
         return ""
     if isinstance(content, str):

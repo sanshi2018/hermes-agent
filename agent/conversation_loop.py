@@ -280,31 +280,29 @@ def _try_refresh_nous_paid_entitlement_credentials(agent) -> bool:
 
 
 def _restore_or_build_system_prompt(agent, system_message, conversation_history):
-    """Restore the cached system prompt from the session DB or build it fresh.
+    """从会话数据库中恢复缓存的系统提示词（system prompt），或者重新构建它。
 
-    Mutates ``agent._cached_system_prompt`` and persists a freshly-built
-    prompt back to the session DB on first build.  Extracted from
-    ``run_conversation`` so the prefix-cache restore path can be tested in
-    isolation.
+    会修改 ``agent._cached_system_prompt``，并在首次构建时将新鲜构建的
+    提示词持久化保存回会话数据库。该功能从 ``run_conversation`` 中
+    抽取出来，以便能够隔离测试前缀缓存（prefix-cache）的恢复路径。
 
-    Three-way state distinction for the stored row, surfaced via logs so
-    silent prefix-cache misses are visible in ``agent.log``:
+    存储的行具有三路状态区分，并通过日志显现，以便在 ``agent.log`` 中
+    能够看到静默的前缀缓存未命中情况：
 
-      * ``missing`` — no session row yet (legitimate first turn).
-      * ``null``   — row exists, ``system_prompt`` column is NULL.
-        Legacy session predating system-prompt persistence, or a migration
-        leftover.  Warns when ``conversation_history`` is non-empty.
-      * ``empty``  — row exists, ``system_prompt`` column is the empty
-        string.  Indicates a previous-turn write that ran but stored
-        nothing (silent persistence bug).  Always warns.
-      * ``present`` — row exists with a usable prompt → reused verbatim.
+      * ``missing`` — 尚无会话行（合法的首轮对话）。
+      * ``null``   — 行存在，但 ``system_prompt`` 列为 NULL。
+        这属于系统提示词持久化功能推出之前的旧会话，或者是迁移
+        遗留物。当 ``conversation_history`` 非空时会发出警告。
+      * ``empty``  — 行存在，但 ``system_prompt`` 列为空字符串。
+        表示前一轮的写入操作执行了但未存储任何内容（隐蔽的持久化缺陷）。
+        始终会发出警告。
+      * ``present`` — 行存在且包含可用的提示词 → 逐字原样复用。
 
-    Read or write failures against the session DB log at WARNING (not
-    DEBUG) so persistent issues (disk full, schema drift, lock contention)
-    surface without needing verbose mode.  This used to be a debug-level
-    log that silently broke prefix-cache reuse on the gateway path
-    (which constructs a fresh ``AIAgent`` per turn and depends on this
-    DB roundtrip).
+    针对会话数据库的读写失败会记录在 WARNING（而非 DEBUG）级别，
+    这样持久性问题（磁盘满、架构漂移、锁竞争）无需开启冗长模式即可
+    显现出来。这在过去是一个调试级别的日志，会导致网关路径上的
+    前缀缓存复用静默失效（网关路径每轮都会构建一个全新的 ``AIAgent``，
+    并依赖于这一数据库往返）。
     """
     stored_prompt = None
     stored_state = "missing"
@@ -532,25 +530,19 @@ def run_conversation(
     moa_config: Optional[dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Run a complete conversation with tool calling until completion.
-
-    Args:
-        user_message (str): The user's message/question
-        system_message (str): Custom system message (optional, overrides ephemeral_system_prompt if provided)
-        conversation_history (List[Dict]): Previous conversation messages (optional)
-        task_id (str): Unique identifier for this task to isolate VMs between concurrent tasks (optional, auto-generated if not provided)
-        stream_callback: Optional callback invoked with each text delta during streaming.
-            Used by the TTS pipeline to start audio generation before the full response.
-            When None (default), API calls use the standard non-streaming path.
-        persist_user_message: Optional clean user message to store in
-            transcripts/history when user_message contains API-only
-            synthetic prefixes.
-        persist_user_timestamp: Optional platform event timestamp to store
-            as metadata on that persisted user message.
-                or queuing follow-up prefetch work.
-
-    Returns:
-        Dict: Complete conversation result with final response and message history
+    函数说明：执行包含工具调用的完整对话，直至任务完成。
+    参数说明：
+        user_message (str): 用户的消息或问题。
+        system_message (str): 自定义系统消息（可选；若提供，将覆盖 ephemeral_system_prompt）。
+        conversation_history (List[Dict]): 之前的对话记录（可选）。
+        task_id (str): 用于此任务的唯一标识符，以便在并发任务之间隔离虚拟机（可选；若未提供则自动生成）。
+        stream_callback: 可选回调函数，在流式传输期间随每个文本增量（delta）调用。
+        供 TTS（语音合成）管道使用，以便在完整响应生成前开始音频生成。
+        当为 None（默认值）时，API 调用将使用标准的非流式路径。
+        persist_user_message: 可选的“纯净”用户消息，当 user_message 包含仅用于 API 的合成前缀时，用于存储在记录/历史中。
+        persist_user_timestamp: 可选的平台事件时间戳，作为元数据存储在该持久化用户消息中，或用于排队后续的预取工作。
+    返回值：
+        Dict: 包含最终响应和消息历史记录的完整对话结果。
     """
     if moa_config is None:
         try:
@@ -565,14 +557,14 @@ def run_conversation(
         except Exception:
             pass
 
-    # ── Per-turn setup (the prologue) ──
-    # All once-per-turn setup — stdio guarding, retry-counter resets, user
-    # message sanitization, todo/nudge hydration, system-prompt restore-or-
-    # build, crash-resilience persistence, preflight compression, the
-    # ``pre_llm_call`` plugin hook, and external-memory prefetch — lives in
-    # ``build_turn_context``.  It mutates ``agent`` exactly as the inline code
-    # did and returns the locals the loop below reads back.  See
-    # ``agent/turn_context.py``.
+    # ── 每回合设置（前言） ──
+    # 所有每回合仅执行一次的设置 —— stdio 防护、重试计数器重置、用户
+    # 消息净化、待办事项/提示（nudge）激活、系统提示词恢复或
+    # 构建、防崩溃持久化、起飞前（preflight）数据压缩、
+    # ``pre_llm_call`` 插件钩子以及外部内存预取 —— 都存在于
+    # ``build_turn_context`` 中。它对 ``agent`` 的修改与内联代码
+    # 完全相同，并返回下方循环所读取的局部变量。请参阅
+    # ``agent/turn_context.py``。
     _ctx = build_turn_context(
         agent,
         user_message,
@@ -614,18 +606,18 @@ def run_conversation(
     compression_attempts = 0
     _turn_exit_reason = "unknown"  # Diagnostic: why the loop ended
 
-    # Per-turn tally of consecutive successful credential-pool token refreshes,
-    # keyed by (provider, pool-entry-id). A persistent upstream 401 lets
-    # ``try_refresh_current()`` "succeed" forever on a single-entry OAuth pool,
-    # so this tally caps same-entry refreshes and lets the fallback chain take
-    # over instead of spinning. Reset here so each turn starts fresh. See #26080.
+    # 针对每个轮次计算的连续成功刷新凭据池令牌的计数，
+    # 键为 (provider, pool-entry-id)。由于持续的 upstream 401 错误会导致
+    # ``try_refresh_current()`` 在单条目的 OAuth 池中永远“成功”下去，
+    # 因此该计数限制了对同一条目的刷新上限，以便让后备链接管而不是陷入死循环。
+    # 在此处重置，以便每一轮都重新开始。参见 #26080。
     agent._auth_pool_refresh_counts = {}
 
-    # Optional opt-in runtime: if api_mode == codex_app_server, hand the
-    # turn to the codex app-server subprocess (terminal/file ops/patching
-    # all run inside Codex). Default Hermes path is bypassed entirely.
-    # See agent/transports/codex_app_server_session.py for the adapter
-    # and references/codex-app-server-runtime.md for the rationale.
+    # 可选的加入（opt-in）运行时：如果 api_mode == codex_app_server，则将
+    # 轮次移交给 codex app-server 子进程（终端/文件操作/补丁修复
+    # 全部在 Codex 内部运行）。默认的 Hermes 路径将被完全绕过。
+    # 参见 agent/transports/codex_app_server_session.py 以了解适配器，
+    # 以及 references/codex-app-server-runtime.md 以了解基本原理。
     if agent.api_mode == "codex_app_server":
         return agent._run_codex_app_server_turn(
             user_message=user_message,
@@ -651,9 +643,9 @@ def run_conversation(
         agent._api_call_count = api_call_count
         agent._touch_activity(f"starting API call #{api_call_count}")
 
-        # Grace call: the budget is exhausted but we gave the model one
-        # more chance.  Consume the grace flag so the loop exits after
-        # this iteration regardless of outcome.
+        # 宽限期调用（Grace call）：预算已耗尽，但我们给了模型
+        # 再一次机会。消耗掉宽限期标志，以便无论结果如何，
+        # 循环都会在此次迭代后退出。
         if agent._budget_grace_call:
             agent._budget_grace_call = False
         elif not agent.iteration_budget.consume():
@@ -690,24 +682,24 @@ def run_conversation(
             except Exception as _step_err:
                 logger.debug("step_callback error (iteration %s): %s", api_call_count, _step_err)
 
-        # Track tool-calling iterations for skill nudge.
-        # Counter resets whenever skill_manage is actually used.
+        # 追踪工具调用的迭代次数，用于技能提示（skill nudge）。
+        # 每当实际使用 skill_manage 时，该计数器就会重置。
         if (agent._skill_nudge_interval > 0
                 and "skill_manage" in agent.valid_tool_names):
             agent._iters_since_skill += 1
-        
-        # ── Pre-API-call /steer drain ──────────────────────────────────
-        # If a /steer arrived during the previous API call (while the model
-        # was thinking), drain it now — before we build api_messages — so
-        # the model sees the steer text on THIS iteration.  Without this,
-        # steers sent during an API call only land after the NEXT tool batch,
-        # which may never come if the model returns a final response.
+
+        # ── API 调用前的 /steer 清理与处理 ──────────────────────────────────
+        # 如果在上一轮 API 调用期间（当模型正在思考时）收到了 /steer，
+        # 现在就将其处理掉——在我们构建 api_messages 之前——
+        # 这样模型就能在“当前”这一轮迭代中看到 steer 文本。
+        # 如果没有这一步，在 API 调用期间发送的 steer 就只能等到下一批工具调用之后才会生效，
+        # 但如果模型直接返回了最终响应，那下一批工具调用可能永远都不会出现了。
         #
-        # We scan backwards for the last tool-role message in the messages
-        # list.  If found, the steer is appended there.  If not (first
-        # iteration, no tools yet), the steer stays pending for the next
-        # tool batch — injecting into a user message would break role
-        # alternation, and there's no tool output to piggyback on.
+        # 我们在 messages 列表中逆序查找最后一个角色为 tool 的消息。
+        # 如果找到了，就将 steer 追加到该消息中。如果没找到（比如第一轮
+        # 迭代，还没有使用任何工具），则 steer 会保持挂起状态，等待下一批工具调用
+        # ——因为如果直接注入到 user 消息中会破坏角色交替（role alternation）的规则，
+        # 况且此时也没有现成的工具输出能让我们“搭便车”（附加在上面）。
         _pre_api_steer = agent._drain_pending_steer()
         if _pre_api_steer:
             _injected = False
@@ -747,11 +739,11 @@ def run_conversation(
                     existing = getattr(agent, "_pending_steer", None)
                     agent._pending_steer = (existing + "\n" + _pre_api_steer) if existing else _pre_api_steer
 
-        # Prepare messages for API call
-        # If we have an ephemeral system prompt, prepend it to the messages
-        # Note: Reasoning is embedded in content via <think> tags for trajectory storage.
-        # However, providers like Moonshot AI require a separate 'reasoning_content' field
-        # on assistant messages with tool_calls. We handle both cases here.
+        # 为 API 调用准备消息
+        # 如果存在临时的系统提示词（system prompt），将其添加至消息列表的最前面
+        # 注意：推理过程（Reasoning）已通过 <think> 标签嵌入到内容中，以便存储思维轨迹。
+        # 然而，像 Moonshot AI 这样的服务商要求在包含 tool_calls 的助手（assistant）消息中，
+        # 必须使用一个独立的 'reasoning_content' 字段。我们在此处同时处理这两种情况。
         request_logger = getattr(agent, "logger", None) or logging.getLogger(__name__)
         repaired_tool_calls = agent._sanitize_tool_call_arguments(
             messages,
@@ -765,16 +757,13 @@ def run_conversation(
                 agent.session_id or "-",
             )
 
-        # Defensive: repair malformed role-alternation before API call.
-        # Catches cases where the history got wedged into a
-        # ``tool → user`` or ``user → user`` tail (e.g. after empty-
-        # response scaffolding was stripped and a new user message
-        # landed after an orphan tool result). Most providers return
-        # empty content on malformed sequences, which would otherwise
-        # retrigger the empty-retry loop indefinitely.
-        # repair_message_sequence_with_cursor also recomputes the SessionDB
-        # flush cursor (_last_flushed_db_idx) when repair compacts the list,
-        # so the turn-end flush doesn't skip the assistant/tool chain (#44837).
+        # 防御性机制：在调用 API 之前修复格式错误的“角色交替”（role-alternation）。
+        # 捕捉历史记录卡在 ``tool → user`` 或 ``user → user`` 结尾处的情况（例如：在剥离了
+        # 空响应脚手架之后，一个新的用户消息落在了孤立的工具结果后面）。大多数服务商在面对
+        # 格式错误的角色序列时会返回空内容，否则这会无限期地重新触发“空响应重试”循环。
+        # 此外，当修复操作对列表进行压缩时，repair_message_sequence_with_cursor 还会
+        # 重新计算 SessionDB 的刷新游标（_last_flushed_db_idx），以确保回合结束时的刷新
+        # 不会跳过助手/工具链（#44837）。
         from agent.agent_runtime_helpers import repair_message_sequence_with_cursor
         repaired_seq = repair_message_sequence_with_cursor(agent, messages)
         if repaired_seq > 0:
@@ -788,11 +777,11 @@ def run_conversation(
         for idx, msg in enumerate(messages):
             api_msg = msg.copy()
 
-            # Inject ephemeral context into the current turn's user message.
-            # Sources: memory manager prefetch + plugin pre_llm_call hooks
-            # with target="user_message" (the default).  Both are
-            # API-call-time only — the original message in `messages` is
-            # never mutated, so nothing leaks into session persistence.
+            # 将临时上下文（ephemeral context）注入到当前回合的用户消息中。
+            # 来源：内存管理器预取（memory manager prefetch） + 插件预 LLM 调用钩子（plugin pre_llm_call hooks），
+            # 其目标参数为 target="user_message"（默认值）。这两者都
+            # 仅在 API 调用时生效 —— `messages` 中的原始消息
+            # 绝不会被修改，因此不会有任何内容泄漏到持久化会话中。
             if idx == current_turn_user_idx and msg.get("role") == "user":
                 _injections = []
                 if _ext_prefetch_cache:
@@ -819,31 +808,30 @@ def run_conversation(
                 api_msg.pop("finish_reason")
             # Strip internal thinking-prefill marker
             api_msg.pop("_thinking_prefill", None)
-            # Strip Codex Responses API fields (call_id, response_item_id) for
-            # strict providers like Mistral, Fireworks, etc. that reject unknown fields.
-            # Uses new dicts so the internal messages list retains the fields
-            # for Codex Responses compatibility.
+            # 针对 Mistral、Fireworks 等会拒绝未知字段的严格服务商，
+            # 剥离 Codex 响应 API 字段（call_id、response_item_id）。
+            # 此处使用新的字典，以便内部消息列表保留这些字段，从而保持对
+            # Codex 响应的兼容性。
             if agent._should_sanitize_tool_calls():
                 agent._sanitize_tool_calls_for_strict_api(api_msg, model=agent.model)
             # Keep 'reasoning_details' - OpenRouter uses this for multi-turn reasoning context
             # The signature field helps maintain reasoning continuity
             api_messages.append(api_msg)
 
-        # Build the final system message: cached prompt + ephemeral system prompt.
-        # Ephemeral additions are API-call-time only (not persisted to session DB).
-        # External recall context is injected into the user message, not the system
-        # prompt, so the stable cache prefix remains unchanged.
+        # 构建最终的系统消息：缓存的提示词 + 临时系统提示词。
+        # 临时添加的内容仅在 API 调用时生效（不会持久化到会话数据库）。
+        # 外部召回的上下文会被注入到用户消息中，而不是系统提示词中，
+        # 以确保稳定的缓存前缀保持不变。
         #
-        # NOTE: Plugin context from pre_llm_call hooks is injected into the
-        # user message (see injection block above), NOT the system prompt.
-        # This is intentional — system prompt modifications break the prompt
-        # cache prefix.  The system prompt is reserved for Hermes internals.
+        # 注意：来自 pre_llm_call 钩子的插件上下文会被注入到用户消息中
+        # （参见上方的注入代码块），而不是系统提示词中。
+        # 这是故意为之的 —— 修改系统提示词会破坏提示词缓存前缀。
+        # 系统提示词专门预留给 Hermes 内部使用。
         #
-        # Hermes invariant: the system prompt is built ONCE per session
-        # (cached on ``_cached_system_prompt``) and replayed verbatim on
-        # every turn.  We send it as a single content string so the
-        # bytes are byte-stable across turns and upstream prompt caches
-        # stay warm.
+        # Hermes 不变量：每个会话仅构建一次系统提示词
+        # （缓存于 ``_cached_system_prompt``），并在每个回合中原样重放。
+        # 我们将其作为单个内容字符串发送，这样可以确保字节在各个回合之间
+        # 保持字节级稳定，从而让上游的提示词缓存保持热启动状态。
         effective_system = active_system_prompt or ""
         if agent.ephemeral_system_prompt:
             effective_system = (effective_system + "\n\n" + agent.ephemeral_system_prompt).strip()

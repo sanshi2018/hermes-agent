@@ -5516,27 +5516,23 @@ class AIAgent:
 
     @staticmethod
     def _sanitize_tool_calls_for_strict_api(api_msg: dict, model: "str | None" = None) -> dict:
-        """Strip Codex Responses API fields from tool_calls for strict providers.
-
-        Providers like Mistral, Fireworks, and other strict OpenAI-compatible APIs
-        validate the Chat Completions schema and reject unknown fields (call_id,
-        response_item_id) with 400 or 422 errors. These fields are preserved in
-        the internal message history — this method only modifies the outgoing
-        API copy.
-
-        ``extra_content`` (Gemini thought_signature) is also stripped — strict
-        providers reject it with "Extra inputs are not permitted" — UNLESS the
-        outgoing ``model`` is itself Gemini-family, in which case it must be
-        replayed (Gemini 3 thinking models 400 without it). Defaults to
-        stripping when no model is supplied.
-
-        Creates new tool_call dicts rather than mutating in-place, so the
-        original messages list retains call_id/response_item_id for Codex
-        Responses API compatibility (e.g. if the session falls back to a
-        Codex provider later).
-
-        Fields stripped: call_id, response_item_id, extra_content (model-gated)
-        """
+        # 针对严格的服务商，从 tool_calls 中剥离 Codex 响应 API 字段。
+        #
+        # 诸如 Mistral、Fireworks 以及其他严格兼容 OpenAI 的 API 服务商会验证
+        # Chat Completions 模式（schema），并会因未知字段（call_id、response_item_id）
+        # 拒绝请求并返回 400 或 422 错误。这些字段会被保留在内部消息历史记录中 ——
+        # 本方法仅修改用于发送的 API 副本。
+        #
+        # ``extra_content``（Gemini 的 thought_signature，即思考签名）也会被剥离 ——
+        # 严格的服务商会因“不允许额外的输入”而拒绝它 —— 除非发送的目标 ``model`` 本身
+        # 属于 Gemini 家族，在这种情况下必须对其进行重放（Gemini 3 思考模型在缺少该字段时
+        # 会返回 400 错误）。在未提供模型参数时，默认执行剥离操作。
+        #
+        # 本方法会创建新的 tool_call 字典，而不是进行就地修改，从而使原始消息列表
+        # 保留 call_id/response_item_id，以维持对 Codex 响应 API 的兼容性（例如，
+        # 如果该会话稍后回退到 Codex 服务商）。
+        #
+        # 被剥离的字段包括：call_id、response_item_id、extra_content（受模型控制）
         tool_calls = api_msg.get("tool_calls")
         if not isinstance(tool_calls, list):
             return api_msg
@@ -5563,16 +5559,14 @@ class AIAgent:
         return sanitize_tool_call_arguments(messages, logger=logger, session_id=session_id)
 
     def _should_sanitize_tool_calls(self) -> bool:
-        """Determine if tool_calls need sanitization for strict APIs.
-
-        Codex Responses API uses fields like call_id and response_item_id
-        that are not part of the standard Chat Completions schema. These
-        fields must be stripped when calling any other API to avoid
-        validation errors (400 Bad Request).
-
-        Returns:
-            bool: True if sanitization is needed (non-Codex API), False otherwise.
-        """
+        # 确定 tool_calls 是否需要针对严格的 API 进行清理（sanitization）。
+        #
+        # Codex 响应 API 使用了像 call_id 和 response_item_id 这样的字段，
+        # 这些字段并不属于标准 Chat Completions 模式（schema）的一部分。当调用
+        # 任何其他 API 时，必须剥离这些字段以避免验证错误（400 Bad Request）。
+        #
+        # 返回值:
+        #     bool: 如果需要清理（非 Codex API）则返回 True，否则返回 False。
         return self.api_mode != "codex_responses"
 
     def _compress_context(self, messages: list, system_message: str, *, approx_tokens: int = None, task_id: str = "default", focus_topic: str = None, force: bool = False) -> tuple:

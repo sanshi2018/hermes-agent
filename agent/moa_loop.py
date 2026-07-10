@@ -90,13 +90,26 @@ class _RefAccounting:
 # untrimmed transcript; this budget only shapes the advisory copy.
 _REFERENCE_TOOL_RESULT_BUDGET = 4000
 
-# System prompt prepended to every reference-model call. References are
-# advisory — they do NOT act, call tools, or own the task. Without this
-# framing a reference receives the bare trimmed conversation and assumes it is
-# the acting agent: it then refuses ("I can't access repositories / URLs from
-# here") or tries to call tools it doesn't have. The prompt reframes the model
-# as an analyst whose job is to reason about the presented state and hand its
-# best thinking to the aggregator/orchestrator that will actually act.
+# 系统提示词会被附加到每一次参考模型调用的最前面。参考模型是
+# 顾问性质的 —— 它们**不**执行操作、不调用工具，也不承担该任务。如果没有这种
+# 框架设定，参考模型接收到裸露的、裁剪后的对话后，会误以为自己是实际执行操作的智能体：
+# 随后它会拒绝执行（“我无法从这里访问代码仓库 / URL”）或试图调用它并不拥有的工具。
+# 该提示词将模型重新定义为一个分析师，其职责是对呈现出来的状态进行推理，
+# 并将其最佳的思考结果提交给将要真正执行操作的聚合器/编排器（aggregator/orchestrator）。
+#
+# --------------------------------------
+#
+# "你是智能体混合架构（Mixture of Agents，MoA）流程中的参考顾问。你
+# # **不是**实际执行操作的智能体，你**不**执行任何操作：你无法调用工具、运行命令、
+# # 浏览网页，也无法访问文件、代码仓库或 URL，你不应该尝试这样做，也不需要为无法做到而道歉。
+# # 一个独立的聚合器/编排器（aggregator/orchestrator）模型拥有这些能力，并将采取实际行动。\n\n"
+# # "下方的对话是该执行智能体当前处理任务的状态。你的职责是对该状态给出你最智能的分析：
+# # 理解目标、对问题进行推理，并对下一步该做什么提出建议。指出最佳方法、具体的下一步行动
+# # 和工具使用策略、可能存在的陷阱和风险，以及执行智能体可能遗漏或弄错的任何内容。
+# # 假设任何被引用的文件、URL 或系统都是存在的，并根据给定的上下文对其进行推理，而不是
+# # 请求访问权限。\n\n"
+# # "请直接返回你的建议 —— 无需开场白，无需对工具或访问权限进行免责声明。你的响应是
+# # 交付给聚合器的私有引导，而不是展示给用户的最终回答。"
 _REFERENCE_SYSTEM_PROMPT = (
     "You are a reference advisor in a Mixture of Agents (MoA) process. You are "
     "NOT the acting agent and you do NOT execute anything: you cannot call "
@@ -124,21 +137,20 @@ def _slot_label(slot: dict[str, str]) -> str:
 
 
 def _slot_runtime(slot: dict[str, str]) -> dict[str, Any]:
-    """Resolve a reference/aggregator slot to real runtime call kwargs.
+    """将参考/聚合器插槽解析为实际的运行时调用关键字参数（kwargs）。
 
-    A MoA slot is just a model selection — it must be called the same way any
-    model is called elsewhere, not through a bare ``call_llm(provider=...,
-    model=...)`` that leaves base_url/api_key/api_mode unresolved and lets the
-    auxiliary auto-detector guess. We route the slot's provider through
-    ``resolve_runtime_provider`` (the canonical provider→api_mode/base_url/
-    api_key resolver the CLI, gateway, and delegate_task all use), so the slot
-    gets its provider's real API surface — e.g. MiniMax → anthropic_messages,
-    GPT-5/o-series → max_completion_tokens, custom endpoints → their base_url.
+    一个 MoA 插槽仅仅是一个模型的选择 —— 它必须以与其他地方调用任何模型相同的
+    方式被调用，而不是通过一个光秃秃的 ``call_llm(provider=..., model=...)``
+    来进行，那会导致 base_url/api_key/api_mode 处于未解析状态，并让辅助自动检测器
+    去瞎猜。我们通过 ``resolve_runtime_provider``（CLI、网关和 delegate_task
+    都在使用的规范 provider→api_mode/base_url/api_key 解析器）来路由该插槽的
+    服务商，从而让该插槽获得其服务商真正的 API 表现面 —— 例如 MiniMax → anthropic_messages，
+    GPT-5/o 系列 → max_completion_tokens，自定义端点 → 它们的 base_url。
 
-    Returns the kwargs to pass through to ``call_llm`` (provider/model plus the
-    resolved base_url/api_key when available). Falls back to the bare
-    provider/model on any resolution error so a misconfigured slot still
-    attempts the call rather than aborting the whole MoA turn.
+    返回要透传给 ``call_llm`` 的关键字参数（kwargs）（包含 provider/model，以及
+    解析出的 base_url/api_key，如果可用的话）。在发生任何解析错误时，会回退到
+    仅使用 provider/model 的基础参数，以便配置错误的插槽仍能尝试进行调用，而不是
+    中止整个 MoA 回合。
     """
     provider = str(slot.get("provider") or "").strip()
     model = str(slot.get("model") or "").strip()
@@ -147,21 +159,18 @@ def _slot_runtime(slot: dict[str, str]) -> dict[str, Any]:
         from hermes_cli.runtime_provider import resolve_runtime_provider
 
         rt = resolve_runtime_provider(requested=provider, target_model=model)
-        # Forward the resolved endpoint through to call_llm unconditionally.
-        # call_llm's _resolve_task_provider_model() is the single chokepoint that
-        # decides whether an explicit base_url collapses a call to the generic
-        # ``custom`` route or keeps the provider's real identity: it preserves
-        # identity for any first-class provider (via
-        # _preserve_provider_with_base_url, a provider-catalog capability check),
-        # so provider branches that add auth refresh / request metadata /
-        # request-shape adapters — anthropic OAuth (Bearer + anthropic-beta),
-        # openai-codex Responses wrapping + Cloudflare headers, xai-oauth,
-        # bedrock SigV4 signing, nous Portal tags — still fire. Those branches
-        # re-resolve their own credentials by name and ignore a forwarded
-        # base_url/api_key, so forwarding is safe even for a placeholder key
-        # (bedrock's "aws-sdk"). We used to maintain a name-preservation set here
-        # too; that duplicated the chokepoint and drifted out of sync, so the
-        # single source of truth now lives in call_llm.
+        # 无条件地将解析后的端点（endpoint）透传给 call_llm。
+        # call_llm 的 _resolve_task_provider_model() 是决定显式 base_url 是将调用
+        # 降级（collapse）为通用的 ``custom`` 路由，还是保留服务商真实身份的唯一关卡：
+        # 它会为任何一流（first-class）服务商保留身份（通过
+        # _preserve_provider_with_base_url，这是一种服务商目录的能力检查），
+        # 这样一来，那些添加了认证刷新 / 请求元数据 / 请求形状适配器的服务商分支 ——
+        # 如 Anthropic OAuth (Bearer + anthropic-beta)、OpenAI-Codex 响应包裹 + Cloudflare
+        # 请求头、XAI-OAuth、Bedrock SigV4 签名、Nous Portal 标签 —— 依然可以正常触发。
+        # 这些分支会按名称重新解析它们自己的凭证，并忽略透传过来的 base_url/api_key，
+        # 因此即使透传的是一个占位符密钥（如 Bedrock 的 "aws-sdk"），透传操作也是安全的。
+        # 我们以前在这里也维护了一个名称保留集；但这造成了关卡的重复，并且逐渐变得不同步，
+        # 所以现在该单一事实来源（single source of truth）已移至 call_llm 中。
         if rt.get("base_url"):
             out["base_url"] = rt["base_url"]
         if rt.get("api_key"):
@@ -177,18 +186,16 @@ def _maybe_apply_moa_cache_control(
     messages: list[dict[str, Any]],
     runtime: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Decorate an advisor or aggregator request with cache_control when its
-    route honors it.
+    """当顾问模型或聚合器模型的请求路由支持时，用 cache_control 对其进行装饰。
 
-    Reuses the SAME policy function as the main agent loop
-    (``anthropic_prompt_cache_policy``) resolved against the slot's own
-    provider/base_url/api_mode/model, and the SAME breakpoint layout
-    (``apply_anthropic_cache_control``, system_and_3). This keeps advisor and
-    aggregator calls decorated exactly like an acting agent on that provider
-    would be — no MoA-specific caching logic to drift.
+    该函数复用了与主智能体循环相同的策略函数（``anthropic_prompt_cache_policy``），
+    并根据插槽自身的 provider/base_url/api_mode/model 进行解析，
+    同时也采用了相同的断点布局（``apply_anthropic_cache_control``，即 system_and_3 策略）。
+    这使得顾问模型和聚合器模型的调用装饰方式，与该服务商上实际执行的智能体完全一致 ——
+    从而避免了因引入特定于 MoA 的缓存逻辑而导致设计偏离。
 
-    Returns the messages unchanged on any resolution error or when the
-    policy says the route doesn't honor markers.
+    在发生任何解析错误，或者当策略判定该路由不支持缓存标记时，
+    将原样返回未做修改的消息列表。
     """
     try:
         from types import SimpleNamespace
@@ -224,51 +231,45 @@ def _run_reference(
     temperature: float | None = None,
     max_tokens: int | None = None,
 ) -> tuple[str, str, Any]:
-    """Call one reference model and return ``(label, text, usage)``.
+    """调用一个参考模型并返回 ``(label, text, usage)``。
 
-    The slot is resolved to its provider's real runtime (via ``_slot_runtime``)
-    and called through the same ``call_llm`` request-building path any model
-    uses, so per-model wire-format handling (anthropic_messages,
-    max_completion_tokens, fixed/forbidden temperature) applies identically to
-    a reference as it would if that model were the acting model. MoA imposes no
-    cap of its own (``max_tokens`` defaults to ``None`` → omitted → the model's
-    real maximum); ``temperature`` is only the user's configured preset value,
-    which call_llm may still override per model.
+    该插槽将被解析为其服务商的实际运行环境（通过 ``_slot_runtime``），
+    并通过与任何模型都使用的相同的 ``call_llm`` 请求构建路径进行调用，
+    因此，特定于模型的网线格式处理（anthropic_messages、max_completion_tokens、
+    固定/禁用的温度参数）将完全同样地适用于参考模型，就像该模型是实际执行模型时一样。
+    MoA 本身不施加任何限制（``max_tokens`` 默认为 ``None`` → 忽略 → 模型自身的
+    实际最大值）；``temperature`` 仅为用户配置的预设值，call_llm 仍可能针对每个模型
+    对其进行覆盖。
 
-    The reference's token usage is normalized with the slot's OWN resolved
-    provider/api_mode (advisors may run on a different provider than the
-    aggregator, with different usage wire shapes) and returned as a
-    ``CanonicalUsage`` so the caller can fold advisor spend into session
-    accounting. Without this, the entire reference fan-out — often the bulk of
-    a MoA turn's token spend — is invisible to cost tracking, which only ever
-    saw the aggregator's usage.
+    参考模型的 Token 使用量会根据该插槽自身解析出的服务商/api_mode 进行规范化
+    （顾问模型可能会在与聚合器不同的服务商上运行，并具有不同的使用量网线格式），
+    并作为一个 ``CanonicalUsage`` 返回，以便调用者可以将顾问模型的开销合并到会话账目中。
+    如果不进行此处理，整个参考模型分发（通常占据了 MoA 回合中 Token 开销的大部分）
+    对于成本追踪来说是不可见的，因为成本追踪以往只能看到聚合器的使用量。
 
-    Never raises: a failed reference becomes a labelled note so the aggregator
-    can still act with partial context. Designed to run inside a thread pool —
-    ``call_llm`` is synchronous/blocking, so threads (not asyncio) are the right
-    concurrency primitive, mirroring ``delegate_task``'s batch fan-out.
+    绝不抛出异常：失败的参考模型会变成一条带标签的笔记，以便聚合器依然可以利用部分
+    上下文进行操作。该函数设计在线程池内部运行 —— 由于 ``call_llm`` 是同步/阻塞的，
+    因此线程（而非 asyncio）是正确的并发原语，这与 ``delegate_task`` 的批量分发相呼应。
     """
     from agent.usage_pricing import CanonicalUsage, estimate_usage_cost, normalize_usage
 
     label = _slot_label(slot)
     runtime = _slot_runtime(slot)
     try:
-        # Prepend the advisory-role system prompt so the reference understands
-        # it is analyzing state for an aggregator, not acting on the task. The
-        # trimmed view (_reference_messages) already strips the agent's own
-        # system prompt, so this is the only system message the reference sees.
+        # 在最前面添加顾问角色（advisory-role）系统提示词，以便参考模型明白
+        # 它正在为聚合器分析状态，而不是在执行该任务。裁剪后的视图
+        # （_reference_messages）已经剥离了智能体自身的系统提示词，
+        # 因此这是参考模型看到的唯一系统消息。
         messages = [{"role": "system", "content": _REFERENCE_SYSTEM_PROMPT}, *ref_messages]
-        # Apply the same Anthropic-style prompt-caching decoration the main
-        # agent loop applies (system_and_3 breakpoints). The advisory view is
-        # append-only across iterations (new turns append before the trailing
-        # synthetic marker), so on cache-honoring routes (Claude via
-        # OpenRouter/native, MiniMax, Qwen/DashScope) iteration N+1's prefix
-        # replays iteration N's cached prefix. Without this, Claude advisors
-        # served ZERO cache reads across an entire benchmark run (measured:
-        # 0/1227 calls, 11.5M re-billed input tokens) because Anthropic
-        # caching is opt-in per request. OpenAI-family advisors are untouched
-        # (their caching is automatic; markers are ignored harmlessly, but we
-        # only decorate when the policy says the route honors them).
+        # 应用与主智能体循环相同的 Anthropic 风格的提示词缓存装饰（system_and_3 断点）。
+        # 顾问视图在多次迭代之间是“仅追加”的（新回合会被追加在结尾的合成标记之前），
+        # 因此在遵循缓存规则的路由上（如通过 OpenRouter/原生的 Claude、MiniMax、通义千问/DashScope），
+        # 第 N+1 次迭代的前缀会重放第 N 次迭代已缓存的前缀。如果没有这个处理，
+        # 整个基准测试运行下来，Claude 顾问模型的缓存读取命中次数为零（经测算：在 1227 次调用中
+        # 命中 0 次，导致 1150 万个输入 Token 被重复计费），因为 Anthropic 的缓存机制在
+        # 每次请求中是需要主动选择开启（opt-in）的。OpenAI 家族的顾问模型则不受影响
+        # （它们的缓存是自动进行的；这些标记会被无害地忽略，但我们只有在策略判定该路由
+        # 遵循这些标记时才会进行装饰）。
         messages = _maybe_apply_moa_cache_control(messages, runtime)
         response = call_llm(
             task="moa_reference",
@@ -340,16 +341,16 @@ def _run_references_parallel(
     temperature: float | None = None,
     max_tokens: int | None = None,
 ) -> list[tuple[str, str, Any]]:
-    """Fan out all reference models in parallel, returning outputs in order.
+    """并行分发（Fan out）所有参考模型，并按顺序返回输出结果。
 
-    Like ``delegate_task``'s batch mode, every reference is dispatched at once
-    and we block until all of them finish before handing the joined results to
-    the aggregator. Output order matches ``reference_models`` so the
-    ``Reference {idx}`` labelling stays stable. MoA presets that reference
-    another MoA preset are skipped here (recursion guard) with a labelled note.
+    类似于 ``delegate_task`` 的批处理模式，所有参考模型都会被同时派遣，
+    我们会一直阻塞，直到它们全部运行结束，然后将拼接好的结果交给聚合器。
+    输出顺序与 ``reference_models`` 保持一致，以确保 ``Reference {idx}``
+    的标签保持稳定。在此处会跳过引用了另一个 MoA 预设的 MoA 预设（递归防御），
+    并附带一个标明原因的笔记。
 
-    Each element is ``(label, text, usage)`` where usage is a
-    ``CanonicalUsage`` (zeroed for skipped/failed references).
+    每个元素均为 ``(label, text, usage)`` 结构，其中 usage 是一个
+    ``CanonicalUsage``（对于被跳过或失败的参考模型，该值清零）。
     """
     from agent.usage_pricing import CanonicalUsage
 
@@ -386,11 +387,10 @@ def _run_references_parallel(
 
 
 def _truncate_tool_result(text: str, budget: int = _REFERENCE_TOOL_RESULT_BUDGET) -> str:
-    """Head+tail preview of a tool result for the advisory view.
+    """用于顾问视图的工具结果头部+尾部预览。
 
-    Keeps the first and last halves of the budget with a ``[... N chars
-    omitted ...]`` marker between them, so a reference sees both how the result
-    started and how it ended without replaying the whole payload.
+    保留预算内前半部分和后半部分的内容，并在它们之间放置一个 ``[... 漏掉了 N 个字符 ...]``
+    的标记，以便参考模型既能看到结果是如何开始的，也能看到它是如何结束的，而无需重放整个有载荷。
     """
     if not text or len(text) <= budget:
         return text
@@ -400,11 +400,10 @@ def _truncate_tool_result(text: str, budget: int = _REFERENCE_TOOL_RESULT_BUDGET
 
 
 def _render_tool_calls(tool_calls: Any) -> str:
-    """Render an assistant turn's tool_calls as readable text lines.
+    """将助手回合的 tool_calls 渲染为可读的文本行。
 
-    The advisory view cannot carry real ``tool_calls`` payloads (strict
-    providers reject tool_calls the reference never produced), so the agent's
-    actions are flattened to text the reference can read and reason about.
+    顾问视图无法携带真实的 ``tool_calls`` 有载荷（严格的服务商会拒绝参考模型从未生成过的
+    tool_calls），因此智能体的操作会被扁平化为参考模型可以阅读并进行推理的文本。
     """
     lines: list[str] = []
     for tc in tool_calls or []:
@@ -435,36 +434,33 @@ _ADVISORY_INSTRUCTION = (
 
 
 def _reference_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Build an advisory view of the conversation for reference models.
-
-    A reference gives an INFORMED judgement on the current state, so it must
-    see what the agent actually did — its tool calls AND the tool results that
-    came back — not just the agent's narration. We therefore preserve the whole
-    conversation flow, but flatten it into clean user/assistant *text* turns:
-
-      - system prompt: dropped (8K of Hermes boilerplate, not advisory signal).
-      - assistant turns: kept; any ``tool_calls`` are rendered inline as
-        ``[called tool: name(args)]`` text lines appended to the turn's text.
-      - ``tool``-role results: NOT dropped. Each is folded (head+tail preview,
-        see ``_truncate_tool_result``) into the *preceding* assistant turn as a
-        ``[tool result: ...]`` block, so the reference sees what came back.
-
-    This emits ZERO ``tool``-role messages and ZERO ``tool_calls`` arrays — only
-    plain user/assistant text — so strict providers (Mistral, Fireworks) that
-    reject orphan tool messages / unproduced tool_calls don't 400, while the
-    reference still has the full picture.
-
-    The view MUST end with a ``user`` turn. Anthropic (and OpenRouter→Anthropic)
-    interpret a trailing assistant turn as an assistant *prefill* to continue,
-    and no-prefill models (e.g. Claude Opus 4.8) reject it with
-    ``400 ... must end with a user message``. Rather than DELETE the agent's
-    latest context to satisfy that (which would blind the reference to the
-    current state), we APPEND a synthetic user turn asking the reference to
-    judge the state above. End-on-user is satisfied and no context is lost.
-
-    The acting aggregator always receives the full, untrimmed transcript; this
-    function only shapes the disposable advisory copy.
-    """
+    # """为参考模型构建对话的顾问视图。
+    #
+    # 参考模型需要对当前状态做出“知情”的判断，因此它必须看到智能体实际上做了什么 ——
+    # 它的工具调用以及返回的工具结果 —— 而不仅仅是智能体的自述。因此，我们保留了整个
+    # 对话流程，但将其扁平化（flatten）为干净的用户/助手*文本*回合：
+    #
+    #   - 系统提示词：丢弃（8K 字节的 Hermes 模版，并非顾问信号）。
+    #   - 助手回合：保留；任何 ``tool_calls`` 都会作为内联的 ``[called tool: name(args)]``
+    #     文本行附加到该回合的文本末尾。
+    #   - ``tool`` 角色的结果：不丢弃。每一个结果都会被折叠（头部+尾部预览，
+    #     参见 ``_truncate_tool_result``）并作为 ``[tool result: ...]`` 块合并到*前一个*
+    #     助手回合中，以便参考模型能够看到返回的内容。
+    #
+    # 这样只会输出纯文本的用户/助手回合，而包含零个 ``tool`` 角色的消息和零个 ``tool_calls``
+    # 数组 —— 从而让那些会因孤立的工具消息 / 未生成的 tool_calls 而返回 400 错误的
+    # 严格服务商（如 Mistral、Fireworks）不会报错，同时参考模型依然能掌握全局。
+    #
+    # 该视图必须以 ``user`` 回合结束。Anthropic（以及 OpenRouter→Anthropic）会将结尾的
+    # 助手回合解释为助手用于继续输出的*预填（prefill）*内容，而有些不支持预填的模型
+    # （例如 Claude Opus 4.8）会因 ``400 ... must end with a user message`` 拒绝请求。
+    # 与其为了满足该要求而删除智能体最新的上下文（这会导致参考模型对当前状态一无所知），
+    # 我们选择追加一个合成的用户回合，请求参考模型对上述状态做出评判。这样既满足了
+    # “以用户回合结束”的要求，又没有丢失任何上下文。
+    #
+    # 实际执行的聚合器（acting aggregator）总是接收完整、未裁剪的转录记录；本函数仅对
+    # 临时可丢弃的顾问副本进行格式整形。
+    # """
     rendered: list[dict[str, Any]] = []
     last_user_content: str | None = None
     for msg in messages:
@@ -489,9 +485,8 @@ def _reference_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if parts:
                 rendered.append({"role": "assistant", "content": "\n".join(parts)})
         elif role == "tool":
-            # Fold the tool result into the preceding assistant turn as text so
-            # the reference sees what came back, without emitting a tool-role
-            # message a reference never produced.
+            # 将工具结果作为文本折叠进前一个助手回合中，以便参考模型能够看到返回的内容，
+            # 同时避免触发一个参考模型从未生成过的工具角色（tool-role）消息。
             result_text = _truncate_tool_result(text)
             block = f"[tool result: {result_text}]"
             if rendered and rendered[-1].get("role") == "assistant":
@@ -578,22 +573,21 @@ def aggregate_moa_context(
     aggregator_temperature: float | None = None,
     max_tokens: int | None = None,
 ) -> str:
-    """Run configured reference models and synthesize their advice.
-
-    Failures are returned as model-specific notes instead of aborting the normal
-    agent loop; the main model can still act with partial context.
-
-    ``max_tokens`` is ``None`` by default: MoA does not cap reference or
-    aggregator output, so each model uses its own maximum. ``call_llm`` omits
-    the parameter entirely when it is ``None`` (see its docstring), which also
-    sidesteps providers that reject ``max_tokens`` outright. A hardcoded cap
-    here previously truncated long aggregator syntheses.
-
-    ``temperature`` / ``aggregator_temperature`` are ``None`` by default:
-    like max_tokens, ``call_llm`` omits temperature when None so the
-    provider default applies — matching single-model agent behavior. Presets
-    may still pin explicit values.
-    """
+    # 运行配置好的参考模型并合成它们的建议。
+    #
+    # 失败信息会以特定于模型的笔记形式返回，而不是中止正常的智能体循环；
+    # 主模型仍然可以利用部分上下文进行操作。
+    #
+    # ``max_tokens`` 默认值为 ``None``：混合模型架构（MoA）不会限制参考模型
+    # 或聚合模型的输出，因此每个模型都使用其自身的上限。当 ``max_tokens`` 为
+    # ``None`` 时，``call_llm`` 会完全忽略该参数（参见其文档字符串），这同时也
+    # 规避了那些完全拒绝 ``max_tokens`` 参数的服务商。此前在此处硬编码的上限
+    # 会截断较长的聚合模型合成结果。
+    #
+    # ``temperature`` / ``aggregator_temperature`` 默认值为 ``None``：
+    # 类似于 max_tokens，当其为 None 时，``call_llm`` 会忽略温度参数，从而应用
+    # 服务商的默认设置 —— 这与单模型智能体的行为保持一致。预设（Presets）可能
+    # 仍会固定显式的值。
     reference_outputs: list[tuple[str, str, Any]] = []
     ref_messages = _reference_messages(api_messages)
     reference_outputs = _run_references_parallel(
@@ -607,6 +601,12 @@ def aggregate_moa_context(
         f"Reference {idx} — {label}:\n{text}"
         for idx, (label, text, _usage) in enumerate(reference_outputs, start=1)
     )
+    # "你是智能体混合架构（Mixture of Agents）流程中的聚合器（aggregator）。请将
+    # 参考响应合成简明、可操作的指南，供 Hermes 主智能体使用。重点关注下一步行动、
+    # 工具使用策略、风险以及任何分歧。除非只需要这样做，否则不要直接回答用户；
+    # 请生成主智能体在其正常循环中应使用的上下文。\n\n"
+    # f"原始用户提示词：\n{user_prompt}\n\n"
+    # f"参考响应：\n{joined}"
     synth_prompt = (
         "You are the aggregator in a Mixture of Agents process. Synthesize the "
         "reference responses into concise, actionable guidance for the main "
@@ -620,16 +620,14 @@ def aggregate_moa_context(
     agg_label = _slot_label(aggregator)
     agg_runtime = _slot_runtime(aggregator)
     try:
-        # Same cache_control decoration as _run_reference's advisor calls
-        # (see _maybe_apply_moa_cache_control) — this synthesis call is a
-        # third, independent MoA call path that 22c5048d9 did not cover (it
-        # only restored caching for the acting-aggregator turn in the
-        # persistent `provider: moa` model and for advisor fan-out). Without
-        # it, the one-shot `/moa <prompt>` command's synthesis call re-bills
-        # its full input (system-less prompt containing every joined
-        # reference output) on every invocation with zero cache_control
-        # breakpoints, even when the resolved aggregator slot is a
-        # cache-honoring route (e.g. Claude on OpenRouter/native Anthropic).
+        # 采用与 _run_reference 的顾问（advisor）调用相同的 cache_control 装饰
+        # （参见 _maybe_apply_moa_cache_control） —— 此合成调用是
+        # 第三个独立的 MoA 调用路径，提交 22c5048d9 并未涵盖该路径（该提交
+        # 仅恢复了持久化 `provider: moa` 模型中执行聚合器回合以及顾问分发的缓存）。
+        # 如果没有它，单次（one-shot） `/moa <prompt>` 命令的合成调用在每次调用时
+        # 都会对完整的输入（包含每个拼接好的参考输出的无系统提示词）重新计费，
+        # 且没有任何 cache_control 断点，即使解析出的聚合器插槽是一个
+        # 遵循缓存规则的路由（例如 OpenRouter 上的 Claude 或原生 Anthropic）。
         agg_messages = _maybe_apply_moa_cache_control(
             [{"role": "user", "content": synth_prompt}], agg_runtime
         )
@@ -648,6 +646,11 @@ def aggregate_moa_context(
     if not synthesis:
         synthesis = joined
 
+        # "[智能体混合架构（Mixture of Agents）上下文 — 请将此作为 Hermes 智能体
+        # 正常循环的私有引导。你可以调用工具、继续推理，或正常结束。]\n"
+        # f"聚合器: {agg_label}\n"
+        # f"参考模型: {', '.join(_slot_label(slot) for slot in reference_models)}\n\n"
+        # f"{synthesis.strip()}"
     return (
         "[Mixture of Agents context — use this as private guidance for the "
         "normal Hermes agent loop. You may call tools, continue reasoning, or "

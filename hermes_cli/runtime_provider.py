@@ -1513,16 +1513,15 @@ def resolve_runtime_provider(
     explicit_base_url: Optional[str] = None,
     target_model: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Resolve runtime provider credentials for agent execution.
-
-    target_model: Optional override for model_cfg.get("default") when
-    computing provider-specific api_mode (e.g. OpenCode Zen/Go where different
-    models route through different API surfaces). Callers performing an
-    explicit mid-session model switch should pass the new model here so
-    api_mode is derived from the model they are switching TO, not the stale
-    persisted default. Other callers can leave it None to preserve existing
-    behavior (api_mode derived from config).
-    """
+    # """为智能体执行解析运行时服务商凭证。
+    #
+    # target_model: 在计算特定于服务商的 api_mode 时，用于覆盖 model_cfg.get("default")
+    # 的可选重写参数（例如 OpenCode Zen/Go，在这些服务中，不同的模型会路由到不同的
+    # API 表现面）。执行显式会话中模型切换的调用者应在此处传入新模型，以便
+    # api_mode 是基于他们正在切换**至**的新模型推导出来的，而不是基于陈旧的、
+    # 持久化的默认设置。其他调用者可以将其保持为 None 以保留现有行为
+    # （即 api_mode 基于配置推导）。
+    # """
     requested_provider = resolve_requested_provider(requested)
 
     if requested_provider == "moa":

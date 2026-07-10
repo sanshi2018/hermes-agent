@@ -5519,15 +5519,13 @@ def neuter_async_httpx_del() -> None:
 
 
 def _force_close_async_httpx(client: Any) -> None:
-    """Mark the httpx AsyncClient inside an AsyncOpenAI client as closed.
+    """将 AsyncOpenAI 客户端内部的 httpx AsyncClient 标记为已关闭状态。
 
-    This prevents ``AsyncHttpxClientWrapper.__del__`` from scheduling
-    ``aclose()`` on a (potentially closed) event loop, which causes
-    ``RuntimeError: Event loop is closed`` → prompt_toolkit's
-    "Press ENTER to continue..." handler.
+    这可以防止 ``AsyncHttpxClientWrapper.__del__`` 在一个（可能已关闭的）事件循环上
+    调度 ``aclose()``，否则会导致 ``RuntimeError: Event loop is closed`` 错误，
+    进而触发 prompt_toolkit 的 "Press ENTER to continue..." 错误处理程序。
 
-    We intentionally do NOT run the full async close path — the
-    connections will be dropped by the OS when the process exits.
+    我们故意**不**运行完整的异步关闭路径 —— 当进程退出时，操作系统会自动丢弃这些连接。
     """
     try:
         from httpx._client import ClientState
@@ -5619,26 +5617,23 @@ def _get_cached_client(
     is_vision: bool = False,
     task: Optional[str] = None,
 ) -> Tuple[Optional[Any], Optional[str]]:
-    """Get or create a cached client for the given provider.
-
-    Async clients (AsyncOpenAI) use httpx.AsyncClient internally, which
-    binds to the event loop that was current when the client was created.
-    Using such a client on a *different* loop causes deadlocks or
-    RuntimeError.  To prevent cross-loop issues, the cache validates on
-    every async hit that the cached loop is the *current, open* loop.
-    If the loop changed (e.g. a new gateway worker-thread loop), the stale
-    entry is replaced in-place rather than creating an additional entry.
-
-    This keeps cache size bounded to one entry per unique provider config,
-    preventing the fd-exhaustion that previously occurred in long-running
-    gateways where recycled worker threads created unbounded entries (#10200).
-    """
-    # Resolve the current event loop for async clients so we can validate
-    # cached entries.  Loop identity is NOT in the cache key — instead we
-    # check at hit time whether the cached loop is still current and open.
-    # This prevents unbounded cache growth from recycled worker-thread loops
-    # while still guaranteeing we never reuse a client on the wrong loop
-    # (which causes deadlocks, see #2681).
+    # """获取或创建针对给定服务商的缓存客户端。
+    #
+    # 异步客户端（AsyncOpenAI）内部使用 httpx.AsyncClient，该客户端会绑定到
+    # 创建它时处于活动状态的事件循环（event loop）。在*不同*的循环上使用此客户端
+    # 会导致死锁或 RuntimeError。为了防止跨循环问题，缓存会在每次异步命中时
+    # 验证缓存的循环是否是*当前且处于打开状态*的循环。如果循环发生了变化
+    # （例如，一个新的网关工作线程循环），则会就地替换陈旧的条目，而不是创建一个额外的条目。
+    #
+    # 这使得缓存大小被限制为每个唯一服务商配置对应一个条目，从而防止了先前在长期运行的
+    # 网关中发生的句柄耗尽（fd-exhaustion）问题 —— 当时回收的工作线程创建了无限多的条目（#10200）。
+    # """
+    #
+    # 为异步客户端解析当前的事件循环，以便我们可以验证缓存条目。
+    # 循环的身份（identity）并**不**在缓存键（cache key）中 —— 相反，我们会在
+    # 命中时检查缓存的循环是否依然是当前的且处于打开状态。
+    # 这样既可以防止回收的工作线程循环导致缓存无限增长，同时又能确保我们绝不会在
+    # 错误的循环上复用客户端（否则会导致死锁，参见 #2681）。
     current_loop = None
     if async_mode:
         try:
@@ -5679,12 +5674,12 @@ def _get_cached_client(
             else:
                 effective = _compat_model(cached_client, model, cached_default)
                 return cached_client, effective
-    # Build outside the lock.
-    # For pool-backed api_key providers, derive the active API key from the
-    # pool entry rather than from env vars.  resolve_api_key_provider_credentials
-    # always prefers env vars (first-entry bias), which bypasses pool rotation:
-    # after key #1 is marked exhausted the retry would still get key #1 from
-    # the env var and fail again, causing the retry2_err handler to mark key #2.
+    # 在锁之外构建。
+    # 对于基于密钥池（pool-backed）的 api_key 服务商，应从密钥池条目中派生
+    # 当前处于激活状态的 API 密钥，而不是从环境变量中获取。
+    # resolve_api_key_provider_credentials 总是倾向于使用环境变量（首项偏好），
+    # 这会绕过密钥池的轮换机制：在密钥 #1 被标记为耗尽后，重试操作依然会从
+    # 环境变量中获取密钥 #1 并再次失败，从而导致 retry2_err 处理程序错误地将密钥 #2 标记为耗尽。
     effective_api_key = api_key
     if not effective_api_key:
         _pe = _peek_pool_entry(_normalize_aux_provider(provider))
@@ -6279,39 +6274,38 @@ def call_llm(
     stream: bool = False,
     stream_options: dict = None,
 ) -> Any:
-    """Centralized synchronous LLM call.
+    """集中的同步 LLM 调用。
 
-    Resolves provider + model (from task config, explicit args, or auto-detect),
-    handles auth, request formatting, and model-specific arg adjustments.
+    解析服务商（provider）+ 模型（model）（通过任务配置、显式参数或自动检测），
+    并处理认证、请求格式化以及特定于模型的参数调整。
 
-    Args:
-        task: Auxiliary task name ("compression", "vision", "web_extract",
-              "session_search", "skills_hub", "mcp", "title_generation").
-              Reads provider:model from config/env. Ignored if provider is set.
-        provider: Explicit provider override.
-        model: Explicit model override.
-        api_mode: Explicit API mode override (e.g. "codex_responses",
-              "anthropic_messages"). Takes precedence over task config.
-        messages: Chat messages list.
-        temperature: Sampling temperature (None = provider default).
-        max_tokens: Max output tokens (handles max_tokens vs max_completion_tokens).
-        tools: Tool definitions (for function calling).
-        timeout: Request timeout in seconds (None = read from auxiliary.{task}.timeout config).
-        extra_body: Additional request body fields.
-        stream: When True, return the raw SDK streaming iterator instead of a
-            validated complete response. The caller is responsible for consuming
-            chunks (and for any fallback). Used by the MoA aggregator so its
-            output can stream to the user.
-        stream_options: Passed through to the request when stream is True
-            (e.g. {"include_usage": True}).
+    参数:
+        task: 辅助任务名称（"compression"、"vision"、"web_extract"、
+              "session_search"、"skills_hub"、"mcp"、"title_generation"）。
+              从配置/环境变量中读取 provider:model。如果设置了 provider 则忽略此参数。
+        provider: 显式覆盖的服务商。
+        model: 显式覆盖的模型。
+        api_mode: 显式覆盖的 API 模式（例如 "codex_responses"、
+              "anthropic_messages"）。优先级高于任务配置。
+        messages: 聊天消息列表。
+        temperature: 采样温度（None = 服务商默认值）。
+        max_tokens: 最大输出 Token 数（自动处理 max_tokens 与 max_completion_tokens 的差异）。
+        tools: 工具定义（用于函数调用）。
+        timeout: 请求超时时间，以秒为单位（None = 从 auxiliary.{task}.timeout 配置中读取）。
+        extra_body: 额外的请求体字段。
+        stream: 为 True 时，返回原始的 SDK 流式迭代器，而不是验证后的完整响应。
+            调用者负责消费（consume）这些数据块（以及处理任何回退）。由 MoA 聚合器使用，
+            以便其输出可以流式传输给用户。
+        stream_options: 当 stream 为 True 时透传给请求的参数
+            （例如 {"include_usage": True}）。
 
-    Returns:
-        Response object with .choices[0].message.content, OR — when stream=True —
-        the raw streaming iterator from client.chat.completions.create().
+    返回值:
+        包含 .choices[0].message.content 的响应对象，或者 —— 当 stream=True 时 ——
+        来自 client.chat.completions.create() 的原始流式迭代器。
 
-    Raises:
-        RuntimeError: If no provider is configured.
-    """
+    抛出异常:
+        RuntimeError: 如果未配置任何服务商。
+"""
     resolved_provider, resolved_model, resolved_base_url, resolved_api_key, resolved_api_mode = _resolve_task_provider_model(
         task, provider, model, base_url, api_key)
     if api_mode:
@@ -6353,11 +6347,10 @@ def call_llm(
             main_runtime=main_runtime,
         )
         if client is None:
-            # When the user explicitly chose a non-OpenRouter provider but no
-            # credentials were found, honor the task fallback_chain before
-            # raising.  Missing raw env keys are recoverable for auxiliary
-            # tasks because fallback entries may use OAuth / credential-pool
-            # auth (for example openai-codex).
+            # 当用户显式选择了一个非 OpenRouter 服务商但未找到任何凭证时，
+            # 在抛出异常之前，先遵循该任务的 fallback_chain（回退链）。
+            # 对于辅助任务（auxiliary tasks）而言，缺失原始环境变量密钥是可恢复的，
+            # 因为回退条目可能会使用 OAuth 或凭证池认证（例如 openai-codex）。
             _explicit = (resolved_provider or "").strip().lower()
             if _explicit and _explicit not in {"auto", "openrouter", "custom"}:
                 fb_client, fb_model, fb_label = _try_configured_fallback_for_unavailable_client(
@@ -6372,11 +6365,11 @@ def call_llm(
                         f"was found. Set the {_explicit.upper()}_API_KEY environment "
                         f"variable, or switch to a different provider with `hermes model`."
                     )
-            # For auto/custom with no credentials, try the full auto chain
-            # rather than hardcoding OpenRouter (which may be depleted).
-            # Pass model=None so each provider uses its own default —
-            # resolved_model may be an OpenRouter-format slug that doesn't
-            # work on other providers.
+            # 对于未配置凭证的 auto/custom 路由，尝试完整的基础自动链（auto chain），
+            # 而不是硬编码为 OpenRouter（因为 OpenRouter 的额度可能已被耗尽）。
+            # 此时传入 model=None，以便每个服务商使用其自身的默认模型 ——
+            # 因为 resolved_model 可能是一个专属于 OpenRouter 格式的标识符（slug），
+            # 在其他服务商上无法正常工作。
             if client is None and not resolved_base_url:
                 logger.info("Auxiliary %s: provider %s unavailable, trying auto-detection chain",
                             task or "call", resolved_provider)
@@ -6395,9 +6388,9 @@ def call_llm(
                      task, resolved_provider or "auto", final_model or "default",
                      f" at {_base_info}" if _base_info and "openrouter" not in _base_info else "")
 
-    # Pass the client's actual base_url (not just resolved_base_url) so
-    # endpoint-specific temperature overrides can distinguish
-    # api.moonshot.ai vs api.kimi.com/coding even on auto-detected routes.
+    # 传递客户端实际的 base_url（而不仅仅是 resolved_base_url），
+    # 以便特定于端点（endpoint-specific）的温度重写（temperature overrides）
+    # 即使在自动检测到的路由上，也能够区分 api.moonshot.ai 与 api.kimi.com/coding。
     kwargs = _build_call_kwargs(
         resolved_provider, final_model, messages,
         temperature=temperature, max_tokens=max_tokens,
@@ -6409,53 +6402,47 @@ def call_llm(
     if _is_anthropic_compat_endpoint(resolved_provider, _client_base):
         kwargs["messages"] = _convert_openai_images_to_anthropic(kwargs["messages"])
 
-    # Streaming path: return the raw SDK Stream iterator directly. This is used by
-    # the MoA aggregator so its tokens stream to the user. It deliberately skips
-    # _validate_llm_response and the temperature/max_tokens/payment fallback chain
-    # below — those all assume a complete response object, whereas a stream is
-    # consumed chunk-by-chunk by the caller. The caller (the agent's streaming
-    # consumer) owns chunk reassembly, stale-stream detection, and falling back to
-    # a non-streaming call on error. stream_options is best-effort: providers that
-    # reject it surface an error the caller's fallback already handles.
+    # 流式传输路径：直接返回原始的 SDK 流（Stream）迭代器。这由 MoA 聚合器使用，
+    # 以便将其 Token 流式传输给用户。它故意跳过了下方的 _validate_llm_response
+    # 以及温度/最大 Token 数/支付回退链 —— 因为这些机制都假设有一个完整的响应对象，
+    # 而流式数据是由调用者逐块（chunk-by-chunk）消费的。调用者（智能体的流式消费端）
+    # 承担了数据块重组、死流（stale-stream）检测以及在发生错误时回退到非流式调用的职责。
+    # stream_options 是尽力而为（best-effort）的：拒绝该参数的服务商会暴露出错误，
+    # 而调用者的回退机制已经能够处理该错误。
     if stream:
         kwargs["stream"] = True
         if stream_options:
             kwargs["stream_options"] = stream_options
         return client.chat.completions.create(**kwargs)
 
-    # Handle unsupported temperature, max_tokens vs max_completion_tokens retry,
-    # then payment fallback.
+    # 先处理不支持的温度参数（temperature），再处理 max_tokens 与 max_completion_tokens 的重试，
+    # 最后处理支付失败时的回退机制（payment fallback）。
     try:
-        # Retry on the same provider for a transient transport blip
-        # (connection reset / streaming-close / incomplete chunked read / 5xx /
-        # 408) before the except-chain below escalates to provider/model
-        # fallback. A dropped connection shouldn't abandon an otherwise-healthy
-        # provider — this especially matters for pinned auxiliary calls like MoA
-        # reference advisors, where "fallback to another provider" is not a
-        # meaningful recovery (the advisor is a specific model), so a transient
-        # blip that isn't retried simply loses that advisor for the turn (root
-        # of the run2 double-advisor "Connection error" collapse — a genuine
-        # upstream blip hitting both parallel advisors at once).
+        # 在下方的 except 链升级到服务商/模型回退（fallback）之前，先针对暂时性的传输闪断
+        # （连接重置 / 流式关闭 / 不完整的块读取 / 5xx / 408）在同一个服务商上进行重试。
+        # 一个断开的连接不应该导致我们放弃一个原本健康的服务商 —— 这对于像 MoA
+        # 参考顾问这样固定的辅助调用尤为重要，因为在这些场景下，“回退到另一个服务商”
+        # 并不是一种有意义的恢复手段（顾问模型是指派的特定模型），如果对一个暂时性的闪断
+        # 不进行重试，就会在当前回合中直接失去该顾问（这也是 run2 中双顾问同时出现
+        # "Connection error" 崩溃的根源 —— 真实的恶劣上游闪断同时击中了两个并行调用的顾问）。
         #
-        # Attempts are bounded and use exponential backoff. Count is configurable
-        # via auxiliary.transient_retries (default 2 retries → 3 total attempts);
-        # a second/third failure or any non-transient error falls through to
-        # ``first_err`` and the existing fallback handling unchanged. Unified home
-        # for the transient retry every auxiliary task shares. (PR #16587)
+        # 重试次数是有上限的，并且使用指数退避算法。重试次数可通过 auxiliary.transient_retries
+        # 进行配置（默认 2 次重试 → 共 3 次尝试）；第二次/第三次失败或任何非暂时性错误
+        # 将原样落入 ``first_err`` 以及现有的回退处理逻辑中。这是所有辅助任务共享的
+        # 暂时性重试的统一实现处。（PR #16587）
         try:
             return _validate_llm_response(
                 client.chat.completions.create(**kwargs), task)
         except Exception as transient_err:
             if not _is_transient_transport_error(transient_err):
                 raise
-            # Compression is on the critical preflight path: a user cannot
-            # continue or resume an oversized session until it compacts. A
-            # same-provider retry on a timeout means another full ``timeout``-
-            # long wall-clock block before the except-chain below can fall
-            # back — doubling the user-visible stall (issue #54465). Skip the
-            # same-provider retry for compression on a full-budget timeout and
-            # fall straight through to provider/model fallback; fast blips (a
-            # streaming-close or a 5xx) still retry, since those are cheap.
+            # 压缩（Compression）处于关键的启航前置路径（critical preflight path）上：
+            # 用户在超大体积的会话完成压缩紧凑之前，无法继续或恢复该会话。
+            # 如果在发生超时（timeout）时在同一个服务商上进行重试，意味着在下方的 except 链能够
+            # 介入回退之前，还会造成另一个完整的、长达整个 ``timeout`` 墙上钟时间的阻塞 ——
+            # 这会使客户端可见的卡顿时间翻倍（议题 #54465）。因此，对于压缩任务，如果因耗尽全部预算
+            # 而发生超时，则跳过同服务商重试，直接进入服务商/模型的回退流程；
+            # 而对于快速闪断（如流式关闭或 5xx 错误），依然会进行重试，因为这些失败的代价很低。
             if task == "compression" and _is_timeout_error(transient_err):
                 logger.info(
                     "Auxiliary compression: timeout on the critical path; "

@@ -21,10 +21,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Lone surrogate code points are invalid in UTF-8 and crash json.dumps
-# inside the OpenAI SDK.  Used by every surrogate-sanitization helper
-# below as well as by run_agent and the CLI for paste-from-clipboard
-# scrubbing.
+# 孤立的代理码点（Lone surrogate code points）在 UTF-8 中是无效的，
+# 并且会导致 OpenAI SDK 内部的 json.dumps 崩溃。
+# 该规则被下文的所有代理净化辅助函数（surrogate-sanitization helper）所使用，
+# 同时也被 run_agent 和 CLI 用于清理从剪贴板粘贴过来的内容。
 _SURROGATE_RE = re.compile(r'[\ud800-\udfff]')
 
 
@@ -73,16 +73,15 @@ def _sanitize_structure_surrogates(payload: Any) -> bool:
 
 
 def _sanitize_messages_surrogates(messages: list) -> bool:
-    """Sanitize surrogate characters from all string content in a messages list.
+    """从消息列表中所有字符串内容里净化掉代理字符（surrogate characters）。
 
-    Walks message dicts in-place. Returns True if any surrogates were found
-    and replaced, False otherwise. Covers content/text, name, tool call
-    metadata/arguments, AND any additional string or nested structured fields
-    (``reasoning``, ``reasoning_content``, ``reasoning_details``, etc.) so
-    retries don't fail on a non-content field.  Byte-level reasoning models
-    (xiaomi/mimo, kimi, glm) can emit lone surrogates in reasoning output
-    that flow through to ``api_messages["reasoning_content"]`` on the next
-    turn and crash json.dumps inside the OpenAI SDK.
+    对消息字典进行原地（in-place）遍历。如果发现并替换了任何代理字符，则返回 True，
+    否则返回 False。涵盖范围包括 content/text、name、工具调用元数据/参数（arguments），
+    以及任何额外的字符串或嵌套的结构化字段（如 ``reasoning``、``reasoning_content``、
+    ``reasoning_details`` 等），以确保重试不会因非内容字段而失败。
+    字节级推理模型（如 小米/mimo、kimi、glm）可能会在推理输出中生成孤立的代理字符，
+    这些字符会在下一轮对话中流入 ``api_messages["reasoning_content"]``，
+    从而导致 OpenAI SDK 内部的 json.dumps 崩溃。
     """
     found = False
     for msg in messages:

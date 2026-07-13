@@ -1046,21 +1046,20 @@ def drop_thinking_only_and_merge_users(
     *,
     drop_codex_reasoning_items: bool = True,
 ) -> List[Dict[str, Any]]:
-    """Drop thinking-only assistant turns; merge any adjacent user messages left behind.
+    """丢弃仅包含思考的助手轮次；合并由此遗留下的任何相邻的用户消息。
 
-    Runs on the per-call ``api_messages`` copy only. The stored
-    conversation history (``agent.messages``) is never mutated, so the
-    user still sees the thinking block in the CLI/gateway transcript and
-    session persistence keeps the full trace. Only the wire copy sent to
-    the provider is cleaned.
+    该操作仅在每次调用的 ``api_messages`` 副本上运行。存储的对话历史
+    （``agent.messages``）绝不会被修改，因此用户在 CLI/网关的输出记录中
+    仍然可以看到思考块，且会话持久化也会保留完整的追踪轨迹。只有发送给
+    服务商的传输层副本会被清理。
 
-    Why drop-and-merge rather than inject stub text:
-    - Fabricating ``"."`` / ``"(continued)"`` text lies in the history
-      and makes future turns see model output the model didn't emit.
-    - Dropping the turn preserves honesty; merging adjacent user messages
-      preserves the provider's role-alternation invariant.
-    - This is the pattern used by Claude Code's ``normalizeMessagesForAPI``
-      (filterOrphanedThinkingOnlyMessages + mergeAdjacentUserMessages).
+    为什么选择“丢弃并合并”而不是“注入存根（占位）文本”：
+    - 伪造 ``"."`` / ``"(continued)"`` 文本会留在历史记录中，并导致未来的轮次
+      看到模型实际上并未生成的输出。
+    - 丢弃该轮次能保持数据的真实性；合并相邻的用户消息则能满足服务商对
+      角色交替（User/Assistant 交替出现）的绝对约束。
+    - 这是 Claude Code 中的 ``normalizeMessagesForAPI`` 所采用的模式
+      （包含 filterOrphanedThinkingOnlyMessages + mergeAdjacentUserMessages）。
     """
     if not messages:
         return messages

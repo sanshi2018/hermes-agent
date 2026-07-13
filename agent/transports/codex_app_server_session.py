@@ -641,12 +641,11 @@ class CodexAppServerSession:
         turn_timeout: float = 600.0,
         notification_poll_timeout: float = 0.25,
     ) -> TurnResult:
-        """Trigger Codex-native history compaction for the current thread.
+        """为当前线程触发 Codex 原生的历史记录压缩（history compaction）。
 
-        `thread/compact/start` returns immediately; the actual compaction
-        progress streams through the same turn/item notifications as a normal
-        turn. We wait for the matching `turn/completed` so callers can treat a
-        successful return as a completed compaction boundary.
+        `thread/compact/start` 会立即返回；实际的压缩进度将通过与普通轮次相同的
+        轮次/项（turn/item）通知进行流式传输。我们等待相匹配的 `turn/completed`，
+        以便调用者可以将成功返回视作一个已完成的压缩边界。
         """
         result = TurnResult()
         try:

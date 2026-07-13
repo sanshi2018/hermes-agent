@@ -152,18 +152,15 @@ class _CompressionLockLeaseRefresher:
 
 
 def check_compression_model_feasibility(agent: Any) -> None:
-    """Warn at session start if the auxiliary compression model's context
-    window is smaller than the main model's compression threshold.
+    """如果在会话开始时，辅助压缩模型的上下文窗口小于主模型的压缩阈值，则发出警告。
 
-    When the auxiliary model cannot fit the content that needs summarising,
-    compression will either fail outright (the LLM call errors) or produce
-    a severely truncated summary.
+    当辅助模型无法容纳需要被总结的内容时，压缩操作要么会直接失败（LLM 调用报错），
+    要么会生成一个被严重截断的总结。
 
-    Called during ``AIAgent.__init__`` so CLI users see the warning
-    immediately (via ``_vprint``).  The gateway sets ``status_callback``
-    *after* construction, so :func:`replay_compression_warning` re-sends
-    the stored warning through the callback on the first
-    ``run_conversation()`` call.
+    该函数在 ``AIAgent.__init__`` 期间被调用，以便 CLI 用户能够立即（通过 ``_vprint``）
+    看到该警告。网关（gateway）是在构造函数执行 *之后* 才设置 ``status_callback`` 的，
+    因此 :func:`replay_compression_warning` 会在第一次调用 ``run_conversation()`` 时，
+    通过回调函数重新发送存储的警告。
     """
     if not agent.compression_enabled:
         return
@@ -442,34 +439,32 @@ def compress_context(
     focus_topic: Optional[str] = None,
     force: bool = False,
 ) -> Tuple[list, str]:
-    """Compress conversation context and split the session in SQLite.
+    """压缩对话上下文并在 SQLite 中拆分会话。
 
-    Args:
-        agent: The owning :class:`AIAgent`.
-        messages: Current message history (will be summarised).
-        system_message: Current system prompt; rebuilt after compression.
-        approx_tokens: Pre-compression token estimate, logged for ops.
-        task_id: Tool task scope (used for clearing file-read dedup state).
-        focus_topic: Optional focus string for guided compression — the
-            summariser will prioritise preserving information related to
-            this topic.  Inspired by Claude Code's ``/compact <focus>``.
-        force: If True, bypass any active summary-failure cooldown.  Set
-            by the manual ``/compress`` slash command so users can retry
-            immediately after an auto-compress abort.  Auto-compress
-            callers use the default ``False``.
+    参数：
+        agent: 所属的 :class:`AIAgent` 实例。
+        messages: 当前的消息历史记录（将被总结）。
+        system_message: 当前的系统提示词；在压缩后会被重新构建。
+        approx_tokens: 压缩前的 Token 估算值，用于运维日志记录。
+        task_id: 工具任务的作用域（用于清除文件读取去重状态）。
+        focus_topic: 可选的焦点字符串，用于引导定向压缩 —— 总结器
+            会优先保留与该主题相关的信息。灵感来源于 Claude Code
+            的 ``/compact <focus>`` 命令。
+        force: 若为 True，则绕过当前处于激活状态的“总结失败冷却时间”。
+            由手动的 ``/compress`` 斜杠命令设置，以便用户在自动压缩
+            中止后可以立即重试。自动压缩的调用者使用默认值 ``False``。
 
-    Returns:
-        ``(compressed_messages, new_system_prompt)`` tuple.  When
-        compression aborts (aux LLM failed to produce a usable summary),
-        returns the original messages unchanged and the existing system
-        prompt — the session is NOT rotated.  Callers should detect the
-        no-op via ``len(returned) == len(input)`` and stop the retry loop.
+    返回：
+        ``(compressed_messages, new_system_prompt)`` 元组。当
+        压缩中止（辅助 LLM 未能生成可用的总结）时，返回未更改的
+        原始消息和现有的系统提示词 —— 会话【不会】被轮转。调用者
+        应通过 ``len(returned) == len(input)`` 检测此空操作（no-op）
+        并停止重试循环。
     """
-    # Codex app-server sessions: the codex agent owns the real thread context;
-    # Hermes' summarizer would only rewrite a local mirror without shrinking
-    # the actual thread (#36801). Route compaction to the app server's own
-    # thread/compact mechanism. Behavior is controlled by
-    # ``compression.codex_app_server_auto`` (native|hermes|off).
+    # Codex app-server会话：Codex 智能体（agent）拥有真实的线程上下文；
+    # Hermes 的总结器只会重写本地镜像，而无法缩小实际的线程（参见 #36801）。
+    # 将压缩操作路由到应用服务器自身的线程/压缩机制（thread/compact mechanism）。
+    # 该行为由 ``compression.codex_app_server_auto`` 控制（可选值为 native|hermes|off）。
     if getattr(agent, "api_mode", None) == "codex_app_server":
         return _compress_context_via_codex_app_server(
             agent,
@@ -480,32 +475,30 @@ def compress_context(
             force=force,
         )
 
-    # Lazy feasibility check — run the auxiliary-provider probe + context
-    # length lookup just-in-time on the first compression attempt instead of
-    # at AIAgent.__init__. Saves ~400ms cold off every short session that
-    # never reaches the threshold (the vast majority of ``chat -q`` runs).
-    # The check itself sets ``agent._compression_warning`` so the
-    # status-callback replay machinery still emits the warning to the user
-    # the first time it would matter.
+    # 延迟可行性检查（Lazy feasibility check）—— 在第一次尝试压缩时才“即时（just-in-time）”
+    # 运行辅助服务商探测（auxiliary-provider probe）和上下文长度查找，而不是在
+    # AIAgent.__init__ 初始化时运行。这样可以为每个从未达到压缩阈值的短会话（绝大多数
+    # ``chat -q`` 运行）节省约 400 毫秒的冷启动时间。
+    # 该检查本身会设置 ``agent._compression_warning``，因此状态回调重放机制
+    # 仍然会在该警告第一次发挥作用时将其发送给用户。
     if not getattr(agent, "_compression_feasibility_checked", False):
-        # Mark as checked only after the probe completes. If the check
-        # raises (e.g. a fatal aux-context ValueError that aborts the
-        # session), leaving the flag unset is harmless; a non-fatal
-        # transient failure is swallowed inside the function so the flag
-        # is set normally on the next successful pass.
+        # 只有在探测（probe）完成后才标记为已检查（checked）。如果检查过程中
+        # 抛出异常（例如导致会话中止的致命辅助上下文 ValueError），保持该标志（flag）
+        # 为未设置状态是无害的；而非致命的瞬态故障（transient failure）会在函数内部
+        # 被吞掉（swallowed），因此在下一次成功通过时，该标志仍会被正常设置。
         check_compression_model_feasibility(agent)
         agent._compression_feasibility_checked = True
 
     _pre_msg_count = len(messages)
-    # In-place compaction (config: compression.in_place, see #38763). When True,
-    # this compaction rewrites the message list + rebuilds the system prompt but
-    # keeps the SAME session_id — no end_session, no parent_session_id child, no
-    # `name #N` renumber, no contextvar/env/logging re-sync, no memory/context-
-    # engine session-switch. The conversation keeps one durable id for life,
-    # eliminating the session-rotation bug cluster. Default False during rollout.
+    # 原地压缩（配置项：compression.in_place，参见 #38763）。当该值为 True 时，
+    # 此压缩操作会重写消息列表并重新构建系统提示词，但会保持【完全相同】的 session_id
+    # —— 也就是说，没有 end_session，没有 parent_session_id 子会话，没有
+    # `name #N` 的重新编号，没有 contextvar/环境变量/日志记录的重新同步，
+    # 也没有记忆/上下文引擎的会话切换。整个对话在生命周期内始终保持一个持久的 ID，
+    # 从而彻底消除了因会话轮转（session-rotation）导致的一连串 Bug。在逐步推广期间默认值为 False。
     in_place = bool(getattr(agent, "compression_in_place", False))
-    # Set True once the in-place DB write actually completes (the DB block can
-    # raise and skip it). Surfaced to the gateway via agent._last_compaction_in_place.
+    # 一旦原地数据库写入实际完成，即设置为 True（数据库代码块可能会抛出异常并跳过它）。
+    # 通过 agent._last_compaction_in_place 暴露给网关（gateway）。
     compacted_in_place = False
     logger.info(
         "context compression started: session=%s messages=%d tokens=~%s model=%s focus=%r",
@@ -515,47 +508,43 @@ def compress_context(
     )
     agent._emit_status(COMPACTION_STATUS)
 
-    # ── Compression lock ────────────────────────────────────────────────
-    # Atomic, state.db-backed lock per session_id.  Without this, two
-    # AIAgent instances that share the same session_id (most commonly the
-    # parent-turn agent and its background-review fork — see
-    # ``agent/background_review.py``: ``review_agent.session_id =
-    # agent.session_id``) can each call compress() on overlapping
-    # snapshots of the same conversation.  Both succeed, both rotate
-    # ``agent.session_id`` to a fresh id, both create child sessions in
-    # state.db parented to the same old id.  The gateway's SessionEntry
-    # only catches one rotation, so the other child becomes an orphan
-    # that silently accumulates writes — Damien's repro shape.
+    # ── 压缩锁 ────────────────────────────────────────────────
+    # 每个 session_id 专属的、由 state.db 支持的原子锁。如果没有这个锁，
+    # 共享相同 session_id 的两个 AIAgent 实例（最常见的是父轮次智能体
+    # 及其后台审查分支 —— 参见 ``agent/background_review.py``：
+    # ``review_agent.session_id = agent.session_id``）可能会各自对
+    # 同一对话的重叠快照（overlapping snapshots）调用 compress()。
+    # 结果是两者都会成功，两者都会将 ``agent.session_id`` 轮转为一个全新的 ID，
+    # 并且两者都会在 state.db 中创建以同一个旧 ID 为父级的子会话。
+    # 网关的 SessionEntry 只能捕获到其中一次轮转，因此另一个子会话就会变成
+    # 孤儿会话（orphan），在后台默默地累积写入数据 —— 这正是 Damien 重现出的 Bug 形态。
     #
-    # Acquire keyed on the OLD session_id (the rotation target's parent),
-    # because that's the id that competing paths see and read from
-    # SessionEntry at the start of their own compression attempt.
+    # 获取锁时需要以 旧的 session_id（即轮转目标的父级）作为键（key），
+    # 因为这是竞争路径在各自尝试压缩之初，从 SessionEntry 中看到并读取的 ID。
     #
-    # If we can't acquire the lock, another path is mid-compression on
-    # this session.  Aborting is correct: the messages are unchanged, the
-    # other path's rotation will produce the canonical new session_id,
-    # and our caller's auto-compress loop sees ``len(returned) == len(input)``
-    # and stops retrying for this cycle. The session is NOT corrupted —
-    # we just sit out this round and let the winner finish.
+    # 如果我们无法获取该锁，说明另一个路径正在对该会话进行中途压缩。
+    # 此时中止（Aborting）是正确的做法：消息保持不变，另一个路径的轮转
+    # 将生成规范的新 session_id，并且我们调用者的自动压缩循环会检测到
+    # ``len(returned) == len(input)`` 并停止本轮周期的重试。
+    # 会话【不会】遭到损坏 —— 我们只是退出这一轮竞争，让胜出者完成操作。
     _lock_db = getattr(agent, "_session_db", None)
     _lock_sid = agent.session_id or ""
     _lock_holder: Optional[str] = None
-    # Probe whether the lock subsystem is actually available on this
-    # SessionDB instance.  A process running mismatched module versions
-    # (e.g. ``conversation_compression.py`` reloaded after a pull but the
-    # long-lived ``hermes_state.SessionDB`` class still bound to the
-    # pre-#34351 version in memory) has the call site but not the method.
-    # In that case ``try_acquire_compression_lock`` raises AttributeError —
-    # NOT a ``sqlite3.Error`` — so the method's own fail-open guard never
-    # runs and the exception propagates to the outer agent loop, which
-    # prints the error and retries.  Because compression never succeeds,
-    # the token count never drops and the loop re-triggers compaction
-    # forever (the "API call #47/#48/#49 ... has no attribute
-    # try_acquire_compression_lock" spin).  Fail OPEN here: if the lock
-    # subsystem is missing or broken in any unexpected way, skip locking
-    # and proceed with compression.  Skipping the lock risks a rare
-    # concurrent-compression session fork; an infinite no-progress loop
-    # that never compresses at all is strictly worse.
+    # 探测锁子系统在当前 SessionDB 实例上是否真正可用。
+    # 一个运行着不匹配模块版本的进程（例如，在 git pull 之后重新加载了
+    # ``conversation_compression.py``，但常驻内存的 ``hermes_state.SessionDB`` 类
+    # 仍然绑定在 #34351 之前的版本）会拥有代码调用点（call site），但缺乏对应的方法。
+    # 在这种情况下，``try_acquire_compression_lock`` 会抛出 AttributeError ——
+    # 而【不是】``sqlite3.Error`` —— 因此该方法自身的故障放行（fail-open）保护永远不会
+    # 被触发，异常会向上向外传播到外层的智能体循环（outer agent loop），从而导致
+    # 打印错误并重试。
+    # 由于压缩永远无法成功，Token 数量永远不会下降，该循环将会无休止地重新触发压缩
+    # （即陷入 “API call #47/#48/#49 ... has no attribute try_acquire_compression_lock”
+    # 的死循环/自旋中）。
+    # 因此在此处选择故障放行（Fail OPEN）：如果锁子系统缺失或以任何非预期的方式损坏，
+    # 则跳过加锁流程，直接继续进行压缩。
+    # 跳过加锁虽然会带来罕见的并发压缩导致会话分叉（session fork）的风险，
+    # 但相比之下，一个完全无法推进且毫无进展的无限死循环显然要糟糕得多。
     try:
         _lock_ttl = float(getattr(agent, "_compression_lock_ttl_seconds", 300.0) or 300.0)
     except (TypeError, ValueError):
@@ -1015,12 +1004,11 @@ def _compress_context_via_codex_app_server(
     task_id: str = "default",
     force: bool = False,
 ) -> Tuple[list, str]:
-    """Route compaction to Codex app-server for Codex-owned threads.
+    """对于 Codex 拥有的线程，将压缩（compaction）操作路由至 Codex 应用服务器。
 
-    Hermes' normal compressor rewrites the local OpenAI-style transcript.
-    That does not shrink the actual Codex app-server thread context. For this
-    runtime, ask Codex to compact its own thread and keep Hermes' transcript
-    unchanged.
+    Hermes 正常的压缩器会重写本地的 OpenAI 风格的对话记录（transcript）。
+    但这并不能缩小实际的 Codex 应用服务器线程上下文。对于这种运行时环境，
+    应让 Codex 去压缩它自己的线程，并保持 Hermes 的对话记录不发生改变。
     """
     auto_mode = str(
         getattr(agent, "codex_app_server_auto_compaction", "native") or "native"

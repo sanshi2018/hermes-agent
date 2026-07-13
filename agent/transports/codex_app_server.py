@@ -1,17 +1,16 @@
-"""Codex app-server JSON-RPC client.
+"""Codex 应用服务器（app-server）JSON-RPC 客户端。
 
-Speaks the protocol documented in codex-rs/app-server/README.md (codex 0.125+).
-Transport is newline-delimited JSON-RPC 2.0 over stdio: spawn `codex app-server`,
-do an `initialize` handshake, then drive `thread/start` + `turn/start` and
-consume streaming `item/*` notifications until `turn/completed`.
+采用 codex-rs/app-server/README.md（codex 0.125+）中记录的协议进行通信。
+传输层使用基于 stdio 的换行符分隔的 JSON-RPC 2.0 协议：启动 `codex app-server` 子进程，
+进行 `initialize` 握手，然后驱动 `thread/start` + `turn/start`，
+并持续消耗流式的 `item/*` 通知，直到收到 `turn/completed` 为止。
 
-This module is the wire-level speaker only. Higher-level concerns (event
-projection into Hermes' display, approval bridging, transcript projection into
-AIAgent.messages, plugin migration) live in sibling modules.
+本模块仅负责传输线缆级（wire-level）的协议通信。更高层级的业务逻辑（如将事件
+投射到 Hermes 的显示界面、审批对接、将对话记录投射到 AIAgent.messages 中、
+插件迁移等）均位于同级的兄弟模块中。
 
-Status: optional opt-in runtime gated behind `model.openai_runtime ==
-"codex_app_server"`. Hermes' default tool dispatch is unchanged when this
-runtime is not selected.
+状态：可选的自主加入型（opt-in）运行时，受控制于 `model.openai_runtime ==
+"codex_app_server"` 门槛。当未选择此运行时，Hermes 默认的工具分发逻辑保持不变。
 """
 
 from __future__ import annotations
@@ -52,20 +51,19 @@ class _Pending:
 
 
 class CodexAppServerClient:
-    """Minimal JSON-RPC 2.0 client for `codex app-server` over stdio.
+    """基于 stdio 的 `codex app-server` 极简 JSON-RPC 2.0 客户端。
 
-    Threading model:
-      - Spawning thread (caller) drives request/response pairs synchronously.
-      - One reader thread parses stdout, dispatches replies to the right
-        pending future, and routes notifications + server-initiated requests
-        to bounded queues that the caller drains on their own cadence.
-      - One reader thread captures stderr for diagnostics; codex emits
-        tracing logs there at RUST_LOG-controlled levels.
+    线程模型：
+      - 启动线程（调用者）以同步方式驱动请求/响应对（request/response pairs）。
+      - 一个读取器线程（reader thread）解析标准输出（stdout），将回复分发给正确的
+        挂起期货（pending future），并将通知（notifications）和服务器发起的请求路由到
+        有界队列中，由调用者按自己的节奏进行消耗。
+      - 另一个读取器线程捕获标准错误（stderr）用于诊断；Codex 会在其中以
+        RUST_LOG 控制的级别输出追踪日志（tracing logs）。
 
-    Intentionally NOT async. AIAgent.run_conversation() is synchronous and
-    runs on the main thread; layering asyncio just to drive a stdio child
-    creates surprising interrupt semantics. We use blocking queues with
-    timeouts and rely on `turn/interrupt` for cancellation.
+    故意【不】采用异步编程（async）。AIAgent.run_conversation() 是同步的且运行在
+    主线程上；仅为了驱动一个 stdio 子进程而分层引入 asyncio 会产生令人意外的
+    中断语义。我们使用带有超时机制的阻塞队列，并依赖 `turn/interrupt` 来实现取消操作。
     """
 
     def __init__(
@@ -76,17 +74,14 @@ class CodexAppServerClient:
         env: Optional[dict[str, str]] = None,
     ) -> None:
         self._codex_bin = codex_bin
-        # codex app-server is a model-driving CLI executor: it runs a
-        # model-chosen agentic loop that executes shell commands, so it
-        # legitimately needs LLM provider credentials (inherit_credentials=True)
-        # to authenticate against the model endpoint. But the previous
-        # `os.environ.copy()` also handed it every Tier-1 Hermes secret — gateway
-        # bot tokens, GitHub auth, Modal/Daytona infra tokens, the dashboard
-        # session token, AUXILIARY_* side-LLM keys, GATEWAY_RELAY_* auth — none
-        # of which a coding subprocess has any use for. Route through the
-        # centralized helper so Tier-1 + dynamic-internal secrets are always
-        # stripped while provider creds still flow, matching copilot_acp_client
-        # (#29157 sibling spawn-site gap).
+        # codex app-server 是一个由模型驱动的 CLI 执行器：它运行一个由模型选择的智能体循环（agentic loop）
+        # 来执行 shell 命令，因此它理所当然需要 LLM 服务商的凭证（inherit_credentials=True）
+        # 来对模型端点进行身份验证。但是，之前使用的 `os.environ.copy()` 会将每一个 Tier-1 Hermes 密钥
+        # —— 包括网关机器人 Token、GitHub 认证信息、Modal/Daytona 基础设施 Token、仪表盘
+        # 会话 Token、AUXILIARY_* 辅助 LLM 密钥、GATEWAY_RELAY_* 认证信息 —— 全部同步塞给它，
+        # 而这些对于一个代码编译/执行子进程来说完全毫无用处。现改为通过集中式辅助函数进行路由，
+        # 以便在确保服务商凭证依然能够传递的同时，始终剥离掉 Tier-1 及动态内部密钥，
+        # 从而与 copilot_acp_client 相匹配（修复了 #29157 中同级的子进程启动点漏洞）。
         spawn_env = hermes_subprocess_env(inherit_credentials=True)
         if env:
             spawn_env.update(env)
@@ -94,11 +89,11 @@ class CodexAppServerClient:
             spawn_env["CODEX_HOME"] = codex_home
 
         app_server_args = list(extra_args or [])
-        # Kanban workers must be able to write their handoff/status back to
-        # the board DB, which lives outside the per-task workspace. Keep the
-        # Codex sandbox on, but add the Kanban root as the only extra writable
-        # root. Without this, codex-runtime workers finish their actual work
-        # but crash/block when kanban_complete/kanban_block writes SQLite.
+        # 看板作业人员（Kanban workers）必须能够将他们的交接/状态信息写回到
+        # 看板数据库（board DB）中，该数据库位于每项任务的工作空间之外。保持
+        # Codex 沙箱处于开启状态，但将看板根目录（Kanban root）添加为唯一的额外可写根目录。
+        # 如果不进行此配置，Codex 运行时作业人员即使完成了其实际工作，
+        # 也会在 kanban_complete/kanban_block 写入 SQLite 时发生崩溃或受阻。
         if spawn_env.get("HERMES_KANBAN_TASK"):
             kanban_db = spawn_env.get("HERMES_KANBAN_DB")
             kanban_root = (

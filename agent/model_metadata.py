@@ -2468,12 +2468,12 @@ def estimate_tokens_rough(text: str) -> int:
 
 
 def estimate_messages_tokens_rough(messages: List[Dict[str, Any]]) -> int:
-    """Rough token estimate for a message list (pre-flight only).
+    """对消息列表的粗略 Token 估算（仅在发送请求前使用）。
 
-    Image parts (base64 PNG/JPEG) are counted as a flat ~1500 tokens per
-    image — the Anthropic pricing model — instead of counting raw base64
-    character length. Without this, a single ~1MB screenshot would be
-    estimated at ~250K tokens and trigger premature context compression.
+    图片部分（base64 编码的 PNG/JPEG）按每张图片约 1500 Token 的固定值计算
+     —— 这符合 Anthropic 的计费模型 —— 而不是计算原始 base64 字符串的字符长度。
+    如果不进行此处理，一张大约 1MB 的截图会被误估算为约 250K Token，
+    从而触发过早的上下文压缩。
     """
     _IMAGE_TOKEN_COST = 1500
     total_chars = 0
@@ -2549,13 +2549,13 @@ def estimate_request_tokens_rough(
     system_prompt: str = "",
     tools: Optional[List[Dict[str, Any]]] = None,
 ) -> int:
-    """Rough token estimate for a full chat-completions request.
+    """对完整的聊天补全（chat-completions）请求进行粗略的 Token 估算。
 
-    Includes the major payload buckets Hermes sends to providers:
-    system prompt, conversation messages, and tool schemas.  With 50+
-    tools enabled, schemas alone can add 20-30K tokens — a significant
-    blind spot when only counting messages. Image content is counted
-    at a flat per-image cost (see estimate_messages_tokens_rough).
+    包含了 Hermes 发送给服务商的核心负载板块：
+    系统提示词、对话消息以及工具 schema（定义）。在启用了 50 多个
+    工具的情况下，单是工具 schema 就能增加 20K 到 30K 的 Token —— 如果只计算
+    消息内容，这将是一个显着的盲区。图片内容按每张图片的固定成本进行计算
+    （参见 estimate_messages_tokens_rough）。
     """
     total = 0
     if system_prompt:

@@ -866,8 +866,9 @@ def run_conversation(
             except Exception as _moa_exc:
                 logger.warning("MoA context aggregation failed: %s", _moa_exc)
 
-        # Inject ephemeral prefill messages right after the system prompt
-        # but before conversation history. Same API-call-time-only pattern.
+        # 在系统提示词（system prompt）之后、对话历史（conversation history）之前，
+        # 紧接着注入临时的预填消息（ephemeral prefill messages）。
+        # 同样采用仅在API调用时生效的模式（API-call-time-only pattern）。
         if agent.prefill_messages:
             sys_offset = 1 if (api_messages and api_messages[0].get("role") == "system") else 0
             for idx, pfm in enumerate(agent.prefill_messages):
@@ -886,31 +887,28 @@ def run_conversation(
                 native_anthropic=agent._use_native_cache_layout,
             )
 
-        # Safety net: strip orphaned tool results / add stubs for missing
-        # results before sending to the API.  Runs unconditionally — not
-        # gated on context_compressor — so orphans from session loading or
-        # manual message manipulation are always caught.
+        # 安全保障机制：在发送给 API 之前，清除孤立的工具调用结果，或为缺失的结果添加存根（占位符）。
+        # 该机制无条件运行 —— 不受 context_compressor（上下文压缩器）的限制 ——
+        # 因此因会话加载或手动操作消息而产生的孤立结果总能被捕获。
         api_messages = agent._sanitize_api_messages(api_messages)
 
-        # Drop thinking-only assistant turns (reasoning but no visible
-        # output and no tool_calls) and merge any adjacent user messages
-        # left behind. Prevents Anthropic 400s ("The final block in an
-        # assistant message cannot be `thinking`.") and equivalent errors
-        # from third-party Anthropic-compatible gateways that can't replay
-        # a thinking-only turn. Runs on the per-call copy only — the
-        # stored conversation history keeps the reasoning block for the
-        # UI transcript and session persistence.
+        # 丢弃仅包含思考的助手轮次（即只有推理过程但没有可见输出，且没有工具调用 tool_calls），
+        # 并合并由此遗留下的任何相邻的用户消息。
+        # 这样可以防止 Anthropic 报错 400（“助手消息的最后一个块不能是 `thinking`”），
+        # 以及来自无法重放仅思考轮次的第三方 Anthropic 兼容网关的等效错误。
+        # 该操作仅在每次调用的副本上运行 —— 存储的对话历史中仍会保留推理块，
+        # 以用于 UI 界面显示和会话持久化。
         api_messages = agent._drop_thinking_only_and_merge_users(
             api_messages,
             drop_codex_reasoning_items=agent.api_mode != "codex_responses",
         )
 
-        # Normalize message whitespace and tool-call JSON for consistent
-        # prefix matching.  Ensures bit-perfect prefixes across turns,
-        # which enables KV cache reuse on local inference servers
-        # (llama.cpp, vLLM, Ollama) and improves cache hit rates for
-        # cloud providers.  Operates on api_messages (the API copy) so
-        # the original conversation history in `messages` is untouched.
+        # 标准化消息中的空格和工具调用（tool-call）的 JSON 格式，以确保一致的前缀匹配。
+        # 这保证了跨轮次的前缀能够达到位级完美匹配（bit-perfect），
+        # 从而可以在本地推理服务器（如 llama.cpp、vLLM、Ollama）上复用 KV 缓存，
+        # 并提高云端服务商的缓存命中率。
+        # 该操作运行在 api_messages（供 API 使用的副本）上，
+        # 因此 `messages` 中原始的对话历史不会受到任何影响。
         for am in api_messages:
             if isinstance(am.get("content"), str):
                 am["content"] = am["content"].strip()
@@ -938,18 +936,17 @@ def run_conversation(
                 new_tcs.append(tc)
             am["tool_calls"] = new_tcs
 
-        # Proactively strip any surrogate characters before the API call.
-        # Models served via Ollama (Kimi K2.5, GLM-5, Qwen) can return
-        # lone surrogates (U+D800-U+DFFF) that crash json.dumps() inside
-        # the OpenAI SDK. Sanitizing here prevents the 3-retry cycle.
+        # 在发起 API 调用之前，主动清除任何代理字符（surrogate characters）。
+        # 通过 Ollama 提供服务的部分模型（如 Kimi K2.5、GLM-5、Qwen）可能会返回
+        # 孤立的代理字符（U+D800 至 U+DFFF），这会导致 OpenAI SDK 内部的 json.dumps() 崩溃。
+        # 在此处进行净化处理可以防止触发 3 次重试的死循环。
         _sanitize_messages_surrogates(api_messages)
 
-        # Calculate approximate request size for logging and pressure checks.
-        # estimate_messages_tokens_rough(api_messages) includes the system
-        # prompt copy but not the tool schema payload, which is sent as a
-        # separate field. Add tools back for compression decisions so long
-        # tool-heavy turns do not creep up to the context ceiling and leave
-        # no room for the model's final answer.
+        # 计算用于日志记录和压力检查的近似请求大小。
+        # estimate_messages_tokens_rough(api_messages) 包含了系统提示词的副本，
+        # 但不包含工具 schema 的负载数据（因为该数据是作为一个单独的字段发送的）。
+        # 在进行压缩决策时，需要将工具重新加回，以防止包含大量工具调用的长轮次
+        # 逐渐逼近上下文上限，从而导致没有空间留给模型的最终回答。
         total_chars = sum(len(str(msg)) for msg in api_messages)
         approx_tokens = estimate_messages_tokens_rough(api_messages)
         request_pressure_tokens = estimate_request_tokens_rough(
@@ -973,23 +970,21 @@ def run_conversation(
                 pass
             break
 
-        # Pre-API pressure check. The turn-prologue preflight only saw the
-        # incoming user message; a single turn can then grow by many large
-        # tool results and leave no output budget before the NEXT call (the
-        # live 271k/272k Codex failure). The post-response should_compress
-        # gate at the tool-loop tail uses API-reported last_prompt_tokens,
-        # which LAGS a just-appended huge tool result — so it misses this
-        # case. Re-check here against the current request estimate.
+        # API 调用前的压力检查。轮次开头的预检（turn-prologue preflight）只能看到
+        # 传入的用户消息；随后，单个轮次可能会因为包含大量庞大的工具调用结果而剧烈膨胀，
+        # 进而在下一次调用前耗尽输出预算（即引发在线 271k/272k Codex 失败错误）。
+        # 工具循环尾部的响应后（post-response）should_compress 门槛使用的是
+        # API 报告的 last_prompt_tokens，这滞后于刚刚追加的巨型工具结果 ——
+        # 因此它会漏掉这种情况。故在此处根据当前的请求预估值重新进行检查。
         #
-        # Mirror the turn-prologue preflight's guard chain exactly (see
-        # turn_context.py): (1) defer when the rough estimate is known-noisy
-        # relative to a recent real provider prompt that fit under threshold
-        # (schema overhead / post-compaction over-count, #36718); (2) skip
-        # while a same-session compression-failure cooldown is active; (3) then
-        # should_compress() — reusing the canonical threshold_tokens (output
-        # room already reserved by _compute_threshold_tokens) and its summary-
-        # LLM cooldown + anti-thrash guards (#11529). compression_attempts is a
-        # hard per-turn backstop shared with the overflow error handlers.
+        # 此处需完全镜像轮次开头预检的保护链（参见 turn_context.py）：
+        # (1) 当粗略估计值相对于近期一个符合阈值要求的真实服务商提示词而言已知存在噪声时，
+        #     进行推迟处理（如 schema 开销 / 压紧后的过度计算，参见 #36718）；
+        # (2) 当同会话的压缩失败冷却时间处于激活状态时，跳过处理；
+        # (3) 随后执行 should_compress() —— 复用规范的 threshold_tokens
+        #     （输出空间已由 _compute_threshold_tokens 预留），以及它的总结-LLM
+        #     冷却时间 + 防抖动（anti-thrash）保护（参见 #11529）。
+        # compression_attempts 是一个硬性的单轮次兜底限制，与溢出错误处理程序共享。
         _compressor = agent.context_compressor
         _defer_preflight = getattr(
             _compressor, "should_defer_preflight_to_real_usage", lambda _t: False

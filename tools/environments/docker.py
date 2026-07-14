@@ -1378,81 +1378,67 @@ class DockerEnvironment(BaseEnvironment):
         return running or first
 
     def cleanup(self, *, force_remove: bool = False):
-        """Tear down the container according to persist mode and *force_remove*.
+        """根据持久化模式（persist mode）和 *force_remove* 参数拆除/销毁容器。
 
-        Persist-mode (``persist_across_processes=True``, the default) leaves the
-        container **running** untouched. The docs promise "ONE long-lived
-        container shared across sessions" and stopping it on every Hermes exit
-        breaks that promise:
+        持久化模式（``persist_across_processes=True``，默认值）会保持容器**运行**状态而不予触碰。
+        文档承诺“在多个会话之间共享一个长寿命容器”，而在每次 Hermes 退出时停止容器会破坏这一承诺：
 
-        * Background processes inside the container (``npm run dev``, watchers,
-          long-running pytest) get killed every time the user runs ``/quit``.
-        * Every reuse requires ``docker start`` + waiting for the container to
-          come back up, adding 1–2s to the first tool call of the new session.
-        * The user-visible difference between "ONE long-lived container" and
-          "a new container that happens to share state" is exactly this:
-          processes survive in the former, die in the latter.
+        * 容器内部的后台进程（如 ``npm run dev``、文件监听器、长时间运行的 pytest）会在用户每次执行 ``/quit`` 时被杀死。
+        * 每次复用都需要执行 ``docker start`` 并等待容器重新启动，这会导致新会话的首次工具调用增加 1–2 秒的延迟。
+        * “一个长寿命容器”与“恰好共享状态的新容器”在用户侧的直观区别就在于此：
+          前者的进程能够存活，而后者的进程会终止。
 
-        Resource reclamation for the persist-mode case lives in the
-        ``reap_orphan_containers()`` path (see issue #20561 commit 3): if no
-        Hermes process touches a labeled container for ``2 × lifetime_seconds``
-        it gets ``docker rm -f``'d at the next Hermes startup. That covers the
-        SIGKILL / OOM / abandoned-laptop cases without us needing to stop the
-        container on every graceful exit.
+        针对持久化模式的资源回收机制托管在 ``reap_orphan_containers()`` 路径中（参见 issue #20561 commit 3）：
+        如果没有任何 Hermes 进程在 ``2 × lifetime_seconds`` 时间内触碰某个带有标记的容器，
+        该容器将在下一次 Hermes 启动时被强制删除（``docker rm -f``）。
+        这涵盖了 SIGKILL / OOM / 电脑挂起弃用等情况，无需我们在每次正常退出时都停止容器。
 
-        Opt-out mode (``persist_across_processes=False``) still does
-        ``docker stop`` + ``docker rm -f`` on every cleanup, matching the
-        pre-PR behavior for users who explicitly want per-process isolation.
+        退出持久化模式（``persist_across_processes=False``）在每次清理时仍会执行 ``docker stop`` + ``docker rm -f``，
+        以满足显式需要“单进程隔离”的用户，这与 PR 前的行为保持一致。
 
-        ``force_remove=True`` overrides persist mode and always tears the
-        container down (``docker stop`` + ``docker rm -f``). This is the
-        explicit-teardown path for ``/reset``, ``cleanup_vm(task_id)``-driven
-        resets, or any caller that wants a guaranteed fresh container on next
-        ``DockerEnvironment(task_id=...)``. No current caller passes
-        ``force_remove=True``; the parameter is here so the explicit-teardown
-        semantics can be wired up later without changing this method's
-        signature.
+        ``force_remove=True`` 会覆盖持久化模式，并始终销毁容器（``docker stop`` + ``docker rm -f``）。
+        这是用于 ``/reset``、``cleanup_vm(task_id)`` 驱动的重置，或任何希望在下一次调用
+        ``DockerEnvironment(task_id=...)`` 时确保获取全新容器的显式销毁路径。
+        目前尚无调用方传递 ``force_remove=True``；保留该参数是为了后续接入显式销毁逻辑时，无需修改此方法的签名。
 
-        Cleanup runs on a daemon thread with bounded ``subprocess.run`` calls
-        (not the racy ``Popen(... &)`` pattern from before PR #33645). The
-        atexit hook in ``tools/terminal_tool.py`` waits up to 15s for the
-        thread to finish before the interpreter exits, so ``docker stop`` /
-        ``docker rm`` actually completes when we do trigger it.
+        清理操作在守护线程中运行，并带有超时的 ``subprocess.run`` 调用（而非 PR #33645 之前那种存在竞态条件的 ``Popen(... &)`` 模式）。
+        ``tools/terminal_tool.py`` 中的 atexit 钩子会在解释器退出前最多等待该线程 15 秒，
+        因此当我们触发清理时，``docker stop`` / ``docker rm`` 能够真正执行完毕。
         """
         container_id = self._container_id
         if not container_id:
-            # Still drop the bind-mount dirs if any were allocated and we're
-            # NOT in persist mode (persist mode preserves them).
+            # 如果已分配挂载目录，且我们【未处于】持久化模式，
+            # 仍需丢弃/清理这些绑定挂载目录（持久化模式下会保留它们）。
             if not self._persistent:
                 for d in (self._workspace_dir, self._home_dir):
                     if d:
                         shutil.rmtree(d, ignore_errors=True)
             return
 
-        # Decide what to actually do. Three cases:
+        # 决定实际要执行的操作。分为以下三种情况：
         #
-        #   force_remove=True             → stop + rm (explicit teardown)
-        #   persist_across_processes=True → no-op (leave container running)
-        #   persist_across_processes=False → stop + rm (per-process isolation)
+        #   force_remove=True             → 停止并删除容器（显式销毁）
+        #   persist_across_processes=True → 不作处理/无操作（保持容器运行）
+        #   persist_across_processes=False → 停止并删除容器（单进程隔离）
         #
-        # The persist-mode no-op is the issue-#20561 contract: the container
-        # outlives Hermes processes, processes inside it stay alive, and
-        # reuse on next startup is instant.
+        # 持久化模式下的“不作处理”是 issue-#20561 的约定：
+        # 容器生命周期长于 Hermes 进程，其内部进程保持运行，
+        # 且下次启动时的复用是瞬时完成的。
         if force_remove:
             should_stop = True
             should_remove = True
         elif self._persist_across_processes:
-            # No-op for the container. Drop the in-process handle so a fresh
-            # __init__ will re-probe via labels (and find the running
-            # container) instead of trying to reuse a stale Python reference.
+            # 容器层面不作处理。丢弃进程内的句柄，
+            # 使得新的 `__init__` 会通过标签重新探测（并找到运行中的容器），
+            # 而不是尝试复用过期的 Python 引用。
             self._container_id = None
             return
         else:
             should_stop = True
             should_remove = True
 
-        # Capture state needed by the worker before we null out the attrs —
-        # the worker thread can outlive ``self``.
+        # 在我们将属性清空/置空之前，捕获工作线程所需的变量状态 —
+        # 因为工作线程的生命周期可能会比 ``self`` 更长。
         docker_exe = self._docker_exe
         log_id = container_id[:12]
 
@@ -1476,21 +1462,20 @@ class DockerEnvironment(BaseEnvironment):
                 except (subprocess.TimeoutExpired, OSError) as e:
                     logger.warning("docker rm -f %s failed: %s", log_id, e)
 
-        # Daemon thread: doesn't block interpreter exit (atexit returns
-        # promptly), but unlike the old ``Popen(... &)`` shell trick the
-        # Python-level join semantics let the thread actually run to
-        # completion if the interpreter is still alive. atexit registers
-        # ``_atexit_cleanup`` in terminal_tool.py which waits up to ~60s for
-        # outstanding cleanups, so most exits complete the work cleanly.
+        # 守护线程：不会阻塞解释器的退出（atexit 能够及时返回），
+        # 但与以往 ``Popen(... &)`` 这种 Shell 技巧不同的是，
+        # 只要解释器依然存活，Python 层面的 join 语义就能让该线程切实运行直至完成。
+        # terminal_tool.py 中的 atexit 注册了 ``_atexit_cleanup``，
+        # 它会最多等待未完成的清理工作约 60 秒，因此绝大多数退出都能干净利落地完成清理。
         import threading
         t = threading.Thread(target=_do_cleanup, daemon=True, name=f"hermes-cleanup-{log_id}")
         t.start()
         self._cleanup_thread = t
         self._container_id = None
 
-        # Bind-mount dir teardown only runs when we actually removed the
-        # container (the dirs are the container's filesystem state; keeping
-        # them around with no container would orphan the data on disk).
+        # 绑定挂载目录的清理仅在我们【实际删除了容器】时运行
+        # （这些目录构成了容器的文件系统状态；
+        # 在容器已不存在的情况下保留它们，会导致这些数据孤立在磁盘上）。
         if should_remove and not self._persistent:
             for d in (self._workspace_dir, self._home_dir):
                 if d:

@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
+from collections import deque
 from pathlib import Path
 from typing import IO, Callable, Protocol
 
@@ -42,6 +43,105 @@ if _DEBUG_INTERRUPT:
 # Thread-local activity callback.  The agent sets this before a tool call so
 # long-running _wait_for_process loops can report liveness to the gateway.
 _activity_callback_local = threading.local()
+
+
+# Sentinel capacity for full-fidelity capture (internal consumers). Large
+# enough that the collector never evicts in practice, keeping a single code
+# path for both bounded and unbounded modes.
+_UNBOUNDED_CAPTURE_CHARS = 2**63 - 1
+
+
+class _BoundedOutputCollector:
+    """Retain a bounded 40/60 head-tail window of streamed text."""
+    def __init__(self, max_chars: int):
+        self.max_chars = max(1, int(max_chars))
+        self._head_limit = int(self.max_chars * 0.4)
+        self._tail_limit = self.max_chars - self._head_limit
+        self._head: list[str] = []
+        self._tail: deque[str] = deque()
+        self._head_chars = 0
+        self._tail_chars = 0
+        self._total_chars = 0
+        self._lock = threading.Lock()
+
+    @property
+    def buffered_chars(self) -> int:
+        with self._lock:
+            return self._head_chars + self._tail_chars
+
+    @property
+    def total_chars(self) -> int:
+        with self._lock:
+            return self._total_chars
+
+    def append(self, text: str) -> None:
+        if not text:
+            return
+        with self._lock:
+            text_len = len(text)
+            self._total_chars += text_len
+            start = 0
+
+            if self._head_chars < self._head_limit:
+                take = min(self._head_limit - self._head_chars, text_len)
+                if take:
+                    self._head.append(text[:take])
+                    self._head_chars += take
+                    start = take
+
+            remaining = text_len - start
+            if remaining <= 0 or self._tail_limit <= 0:
+                return
+            if remaining >= self._tail_limit:
+                self._tail.clear()
+                self._tail.append(text[-self._tail_limit :])
+                self._tail_chars = self._tail_limit
+                return
+
+            chunk = text[start:]
+            self._tail.append(chunk)
+            self._tail_chars += len(chunk)
+            while self._tail_chars > self._tail_limit:
+                excess = self._tail_chars - self._tail_limit
+                first = self._tail[0]
+                if len(first) <= excess:
+                    self._tail.popleft()
+                    self._tail_chars -= len(first)
+                else:
+                    self._tail[0] = first[excess:]
+                    self._tail_chars -= excess
+
+    def render(self, *, suffix: str = "") -> str:
+        """Render within ``max_chars``, preserving a required status suffix."""
+        with self._lock:
+            if len(suffix) >= self.max_chars:
+                return suffix[-self.max_chars :]
+
+            head = "".join(self._head)
+            tail = "".join(self._tail)
+            available = self.max_chars - len(suffix)
+            if self._total_chars <= available:
+                return head + tail + suffix
+
+            notice = ""
+            for _ in range(4):
+                content_budget = max(0, available - len(notice))
+                head_chars = int(content_budget * 0.4)
+                tail_chars = content_budget - head_chars
+                omitted = max(0, self._total_chars - head_chars - tail_chars)
+                updated = (
+                    f"\n\n... [OUTPUT TRUNCATED - {omitted:,} chars omitted "
+                    f"out of {self._total_chars:,} total] ...\n\n"
+                )
+                if updated == notice:
+                    break
+                notice = updated
+
+            content_budget = max(0, available - len(notice))
+            head_chars = int(content_budget * 0.4)
+            tail_chars = content_budget - head_chars
+            rendered_tail = tail[-tail_chars:] if tail_chars else ""
+            return head[:head_chars] + notice[:available] + rendered_tail + suffix
 
 
 def set_activity_callback(cb: Callable[[str], None] | None) -> None:
@@ -327,6 +427,10 @@ class BaseEnvironment(ABC):
         self._cwd_file = f"{temp_dir}/hermes-cwd-{self._session_id}.txt"
         self._cwd_marker = _cwd_marker(self._session_id)
         self._snapshot_ready = False
+        # When True, login bash is unusable (e.g. broken Git-for-Windows
+        # ``Directory \\drivers\\etc`` startup) so execute() must not fall
+        # back to ``bash -l`` per command — use non-login ``bash -c`` instead.
+        self._prefer_nonlogin = False
 
     # ------------------------------------------------------------------
     # Abstract methods
@@ -574,47 +678,65 @@ class BaseEnvironment(ABC):
     # Process lifecycle
     # ------------------------------------------------------------------
 
-    def _wait_for_process(self, proc: ProcessHandle, timeout: int = 120) -> dict:
+    def _wait_for_process(
+        self, proc: ProcessHandle, timeout: int = 120, *, bounded_capture: bool = False
+    ) -> dict:
         """
-        基于轮询的等待机制，集成了中断检查与标准输出（stdout）的清空。
+        基于轮询（Poll）的等待方式，支持中断检查与 stdout 管道清空（draining）。
+        此方法由所有后端共享，不被重写。
 
-        该方法在所有后端共用，不可重写。
+        ``bounded_capture=True``（仅用于前台终端工具路径）：
+        在清空管道的过程中，最多在 head/tail 窗口中保留 ``tool_output.max_bytes`` 大小的输出，
+        避免输出内容过多的子进程导致主进程内存溢出（OOM, #64435）。
+        默认值（False）则为内部消费者（如为补丁引擎提供数据的单文件 ``cat`` 读取、代码执行 RPC 读取、日志读取）
+        保留完整精度的捕获，防止数据截断导致内容损坏。
 
-        在进程运行期间，每隔 10 秒触发一次 ``activity_callback``（若当前实例已设置），
-        防止网关的非活动超时机制误杀长时间运行的命令。
+        进程运行期间，若当前实例设置了 ``activity_callback``，
+        则每 10 秒触发一次，避免 Gateway 的空闲超时机制误杀长时间运行的命令。
 
-        此外，该方法将轮询循环包裹在 ``try/finally`` 块中，
-        以确保在因 ``KeyboardInterrupt`` 或 ``SystemExit`` 退出时，
-        一定会调用 ``self._kill_process(proc)``。
-        如果没有这一机制，本地后端（通过 ``os.setsid`` 将子进程生成到其独立进程组中）
-        在 Python 中途关机时会留下一个 ``PPID=1`` 的孤儿进程——
-        也就是 Physikal 和我共同踩过的“在 30 分钟后 ``sleep 300`` 依然残留”的 Bug。
+        此外，将轮询循环包裹在 ``try/finally`` 中，
+        确保在通过 ``KeyboardInterrupt`` 或 ``SystemExit`` 退出时，
+        必定会调用 ``self._kill_process(proc)``。
+        若无此机制，本地后端（通过 ``os.setsid`` 将子进程生成到独立进程组中）
+        在 Python 中途关机时会导致遗留 PPID=1 的孤儿进程——
+        这也是我和 Physikal 都遇到过的“``sleep 300`` 在 30 分钟后依然存活”的 Bug。
         """
-        output_chunks: list[str] = []
+        if bounded_capture:
+            try:
+                from tools.tool_output_limits import get_max_bytes
 
-        # 通过 select() 实现非阻塞的数据清空。
+                capture_limit = get_max_bytes()
+            except Exception:
+                capture_limit = 50_000
+        else:
+            # 完整精度：使用实际上无上限的收集器（单头段，无驱逐机制），
+            # 使其行为与历史上的“累积一切”语义保持一致。
+            capture_limit = _UNBOUNDED_CAPTURE_CHARS
+        output = _BoundedOutputCollector(capture_limit)
+
+        # 通过 select() 实现非阻塞式的管道清空（drain）。
         #
-        # 旧有的处理模式——``for line in proc.stdout``——会在 Pipe 未到达 EOF 时
-        # 一直阻塞在 ``readline()`` 上。当用户的命令将进程放入后台
-        # （例如 ``cmd &``、``setsid cmd & disown`` 等）时，
-        # 该后台运行的孙进程会通过 ``fork()`` 继承我们 stdout Pipe 的写入端。
-        # 此时即使 ``bash`` 本身已经退出，Pipe 依然保持打开状态，
-        # 因为孙进程仍持有该写入端——这会导致数据清空线程永远无法返回，
-        # 从而使工具在孙进程的整个生命周期内一直挂起
-        # （Issue #8340：用户反馈在使用 ``setsid ... & disown`` 重启 uvicorn 时出现无限挂起）。
+        # 旧模式 —— ``for line in proc.stdout`` —— 会一直阻塞在
+        # ``readline()`` 上，直到管道到达 EOF。
+        # 当用户的命令将某个进程转入后台运行时（如 ``cmd &``、
+        # ``setsid cmd & disown`` 等），后台运行的孙进程会通过 ``fork()``
+        # 继承 stdout 管道的写入端。
+        # 此时即使 ``bash`` 本身已经退出，但由于孙进程依然持有该管道，
+        # 管道便会一直保持打开状态 —— 导致清空线程永不返回，
+        # 工具也会在孙进程的整个生命周期内持续挂起
+        # （Issue #8340：用户报告在使用 ``setsid ... & disown`` 重启 uvicorn 时出现无期限挂起）。
         #
         # 修复方案：使用带有短轮询间隔的 select()，
-        # 并在 ``bash`` 退出后不久即停止清空，即使 Pipe 尚未到达 EOF。
-        # 孙进程在此之后写入的任何输出都会进入一个孤立的 Pipe 中
-        # （无害——当我们这一端关闭时，内核会自动回收它）。
+        # 并在 ``bash`` 退出后不久即停止清空，即使管道尚未到达 EOF。
+        # 在此之后孙进程写入的任何输出都会进入孤立管道
+        # （无害 —— 当我们这端关闭时，内核会自动回收）。
         #
-        # 解码逻辑：我们通过 ``os.read()`` 以固定大小的块（4096 字节）读取原始字节，
-        # 因此单个多字节 UTF-8 字符可能会被拆分到不同的读取块中。
-        # 增量解码器（Incremental Decoder）可以在跨块读取时缓存未完成的字节序列；
-        # 同时 ``errors="replace"`` 保持了与底层 ``TextIOWrapper``
-        # （在 ``Popen`` 上构建时使用了 ``encoding="utf-8", errors="replace"``）一致的行为，
-        # 从而对二进制或编码错误的输出使用 U+FFFD 进行替换，而不是损坏整个缓冲区。
-        # https://gemini.google.com/app/42952ff33b0cedd9
+        # 解码：我们通过 ``os.read()`` 以固定块大小（4096）读取原始字节，
+        # 因此单个多字节 UTF-8 字符可能会被分割到不同的读取块中。
+        # 增量解码器（incremental decoder）会在多个块之间缓存未完整的序列，
+        # 而 ``errors="replace"`` 则对标了基线 ``TextIOWrapper``
+        # （即在 ``Popen`` 上配置了 ``encoding="utf-8", errors="replace"``），
+        # 从而通过 U+FFFD 替换来保留二进制或编码错误的输出，而不是破坏整个缓冲区。
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
         def _drain_iterable(stream):
@@ -632,16 +754,16 @@ class BaseEnvironment(ABC):
                     if piece is None:
                         continue
                     if isinstance(piece, bytes):
-                        output_chunks.append(decoder.decode(piece))
+                        output.append(decoder.decode(piece))
                     else:
-                        output_chunks.append(str(piece))
+                        output.append(str(piece))
             except Exception:
                 pass
             finally:
                 try:
                     tail = decoder.decode(b"", final=True)
                     if tail:
-                        output_chunks.append(tail)
+                        output.append(tail)
                 except Exception:
                     pass
 
@@ -674,14 +796,14 @@ class BaseEnvironment(ABC):
                         chunk = os.read(fd, 4096)
                         if not chunk:
                             break
-                        output_chunks.append(decoder.decode(chunk))
+                        output.append(decoder.decode(chunk))
                 except (ValueError, OSError):
                     pass
                 finally:
                     try:
                         tail = decoder.decode(b"", final=True)
                         if tail:
-                            output_chunks.append(tail)
+                            output.append(tail)
                     except Exception:
                         pass
                 return
@@ -699,7 +821,7 @@ class BaseEnvironment(ABC):
                             break
                         if not chunk:
                             break  # true EOF — all writers closed
-                        output_chunks.append(decoder.decode(chunk))
+                        output.append(decoder.decode(chunk))
                         idle_after_exit = 0
                     elif proc.poll() is not None:
                         # bash is gone and the pipe was idle for ~100ms.  Give
@@ -715,7 +837,7 @@ class BaseEnvironment(ABC):
                 try:
                     tail = decoder.decode(b"", final=True)
                     if tail:
-                        output_chunks.append(tail)
+                        output.append(tail)
                 except Exception:
                     pass
 
@@ -760,7 +882,7 @@ class BaseEnvironment(ABC):
                     self._kill_process(proc)
                     drain_thread.join(timeout=2)
                     return {
-                        "output": "".join(output_chunks) + "\n[Command interrupted]",
+                        "output": output.render(suffix="\n[Command interrupted]"),
                         "returncode": 130,
                     }
                 if time.monotonic() > deadline:
@@ -772,12 +894,11 @@ class BaseEnvironment(ABC):
                         )
                     self._kill_process(proc)
                     drain_thread.join(timeout=2)
-                    partial = "".join(output_chunks)
                     timeout_msg = f"\n[Command timed out after {timeout}s]"
                     return {
-                        "output": partial + timeout_msg
-                        if partial
-                        else timeout_msg.lstrip(),
+                        "output": output.render(suffix=timeout_msg).lstrip()
+                        if output.total_chars == 0
+                        else output.render(suffix=timeout_msg),
                         "returncode": 124,
                     }
                 # Periodic activity touch so the gateway knows we're alive
@@ -856,7 +977,7 @@ class BaseEnvironment(ABC):
                 proc.returncode,
             )
 
-        return {"output": "".join(output_chunks), "returncode": proc.returncode}
+        return {"output": output.render(), "returncode": proc.returncode}
 
     def _kill_process(self, proc: ProcessHandle):
         """Terminate a process. Subclasses may override for process-group kill."""
@@ -933,8 +1054,19 @@ class BaseEnvironment(ABC):
         timeout: int | None = None,
         stdin_data: str | None = None,
         rewrite_compound_background: bool = True,
+        bounded_capture: bool = False,
     ) -> dict:
-        """Execute a command, return {"output": str, "returncode": int}."""
+        """
+        执行命令，并返回包含 {"output": str, "returncode": int} 的字典。
+
+        当设置为 ``bounded_capture=True`` 时，会在清空数据流的过程中（采用 head/tail 窗口机制）
+        将 stdout/stderr 的保留量限制在 ``tool_output.max_bytes`` 以内，
+        而不是将完整输出全部保留在内存中（#64435）。
+        此参数仅应由输出目标为模型/工具载荷（前台终端工具）的调用方设置。
+        而内部的完整精度（full-fidelity）使用者 —— 例如为补丁引擎提供数据的单文件 ``cat`` 读取、
+        代码执行 RPC 读取、日志读取 —— 则必须保持其为 False：
+        截断这些数据不仅会影响显示，还会导致数据损坏。
+        """
         self._before_execute()
 
         exec_command, sudo_stdin = self._prepare_command(command)
@@ -962,13 +1094,16 @@ class BaseEnvironment(ABC):
 
         wrapped = self._wrap_command(exec_command, effective_cwd)
 
-        # Use login shell if snapshot failed (so user's profile still loads)
-        login = not self._snapshot_ready
+        # 若快照加载失败，则使用登录 Shell（以便用户的配置文件仍能加载），
+        # 除非登录本身已损坏 —— 此时非登录 Shell 是唯一的路径。
+        login = not self._snapshot_ready and not self._prefer_nonlogin
 
         proc = self._run_bash(
             wrapped, login=login, timeout=effective_timeout, stdin_data=effective_stdin
         )
-        result = self._wait_for_process(proc, timeout=effective_timeout)
+        result = self._wait_for_process(
+            proc, timeout=effective_timeout, bounded_capture=bounded_capture
+        )
         self._update_cwd(result)
 
         return result

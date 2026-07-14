@@ -494,35 +494,37 @@ def redact_sensitive_text(
     force: bool = False,
     code_file: bool = False,
     file_read: bool = False,
+    redact_url_credentials: bool = False,
 ) -> str:
-    """将所有的脱敏（redaction）模式应用到文本块中。
+    """
+    对一块文本应用所有的脱敏/编辑模式（redaction patterns）。
 
-    可以安全地对任何字符串调用 —— 未匹配的文本将原样传回。
-    默认启用。可通过 config.yaml 中的 `security.redact_secrets: false` 进行禁用。
-    针对必须绝对不能返回原始凭据（raw secrets）的安全边界，设置 force=True，
-    而无需顾及用户全局日志脱敏偏好的设置。
+    可安全地在任何字符串上调用 —— 未匹配的文本将原封不动地通过。
+    默认启用。可通过 config.yaml 中的 security.redact_secrets: false 进行禁用。
+    对于决不能返回原始密钥的安全边界（无论用户的全局日志脱敏偏好如何），请设置 force=True。
 
-    当已知文本为源代码时（例如 MAX_TOKENS=*** 常量、"apiKey": "test" 测试固件），
-    设置 code_file=True 以跳过环境变量（ENV）赋值和 JSON 字段的正则表达式模式。
-    前缀模式、认证请求头（auth headers）、私钥、数据库连接字符串、JWT 以及 URL
-    中的敏感凭据仍会被脱敏。
+    在非导航类的出口边界（non-navigation egress boundaries）设置 redact_url_credentials=True，
+    以额外脱敏包含凭据名称的查询参数以及 ``user:pass@`` 形式的 URL 用户信息。
+    默认值保持为 False，因为可操作的 OAuth 回调、魔术链接（magic-link）以及预签名 URL
+    必须在常规工具流程中原样保留。
 
-    对于返回给智能体的文件*内容*（read_file / search_files / cat），设置 file_read=True。
-    凭据【仍然】会被脱敏 —— 它们绝不会被泄露 —— 但通过前缀匹配的凭据将被替换为
-    不可重用的哨兵标记（sentinel，如 ``«redacted:ghp_…»``），而不是保留头部/尾部的
-    掩码（mask，如 ``ghp_S1...Pn2T``）。旧的掩码看起来像是一个真实但被截断的密钥，
-    因此智能体从 config.yaml 中读取它并将其写回时，会默默地将存储的凭据损坏为一个
-    失效的 13 字符值，从而导致 401 错误（参见 issue #35519）。该哨兵标记在语法上
-    作为一个 Token 是无效的，因此它不会被误认为是可用的密钥，也不会被作为密钥写回。
-    此参数会隐式启用 code_file=True（因为配置文件/数据文件不应该触发针对源代码的
-     ENV/JSON 误报路径）。
+    当确定文本为源代码（例如 MAX_TOKENS=*** 常量、"apiKey": "test" 测试夹具）时，
+    设置 code_file=True 以跳过环境变量赋值（ENV-assignment）和 JSON 字段正则表达式模式。
+    前缀模式、身份验证头、私钥、数据库连接字符串、JWT 以及 URL 密钥仍会被脱敏。
 
-    性能表现：每个正则表达式模式都被置于开销低廉的子字符串预检查之后（例如：针对环境变量
-    赋值检查是否包含 ``"="``，针对 URL 检查是否包含 ``"://"``，针对 JWT 检查是否包含 ``"eyJ"``）。
-    在一条典型的 hermes 日志行（不包含敏感凭据）上，这使得每条记录扫描 13 个模式的时间从
-    约 5.6 微秒降至约 1.8 微秒（降低了 68%）。预检查是保守的 —— 误报（false positives）
-    仍会运行完整的正则表达式，只是随后不会匹配成功。而漏报（false negatives）是不可能的，
-    因为每个正则表达式都要求其把关的子字符串必须匹配成功。
+    对于返回给 Agent 的文件 *内容*（read_file / search_files / cat），设置 file_read=True。
+    密钥仍会被脱敏 —— 绝不会暴露 —— 但匹配前缀的凭据会被替换为不可复用的哨兵标记（``«redacted:ghp_…»``），
+    而不是保留头尾信息的掩码（``ghp_S1...Pn2T``）。
+    旧掩码看起来像一个真实但被截断的密钥，因此 Agent 从 config.yaml 中读取并写回时，
+    会静默地将存储的凭据损坏为一个失效的 13 字符值，从而导致 401 错误（参见问题 #35519）。
+    哨兵标记在语法上是一个无效 Token，因此不会被误认为是可用的密钥，也不会作为密钥写回。
+    此设置隐式包含 code_file=True（配置文件/数据文件不应触发源代码的 ENV/JSON 伪阳性路径）。
+
+    性能优化：每个正则表达式模式前都加了一道低成本的子字符串预检
+    （例如环境变量赋值预检 ``"=" in text``、URL 预检 ``"://" in text``、JWT 预检 ``"eyJ" in text``）。
+    在典型的 hermes 日志行（无密钥）上，这使 13 个模式的扫描耗时从每条记录 ~5.6us 降至 ~1.8us（降低 68%）。
+    预检策略是保守的 —— 出现伪阳性时仍会运行完整的正则表达式（只是最后不会匹配成功）；
+    由于每个正则表达式都严格需要所预检的子字符串，因此绝不可能出现伪阴性（漏检）。
     """
     if text is None:
         return None
@@ -662,6 +664,10 @@ def redact_sensitive_text(
     # userinfo is never a round-trip workflow token (those live in the query
     # string), so masking it can't break a skill. The ``user:pass@`` form is
     # left to pass through per #34029.
+
+    if redact_url_credentials and "://" in text:
+        text = _redact_url_query_params(text)
+        text = _redact_url_userinfo(text)
 
     # Form-urlencoded bodies (only triggers on clean k=v&k=v inputs).
     if "&" in text and "=" in text:

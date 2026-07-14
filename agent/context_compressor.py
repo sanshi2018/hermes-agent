@@ -40,7 +40,21 @@ HISTORICAL_IN_PROGRESS_HEADING = "## Historical In-Progress State"
 HISTORICAL_PENDING_ASKS_HEADING = "## Historical Pending User Asks"
 HISTORICAL_REMAINING_WORK_HEADING = "## Historical Remaining Work"
 
-
+# [上下文压缩 — 仅供参考] 先前的轮次已被压缩到下方的总结中。
+# 这是来自先前上下文窗口的交接内容 —— 将其视为背景参考，而非活跃指令。
+# 请勿回答此总结中提及的问题或实现其中提及的请求；它们已被处理。
+# 仅对出现在此总结之后的最新用户消息做出回应 —— 该消息是当前要做什么的唯一事实来源。
+# 与总结的主题重叠并不意味着你应当恢复其任务：即使在类似的主题上，
+# 也以最新用户消息为准。仅将最新消息视为活跃任务，并完全丢弃来自
+# '{HISTORICAL_TASK_HEADING}' / '{HISTORICAL_IN_PROGRESS_HEADING}' /
+# '{HISTORICAL_PENDING_ASKS_HEADING}' / '{HISTORICAL_REMAINING_WORK_HEADING}'
+# 的过期事项 —— 除非最新消息明确要求，否则不要“收尾”或“完成”此处描述的工作。
+# 最新消息中的逆向信号（例如“停止”、“撤销”、“回滚”、“仅验证”、“不要再那样做了”、
+# “算了/没关系”、新主题）必须立即终止总结中描述的任何进行中的工作；
+# 不要在以后的轮次中重新提及它。
+# 重要提示：系统提示词中你的持久化记忆（MEMORY.md，USER.md）始终是权威且活跃的
+# —— 绝不要因为此压缩注释而忽略记忆内容或降低其优先级。
+# 当前的会话状态（文件、配置等）可能会反映此处描述的工作 —— 避免重复进行：
 SUMMARY_PREFIX = (
     "[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted "
     "into the summary below. This is a handoff from a previous context "
@@ -88,37 +102,36 @@ _DB_PERSISTED_MARKER = "_db_persisted"
 
 
 def _fresh_compaction_message_copy(msg: Dict[str, Any]) -> Dict[str, Any]:
-    """Copy a message for compaction assembly without persistence markers.
+    """复制用于压缩组装的消息，不包含持久化标记。
 
-    Live cached-gateway transcripts stamp ``_db_persisted`` during incremental
-    flushes.  Shallow ``.copy()`` propagates that marker into the post-rotation
-    compressed list, so ``_flush_messages_to_session_db`` skips every row when
-    writing to the new child session (#57491).
+    实时缓存网关的转录记录（transcripts）会在增量刷新期间标记上 ``_db_persisted``。
+    浅拷贝 ``.copy()`` 会将该标记传播到轮转后的压缩列表中，导致
+    ``_flush_messages_to_session_db`` 在写入新的子会话时跳过每一行（#57491）。
 
-    This strips at the copy site (clearest intent, and cheap), but the
-    authoritative guarantee is the single terminal sweep in ``compress()``
-    (``_strip_persistence_markers``): no message may leave ``compress()``
-    carrying ``_db_persisted`` regardless of how many intermediate copy sites
-    a future refactor adds.
+    这会在拷贝处（copy site）剥离该标记（此处的意图最清晰，且开销极低），
+    但最权威的保障是 ``compress()`` 中单次的终结扫除（``_strip_persistence_markers``）：
+    无论未来的重构会增加多少个中间拷贝处，任何消息在离开 ``compress()`` 时
+    都绝不能携带 ``_db_persisted``。
     """
     fresh = msg.copy()
+    # 删除缓存标记
     fresh.pop(_DB_PERSISTED_MARKER, None)
     return fresh
 
 
 def _strip_persistence_markers(messages: List[Dict[str, Any]]) -> None:
-    """Enforce the compaction invariant: no assembled message carries a
-    session-store persistence marker.
+    """强制执行压缩不变性：任何组装好的消息都不得携带
+    会话存储持久化标记（session-store persistence marker）。
 
-    ``compress()`` copies protected head/tail messages out of the live
-    cached-gateway transcript, which stamps ``_db_persisted`` on every message
-    over the life of the session.  If any copied dict keeps that marker, the
-    rotation flush to the child session skips it and the compacted transcript is
-    lost from ``state.db`` (#57491).  Stripping at each copy site is necessary
-    but *positional* — a copy site added after the assembly loops would re-leak.
-    This single terminal sweep makes the guarantee structural instead: run it
-    once on the fully-assembled list so the invariant holds no matter where the
-    copies happened.  Mutates in place (the dicts are compaction-local copies).
+    ``compress()`` 会从处于活动状态的缓存网关脚本中复制受保护的 head/tail 消息，
+    在会话的生命周期内，该脚本会在每条消息上盖上 ``_db_persisted`` 戳记。
+    如果任何被复制的字典保留了该标记，那么向子会话的轮转刷新（rotation flush）
+    将会跳过它，导致压缩后的脚本在 ``state.db`` 中丢失（#57491）。
+    在每个复制位置进行清除是必要的，但这只是“基于位置”的——如果在组装循环
+    之后添加了新的复制位置，就会再次发生泄漏。
+    而这次统一的终端清扫则转为从“结构上”提供保证：在完全组装好的列表上
+    运行一次，这样无论复制发生在何处，该不变性都能保持成立。
+    此操作为原地修改（这些字典是压缩本地的副本）。
     """
     for msg in messages:
         if isinstance(msg, dict):
@@ -390,11 +403,11 @@ def _content_text_for_contains(content: Any) -> str:
 
 
 def _append_text_to_content(content: Any, text: str, *, prepend: bool = False) -> Any:
-    """Append or prepend plain text to message content safely.
+    """安全地将纯文本追加（append）或前置（prepend）到消息内容中。
 
-    Compression sometimes needs to add a note or merge a summary into an
-    existing message. Message content may be plain text or a multimodal list of
-    blocks, so direct string concatenation is not always safe.
+    压缩有时需要向现有消息中添加注释或合并总结。
+    消息内容可能是纯文本，也可能是多模态的块列表（multimodal list of blocks），
+    因此直接进行字符串拼接并不总是安全的。
     """
     if content is None:
         return text
@@ -433,29 +446,25 @@ def _strip_image_parts_from_parts(parts: Any) -> Any:
 
 
 def _truncate_tool_call_args_json(args: str, head_chars: int = 200) -> str:
-    """Shrink long string values inside a tool-call arguments JSON blob while
-    preserving JSON validity.
+    """在保持 JSON 有效性的同时，缩减工具调用（tool-call）参数 JSON 块内部的过长字符串值。
 
-    The ``function.arguments`` field on a tool call is a JSON-encoded string
-    passed through to the LLM provider; downstream providers strictly
-    validate it and return a non-retryable 400 when it is not well-formed.
-    An earlier implementation sliced the raw JSON at a fixed byte offset and
-    appended ``...[truncated]`` — which routinely produced strings like::
+    工具调用中的 ``function.arguments`` 字段是一个传递给 LLM 服务商的 JSON 编码字符串；
+    下游服务商会对其进行严格校验，当其格式不正确（not well-formed）时，会返回一个不可重试的
+     400 错误。早期的实现是在固定的字节偏移量处直接对原始 JSON 进行切片，
+    并追加 ``...[truncated]`` —— 这经常会产生如下形式的字符串：:
 
         {"path": "/foo/bar", "content": "# long markdown
         ...[truncated]
 
-    i.e. an unterminated string and a missing closing brace. MiniMax, for
-    example, rejects this with ``invalid function arguments json string``
-    and the session gets stuck re-sending the same broken history on every
-    turn. See issue #11762 for the observed loop.
+    也就是说，产生了一个未闭合的字符串且缺失了结尾的右花括号。例如，MiniMax
+    会以 ``invalid function arguments json string`` 为由拒绝此类请求，
+    从而导致会话卡死，在每一轮中都不断重复发送这段损坏的历史记录。
+    观察到的死循环具体参见 issue #11762。
 
-    This helper parses the arguments, shrinks long string leaves inside the
-    parsed structure, and re-serialises. Non-string values (paths, ints,
-    booleans) are preserved intact. If the arguments are not valid JSON
-    to begin with — some model backends use non-JSON tool arguments — the
-    original string is returned unchanged rather than replaced with
-    something neither we nor the backend can parse.
+    该辅助函数会解析这些参数，缩减解析后结构内部的过长字符串叶子节点（string leaves），
+    然后重新进行序列化。非字符串值（路径、整数、布尔值）将保持原样。如果参数本身
+    一开始就不是有效的 JSON —— 某些模型后端会使用非 JSON 格式的工具参数 —— 则会
+    原样返回原始字符串，而不是将其替换为我们和后端都无法解析的内容。
     """
     try:
         parsed = json.loads(args)
@@ -530,20 +539,19 @@ def _strip_images_from_content(content: Any) -> Any:
 
 
 def _strip_historical_media(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Replace image parts in older messages with placeholder text.
+    """用占位符文本替换旧消息中的图片部分。
 
-    The anchor is the *last* user message that has any image content. Every
-    message before that anchor gets its image parts replaced with a short
-    placeholder so the outgoing request stops re-shipping the same multi-MB
-    base-64 image blobs on every turn.
+    锚点是 *最后一条* 包含任何图片内容的用户消息。在该锚点之前的
+    每一条消息，其图片部分都会被替换为一个简短的占位符，从而使发出的
+    请求停止在每一轮对话中重复发送相同的数 MB 大小的 base-64 图片数据块。
 
-    If no user message carries images, the list is returned unchanged.
-    If the only user message with images is the very first one (nothing
-    earlier to strip), the list is returned unchanged.
+    如果没有用户消息包含图片，则原样返回列表。
+    如果唯一包含图片的用户消息就是最开始的第一条（前面没有可清除的内容），
+    则原样返回列表。
 
-    Shallow copies of touched messages only; input is never mutated.
-    Port of Kilo-Org/kilocode#9434 (adapted for the OpenAI-style message
-    shape the hermes compressor emits).
+    仅对受影响的消息进行浅拷贝；绝对不会修改输入数据（input is never mutated）。
+    移植自 Kilo-Org/kilocode#9434（并针对 hermes 压缩器输出的
+    OpenAI 风格消息格式进行了适配）。
     """
     if not messages:
         return messages
@@ -587,13 +595,12 @@ def _strip_historical_media(messages: List[Dict[str, Any]]) -> List[Dict[str, An
 
 
 def _summarize_tool_result(tool_name: str, tool_args: str, tool_content: str) -> str:
-    """Create an informative 1-line summary of a tool call + result.
+    """生成包含有效信息的工具调用及结果的单行总结。
 
-    Used during the pre-compression pruning pass to replace large tool
-    outputs with a short but useful description of what the tool did,
-    rather than a generic placeholder that carries zero information.
+    在压缩前的修剪阶段使用，用关于工具行为的简短且有用的描述来替换庞大的
+    工具输出，而不是使用不包含任何信息的通用占位符。
 
-    Returns strings like::
+    返回类似如下的字符串：:
 
         [terminal] ran `npm test` -> exit 0, 47 lines output
         [read_file] read config.py from line 1 (1,200 chars)
@@ -1322,24 +1329,23 @@ class ContextCompressor(ContextEngine):
         self, messages: List[Dict[str, Any]], protect_tail_count: int,
         protect_tail_tokens: int | None = None,
     ) -> tuple[List[Dict[str, Any]], int]:
-        """Replace old tool result contents with informative 1-line summaries.
+        """将旧的工具结果内容替换为包含有效信息的单行总结。
 
-        Instead of a generic placeholder, generates a summary like::
+        它不会使用通用的占位符，而是生成类似如下的总结：:
 
-            [terminal] ran `npm test` -> exit 0, 47 lines output
-            [read_file] read config.py from line 1 (3,400 chars)
+            [terminal] 运行了 `npm test` -> exit 0，47 行输出
+            [read_file] 从第 1 行读取了 config.py（3,400 字符）
 
-        Also deduplicates identical tool results (e.g. reading the same file
-        5x keeps only the newest full copy) and truncates large tool_call
-        arguments in assistant messages outside the protected tail.
+        此外，还会对完全相同的工具结果进行去重（例如：读取同一个文件 5 次，将仅保留
+        最新的一份完整副本），并截断受保护尾部（protected tail）之外的 assistant 消息中
+        庞大的 tool_call 参数。
 
-        Walks backward from the end, protecting the most recent messages that
-        fall within ``protect_tail_tokens`` (when provided) OR the last
-        ``protect_tail_count`` messages (backward-compatible default).
-        When both are given, the token budget takes priority and the message
-        count acts as a hard minimum floor.
+        从末尾向后（反向）遍历，保护落入 ``protect_tail_tokens``（若提供）范围内的最新消息，
+        或者保护最后的 ``protect_tail_count`` 条消息（向后兼容的默认设置）。
+        当两者都提供时，Token 预算具有更高优先级，而消息数量则作为硬性的最低下限。
 
-        Returns (pruned_messages, pruned_count).
+        返回：
+            (pruned_messages, pruned_count) 元组。
         """
         if not messages:
             return messages, 0
@@ -1377,22 +1383,21 @@ class ContextCompressor(ContextEngine):
                     break
                 accumulated += msg_tokens
                 boundary = i
-            # Translate the budget walk into a "protected count", apply the
-            # floor in count-space (where `max` reads naturally: protect at
-            # least `min_protect` messages or whatever the budget reserved,
-            # whichever is more), then convert back to a prune boundary.
-            # Doing this in index-space with `max` would invert the direction
-            # (smaller index = MORE protected), so a generous budget would
-            # silently get truncated back down to `min_protect`.
+            # 将预算遍历（budget walk）转换为“受保护数量”，并在数量空间（count-space）中
+            # 应用下限（在这里使用 `max` 读起来很自然：至少保护 `min_protect` 条消息，
+            # 或者预算所保留的消息，两者之中取较大值），然后再转换回修剪边界（prune boundary）。
+            # 如果在索引空间（index-space）中通过 `max` 来做这件事，会使方向发生反转
+            # （索引越小 = 受保护的内容越多），这样一来，一个宽裕的预算反而会
+            # 被默默地截断回 `min_protect` 的水平。
             budget_protect_count = len(result) - boundary
             protected_count = max(budget_protect_count, min_protect)
             prune_boundary = len(result) - protected_count
         else:
             prune_boundary = len(result) - protect_tail_count
 
-        # Pass 1: Deduplicate identical tool results.
-        # When the same file is read multiple times, keep only the most recent
-        # full copy and replace older duplicates with a back-reference.
+        # 第一阶段：对完全相同的工具结果进行去重。
+        # 当同一个文件被读取多次时，仅保留最新的一份完整副本，
+        # 并将较旧的重复项替换为反向引用（back-reference）。
         content_hashes: dict = {}  # hash -> (index, tool_call_id)
         for i in range(len(result) - 1, -1, -1):
             msg = result[i]
@@ -1422,10 +1427,9 @@ class ContextCompressor(ContextEngine):
             if msg.get("role") != "tool":
                 continue
             content = msg.get("content", "")
-            # Multimodal content (base64 screenshots etc.): strip the image
-            # payload — keep a lightweight text placeholder in its place.
-            # Without this, an old computer_use screenshot (~1MB base64 +
-            # ~1500 real tokens) survives every compression pass forever.
+            # 多模态内容（base64 截图等）：剥离图片负载 —— 在其原本位置保留一个轻量级的
+            # 文本占位符。如果不这样做，一个旧的 `computer_use` 截图（约 1MB base64 数据 +
+            # 约 1500 个真实 Token）将在每一次压缩处理中永远留存下来。
             if isinstance(content, list):
                 stripped = _strip_image_parts_from_parts(content)
                 if stripped is not None:
@@ -1452,14 +1456,12 @@ class ContextCompressor(ContextEngine):
                 result[i] = {**msg, "content": summary}
                 pruned += 1
 
-        # Pass 3: Truncate large tool_call arguments in assistant messages
-        # outside the protected tail. write_file with 50KB content, for
-        # example, survives pruning entirely without this.
+        # 第三阶段：截断受保护尾部（protected tail）之外的 assistant 消息中庞大的 tool_call 参数。
+        # 例如，如果不进行此处理，包含 50KB 内容的 write_file 调用将完全免于被修剪。
         #
-        # The shrinking is done inside the parsed JSON structure so the
-        # result remains valid JSON — otherwise downstream providers 400
-        # on every subsequent turn until the broken call falls out of
-        # the window. See ``_truncate_tool_call_args_json`` docstring.
+        # 这种缩减（shrinking）是在解析后的 JSON 结构内部进行的，从而确保
+        # 结果依然是有效的 JSON —— 否则下游服务商会在随后的每一个轮次中返回 400 错误，
+        # 直到这个损坏的调用移出上下文窗口。参见 ``_truncate_tool_call_args_json`` 的 docstring。
         for i in range(prune_boundary):
             msg = result[i]
             if msg.get("role") != "assistant" or not msg.get("tool_calls"):
@@ -1505,18 +1507,16 @@ class ContextCompressor(ContextEngine):
     _TOOL_ARGS_HEAD = 1200    # kept from the start of tool args
 
     def _serialize_for_summary(self, turns: List[Dict[str, Any]]) -> str:
-        """Serialize conversation turns into labeled text for the summarizer.
+        """将对话轮次序列化为带有标签的文本，以供总结器使用。
 
-        Includes tool call arguments and result content (up to
-        ``_CONTENT_MAX`` chars per message) so the summarizer can preserve
-        specific details like file paths, commands, and outputs.
+        包含工具调用参数和结果内容（每条消息最多 ``_CONTENT_MAX`` 个字符），
+        以便总结器能够保留文件路径、命令和输出等特定细节。
 
-        All content is redacted before serialization to prevent secrets
-        (API keys, tokens, passwords) from leaking into the summary that
-        gets sent to the auxiliary model and persisted across compactions.
+        所有内容在序列化之前都会进行脱敏（redacted），以防止敏感凭据（API 密钥、
+        Token、密码）泄露到发送给辅助模型并在多次压缩（compactions）中持久化的总结中。
         """
-        # Lazy import (matches title_generator.py) — agent_runtime_helpers
-        # pulls in heavy transitive imports we don't want at module load.
+        # 延迟导入（与 title_generator.py 保持一致） —— agent_runtime_helpers
+        # 会引入沉重的传递性导入（transitive imports），我们不希望在模块加载时引入它们。
         from agent.agent_runtime_helpers import strip_think_blocks
 
         parts = []
@@ -1524,15 +1524,11 @@ class ContextCompressor(ContextEngine):
             role = msg.get("role", "unknown")
             content = redact_sensitive_text(msg.get("content") or "")
             content = _MEDIA_DIRECTIVE_RE.sub("[media attachment]", content)
-            # Strip inline reasoning blocks (<think>, <reasoning>, etc.) from
-            # assistant content before it reaches the summarizer. Reasoning
-            # traces are transient scratch work — feeding them to the aux
-            # model wastes summarizer context and risks scratch-work
-            # conclusions being preserved as facts in the summary. The native
-            # ``reasoning`` message field is already excluded (only
-            # ``content`` is serialized); this closes the inline-tag path
-            # used when native thinking is disabled or the provider inlines
-            # traces into content.
+            # 在 assistant 内容进入总结器之前，从中剥离内联推理块（`<think>`、`<reasoning>` 等）。
+            # 推理轨迹（Reasoning traces）是临时的草稿（scratch work）—— 将它们发送给辅助
+            # 模型会浪费总结器的上下文，并且存在将草稿中的结论作为事实保留在总结中的风险。
+            # 原生的 ``reasoning`` 消息字段已被排除（只有 ``content`` 会被序列化）；
+            # 这封堵了当原生思考被禁用，或者服务商将推理轨迹内联到 content 中时所使用的内联标签路径。
             if role == "assistant" and content:
                 content = strip_think_blocks(None, content)
 
@@ -1801,22 +1797,19 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
         turns_to_summarize: List[Dict[str, Any]],
         focus_topic: Optional[str] = None,
     ) -> Optional[str]:
-        """Generate a structured summary of conversation turns.
+        """生成对话轮次的结构化总结。
 
-        Uses a structured template (Goal, Progress, Decisions, Resolved/Pending
-        Questions, Files, Remaining Work) with explicit preamble telling the
-        summarizer not to answer questions.  When a previous summary exists,
-        generates an iterative update instead of summarizing from scratch.
+        使用结构化模板（目标、进度、决策、已解决/待解决的问题、文件、剩余工作），
+        并带有明确的前导语（preamble）以指示总结器不要回答问题。当存在先前的
+        总结时，生成迭代更新，而不是从头开始总结。
 
-        Args:
-            focus_topic: Optional focus string for guided compression.  When
-                provided, the summariser prioritises preserving information
-                related to this topic and is more aggressive about compressing
-                everything else.  Inspired by Claude Code's ``/compact``.
+        参数：
+            focus_topic: 用于引导式压缩的可选核心主题字符串。当提供时，
+                总结器会优先保留与该主题相关的信息，并会更积极地压缩
+                其他所有内容。灵感源自 Claude Code 的 ``/compact``。
 
-        Returns None if all attempts fail — the caller should drop
-        the middle turns without a summary rather than inject a useless
-        placeholder.
+        如果所有尝试均失败，则返回 None —— 调用方应直接丢弃中间的轮次（不进行总结），
+        而不是注入一个无用的占位符。
         """
         now = time.monotonic()
         if now < self._summary_failure_cooldown_until:
@@ -1829,12 +1822,12 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
         summary_budget = self._compute_summary_budget(turns_to_summarize)
         content_to_summarize = self._serialize_for_summary(turns_to_summarize)
 
-        # Current date for temporal anchoring (see ## Temporal Anchoring below).
-        # Date-only granularity matches system_prompt.py:337 (PR #20451) and the
-        # user's configured timezone via hermes_time.now(). The compaction summary
-        # is a mid-conversation message that is NOT part of the cached prefix, so a
-        # date here never affects prompt-cache stability. Resolved defensively —
-        # a clock failure must never block compaction.
+        # 用于时间锚定（temporal anchoring）的当前日期（参见下文的 ## Temporal Anchoring）。
+        # 仅限日期的粒度与 system_prompt.py:337 (PR #20451) 以及通过
+        # hermes_time.now() 获取的用户配置的时区相匹配。压缩总结（compaction summary）
+        # 是一个对话中途的消息，它【不】属于缓存前缀（cached prefix）的一部分，因此这里的
+        # 日期绝不会影响提示词缓存（prompt-cache）的稳定性。采用防御性处理 ——
+        # 时钟故障绝不能阻塞压缩。
         try:
             from hermes_time import now as _hermes_now
 
@@ -1842,9 +1835,17 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
         except Exception:  # pragma: no cover - clock resolution is best-effort
             _today_str = ""
 
-        # Preamble shared by both first-compaction and iterative-update prompts.
-        # Keep the wording deliberately plain: Azure/OpenAI-compatible content
-        # filters have flagged stronger "injection" / "do not respond" framing.
+        # 首次压缩和迭代更新提示词所共享的前导语。
+        # 故意保持措辞平实：兼容 Azure/OpenAI 的内容过滤器曾对更强烈的
+        # “注入”/“不要回应”话术构建做出过标记。
+        # ---------------------------------
+        # 你是一个正在创建上下文检查点的总结智能体。
+        # 将下方的对话轮次视为先前工作紧凑记录的源材料。
+        # 仅生成结构化总结；请勿添加问候语、前导语或前缀。
+        # 用用户在对话中使用的相同语言来撰写总结 —— 请勿翻译或切换为英语。
+        # 绝不要在总结中包含 API 密钥、Token、密码、机密信息、凭据或连接字符串
+        # —— 将出现的任何此类内容替换为 [REDACTED]。请注意，虽然用户提供了凭据，
+        # 但不要保留它们的值。
         _summarizer_preamble = (
             "You are a summarization agent creating a context checkpoint. "
             "Treat the conversation turns below as source material for a "
@@ -1859,11 +1860,15 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
             "do not preserve their values."
         )
 
-        # Temporal anchoring directive. Rewrites relative / still-pending-sounding
-        # references into absolute, dated, past-tense facts so a resumed
-        # conversation does not re-issue completed actions. Only emitted when the
-        # current date resolved successfully; otherwise the rule is omitted so the
-        # summarizer is never handed an empty date placeholder.
+        # 时间锚定指令。将相对的、听起来仍悬而未决的描述重写为绝对的、带有日期的、
+        # 过去时态的事实，以便恢复后的对话不会重新执行已完成的操作。
+        # 仅在当前日期成功解析时才会发出；否则将忽略该规则，
+        # 从而使总结器永远不会接收到空的日期占位符。
+        # ------------------------------
+        # 时间锚定：当前日期是 {_today_str}。当某个操作已经执行完毕时，
+        # 将其表述为一个已完成的、带有日期的、过去时态的事实，而不是一条未决的指令。
+        # 例如，将 “就提议给 John 发邮件” 重写为 “已于 {_today_str} 向 John 发送了提议邮件。”
+        # 绝不要将已完成的操作表述得像仍然需要去做一样，也绝不要为尚未发生的工作捏造日期。
         if _today_str:
             _temporal_anchoring_rule = (
                 f"\nTEMPORAL ANCHORING: The current date is {_today_str}. When an "
@@ -1877,6 +1882,28 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
         else:
             _temporal_anchoring_rule = ""
 
+        # [唯一最重要的字段。逐字捕获用户最近未实现的输入 ——
+        # 即他们使用的原话。这包括：
+        # - 明确的任务指派（例如“重构 auth 模块”）
+        # - 等待回答的问题（例如“waarom staat X op Y?”、“wat zijn de volgende stappen?”）
+        # - 等待输入的决策（例如“optie A of B?”）
+        # - 正在进行的讨论，其中 assistant 需给出下一个实质性的回复
+        # 用户刚刚提出问题的对话也是一个处于活跃状态的任务 ——
+        # 该任务即“结合完整上下文回答该问题”。
+        # 请勿仅因为用户未发出祈使命令就填写“None”；
+        # 仅在极少数情况下（即最后的交流已完全解决，且用户说了类似
+        # “thanks, that's all”的话时）才保留使用“None”。
+        # 如果有多项待办事项，仅列出尚未完成的事项。
+        # 后续工作应当紧接此处开始。示例：
+        # “User asked: 'Now refactor the auth module to use JWT instead of sessions'”
+        # “User asked: 'Waarom stond provider ineens op openrouter?' —— 需要排查 + 解答”
+        # “User chose option A; awaiting implementation of step 2”
+        # 如果用户最近的消息是一个覆盖了先前工作的逆向信号（停止、撤销、回滚、
+        # 算了/没关系、仅验证、更换主题），请逐字写下该逆向信号，并且
+        # 【不要】结转已取消的任务。示例：“User asked: 'Stop the i18n refactor
+        # and just verify the current diff' —— 先前进行中的 i18n 工作已取消。”
+        # 如果不存在未决的任务，写“None”。]
+        # ------------
         # Shared structured template (used by both paths).
         _template_sections = f"""{HISTORICAL_TASK_HEADING}
 [THE SINGLE MOST IMPORTANT FIELD. Capture the user's most recent unfulfilled
@@ -1901,7 +1928,28 @@ work, write the reverse signal verbatim and DO NOT carry forward the
 cancelled task. Example: "User asked: 'Stop the i18n refactor and just
 verify the current diff' — earlier i18n in-flight work is cancelled."
 If no outstanding task exists, write "None."]
+## Goal（目标）
+[用户整体上试图完成的事情]
 
+## Constraints & Preferences（约束与偏好）
+[用户的偏好、编码风格、约束条件、重要决策]
+
+## Completed Actions（已完成的操作）
+[已采取的具体操作的编号列表 —— 包含使用的工具、目标以及结果。
+每一项的格式为：N. 操作 目标 — 结果 [工具：名称]
+示例：
+1. READ config.py:45 — 发现 `==` 应当为 `!=` [工具: read_file]
+2. PATCH config.py:45 — 将 `==` 修改为 `!=` [工具: patch]
+3. TEST `pytest tests/` — 3/50 失败：test_parse, test_validate, test_edge [工具: terminal]
+请具体写明文件路径、命令、行号和结果。]
+
+## Active State（活动状态）
+[当前的工作状态 —— 包含：
+- 工作目录和分支（如果适用）
+- 已修改/已创建的文件，并对每个文件进行简要说明
+- 测试状态（通过 X/Y 个）
+- 任何正在运行的进程或服务器
+- 关键的环境细节]
 ## Goal
 [What the user is trying to accomplish overall]
 
@@ -1925,6 +1973,16 @@ Be specific with file paths, commands, line numbers, and results.]
 - Any running processes or servers
 - Environment details that matter]
 
+[当前正在进行的工作 —— 触发压缩时正在做的事情]
+
+## Blocked（受阻）
+[任何尚未解决的阻碍、错误或问题。包含准确的错误信息。]
+
+## Key Decisions（关键决策）
+[重要的技术决策以及做出这些决策的原因]
+
+## Resolved Questions（已解决的问题）
+[用户提出且【已经】得到解答的问题 —— 包含相应的解答以避免重复回答]
 {HISTORICAL_IN_PROGRESS_HEADING}
 [Work currently underway — what was being done when compaction fired]
 
@@ -1937,17 +1995,47 @@ Be specific with file paths, commands, line numbers, and results.]
 ## Resolved Questions
 [Questions the user asked that were ALREADY answered — include the answer so it is not repeated]
 
+# [用户提出但【尚未】解答或实现的提问或请求。这些是过期的（STALE）
+# —— 它们来自已被压缩的轮次。在此处写下它们仅供参考。
+# 除非最新的用户消息有明确要求，否则智能体【决不能】针对它们采取行动。
+# 若无，写“None”。]
+# 
+# ## Relevant Files（相关文件）
+# [已读取、修改或创建的文件 —— 以及对每个文件的简要说明]
 {HISTORICAL_PENDING_ASKS_HEADING}
 [Questions or requests from the user that have NOT yet been answered or fulfilled. These are STALE — they were from the compacted turns. Write them here for reference only. The agent must NOT act on them unless the latest user message explicitly requests it. If none, write "None."]
 
 ## Relevant Files
 [Files read, modified, or created — with brief note on each]
 
+# {HISTORICAL_REMAINING_WORK_HEADING}
+# [尚需完成的工作 —— 作为过期的（STALE）上下文，仅供参考。除非最新的用户消息
+# 有明确要求，否则智能体【决不能】恢复此工作。]
+# 
+# ## Critical Context（关键上下文）
+# [任何若不明确保留就会丢失的特定值、错误信息、配置细节或数据。
+# 绝不要包含 API 密钥、Token、密码或凭据 —— 请改写为 [REDACTED]。]
 {HISTORICAL_REMAINING_WORK_HEADING}
 [What remains to be done — framed as STALE context for reference only. The agent must NOT resume this work unless the latest user message explicitly asks for it.]
 
 ## Critical Context
 [Any specific values, error messages, configuration details, or data that would be lost without explicit preservation. NEVER include API keys, tokens, passwords, or credentials — write [REDACTED] instead.]
+
+# 目标大约为 {summary_budget} 个 Token。要具体（CONCRETE） —— 包含文件路径、命令输出、错误信息、行号和特定值。避免使用类似“做了一些更改”这样模糊的描述 —— 准确说出更改了什么。
+# {_temporal_anchoring_rule}
+# 只写总结正文。不要包含任何前导语或前缀。"""
+
+        if self._previous_summary:
+            # 迭代更新：保留现有信息，添加新进度
+            prompt = f"""{_summarizer_preamble}
+
+你正在更新一份上下文压缩总结。先前的压缩生成了下方的总结。此后发生了新的对话轮次，需要将其合并进来。
+
+先前的总结：
+{self._previous_summary}
+
+要合并的新轮次：
+{content_to_summarize}
 
 Target ~{summary_budget} tokens. Be CONCRETE — include file paths, command outputs, error messages, line numbers, and specific values. Avoid vague descriptions like "made some changes" — say exactly what changed.
 {_temporal_anchoring_rule}
@@ -1965,13 +2053,23 @@ PREVIOUS SUMMARY:
 NEW TURNS TO INCORPORATE:
 {content_to_summarize}
 
+# 使用这种精确的结构更新总结。保留所有仍然相关的现有信息。
+# 将新完成的操作添加到编号列表中（继续顺延编号）。
+# 完成后，将事项从“进行中（In Progress）”移至“已完成的操作（Completed Actions）”。
+# 将已回答的问题移至“已解决的问题（Resolved Questions）”。
+# 更新“活动状态（Active State）”以反映当前状态。
+# 仅在信息明显过时的情况下才将其移除。
+# 至关重要：更新“## 活跃任务（Active Task）”以反映用户最近未实现的输入 ——
+# 这包括智能体（assistant）尚未回答的任何提问、决策请求或讨论轮次。
+# 仅当最后的交流已完全解决时，才填写“None”。
 Update the summary using this exact structure. PRESERVE all existing information that is still relevant. ADD new completed actions to the numbered list (continue numbering). Move items from "In Progress" to "Completed Actions" when done. Move answered questions to "Resolved Questions". Update "Active State" to reflect current state. Remove information only if it is clearly obsolete. CRITICAL: Update "## Active Task" to reflect the user's most recent unfulfilled input — this includes any question, decision request, or discussion turn that the assistant has not yet answered. Only write "None" if the last exchange was fully resolved.
 
 {_template_sections}"""
         else:
             # First compaction: summarize from scratch
             prompt = f"""{_summarizer_preamble}
-
+# 在先前的轮次被压缩后，为对话创建一个结构化的检查点总结。
+# 该总结应当保留足够的细节以保持连贯性，而无需重新阅读原始轮次。
 Create a structured checkpoint summary for the conversation after earlier turns are compacted. The summary should preserve enough detail for continuity without re-reading the original turns.
 
 TURNS TO SUMMARIZE:
@@ -1987,7 +2085,13 @@ Use this exact structure:
             prompt += f"""
 
 FOCUS TOPIC: "{focus_topic}"
-This compaction should PRIORITISE preserving all information related to the focus topic above. For content related to "{focus_topic}", include full detail — exact values, file paths, command outputs, error messages, and decisions. For content NOT related to the focus topic, summarise more aggressively (brief one-liners or omit if truly irrelevant). The focus topic sections should receive roughly 60-70% of the summary token budget. Even for the focus topic, NEVER preserve API keys, tokens, passwords, or credentials — use [REDACTED]."""
+# 此次压缩应当【优先】保留与上方核心主题相关的所有信息。
+# 对于与 "{focus_topic}" 相关的内容，应包含完整的细节 —— 确切的值、文件路径、命令输出、错误信息以及决策。
+# 对于与核心主题【无关】的内容，要更积极地进行总结（简短的单行说明，或者如果确实无关则予以忽略）。
+# 核心主题部分应当分配大约 60-70% 的总结 Token 预算。
+# 即使是针对核心主题，也【绝不要】保留 API 密钥、Token、密码或凭据 —— 请使用 [REDACTED]。
+This compaction should PRIORITISE preserving all information related to the focus topic above. For content related to "{focus_topic}", include full detail — exact values, file paths, command outputs, error messages, and decisions. For content NOT related to the focus topic, summarise more aggressively (brief one-liners or omit if truly irrelevant). The focus topic sections should receive roughly 60-70% of the summary token budget. Even for the focus topic, NEVER preserve API keys, tokens, passwords, or credentials — use [REDACTED].
+"""
 
         try:
             call_kwargs = {
@@ -2000,30 +2104,27 @@ This compaction should PRIORITISE preserving all information related to the focu
                     "api_mode": self.api_mode,
                 },
                 "messages": [{"role": "user", "content": prompt}],
-                # NO max_tokens: the output cap must never truncate a summary.
-                # ``summary_budget`` is prompt-level guidance only ("Target ~N
-                # tokens" above). Most OpenAI-compatible wires already omit the
-                # param (see _build_call_kwargs), but the Anthropic Messages
-                # wire and NVIDIA NIM forward it — a hard cap there cut
-                # summaries mid-section (thinking models burn the cap on
-                # reasoning first), producing truncated/thinking-only
-                # summaries and compaction loops. Omitting lets the adapter
-                # fall back to the model's native output ceiling.
-                # timeout resolved from auxiliary.compression.timeout config by call_llm
+                # 不设置 max_tokens：输出上限决不能截断总结。
+                # ``summary_budget`` 仅为提示词级别的引导（即上方的 "Target ~N tokens"）。
+                # 大多数兼容 OpenAI 的接口层（wires）已经省略了该参数（参见 _build_call_kwargs），
+                # 但 Anthropic Messages 接口层和 NVIDIA NIM 仍会转发它 ——
+                # 在这些接口中设置硬上限会导致总结在中途被切断（推理模型会首先在推理上耗尽该额度），
+                # 从而产生被截断的或仅包含推理的总结，并引发压缩死循环。
+                # 省略该参数可以让适配器（adapter）回退到模型原生的输出上限。
+                # timeout 由 call_llm 从 auxiliary.compression.timeout 配置中解析得出。
             }
             if self.summary_model:
                 call_kwargs["model"] = self.summary_model
-            # Compression is atomic: protect the in-flight summary call from a
-            # mid-turn gateway interrupt. Without this, an incoming user message
-            # aborts the summary and compression falls back to a degraded static
-            # marker, losing the real handoff (#23975). Re-entrant: a main-model
-            # retry (_generate_summary recursion) re-enters harmlessly.
+            # 压缩是原子性的：保护进行中的总结调用免受轮次中途网关中断的影响。
+            # 否则，传入的用户消息会中止总结，导致压缩回退到降级的静态标记，
+            # 从而丢失真正的交接内容（参见 #23975）。可重入：主模型的重试
+            # （`_generate_summary` 递归）可以无害地重入。
             with aux_interrupt_protection():
                 response = call_llm(**call_kwargs)
-            # ``_validate_llm_response`` only guarantees ``choices[0].message``
-            # exists, not that it's an object with ``.content``. Some
-            # OpenAI-compatible proxies / local backends return a dict- or
-            # str-shaped message; coerce defensively instead of crashing.
+            # `_validate_llm_response` 仅保证 `choices[0].message` 存在，
+            # 而不保证它是一个带有 `.content` 属性的对象。某些
+            # 兼容 OpenAI 的代理或本地后端会返回字典（dict）或字符串（str）
+            # 结构的消息；应进行防御性类型转换，而不是直接崩溃。
             message = response.choices[0].message
             if isinstance(message, dict):
                 content = message.get("content")
@@ -2032,28 +2133,25 @@ This compaction should PRIORITISE preserving all information related to the focu
             # Handle cases where content is not a string (e.g., dict from llama.cpp)
             if not isinstance(content, str):
                 content = str(content) if content else ""
-            # Some OpenAI-compatible proxies (e.g. cmkey.cn, one-api channels)
-            # return a well-formed HTTP 200 with an empty or whitespace-only
-            # ``content`` instead of an error or empty ``choices``. That payload
-            # passes ``_validate_llm_response`` (a ``message`` exists), so it
-            # reaches here and would otherwise be stored as a prefix-only
-            # summary with no body — silently wiping the compacted turns and
-            # making the model forget the in-progress task (#11978, #11914).
-            # Treat empty content as a failure so it routes through the same
-            # main-model fallback + cooldown machinery as a transport error,
-            # rather than replacing real context with an empty summary.
+            # 某些兼容 OpenAI 的代理（例如 cmkey.cn、one-api 渠道）
+            # 会返回一个格式良好的 HTTP 200 响应，但其 ``content`` 为空或仅包含空白字符，
+            # 而不是返回错误或空的 ``choices``。该有效载荷（payload）可以通过
+            # ``_validate_llm_response`` 的验证（因为 ``message`` 存在），
+            # 因此它会到达这里，如果不加处理，就会被存储为一个只有前缀而没有正文的
+            # 总结 —— 从而静默地擦除被压缩的轮次，并导致模型忘记进行中的任务（#11978，#11914）。
+            # 将空内容视为失败，以便它像传输错误一样，通过相同的主模型回退 + 冷却机制
+            # 进行路由，而不是用一个空总结来替换真实的上下文。
             if not content.strip():
                 raise RuntimeError(
                     "Context compression LLM returned empty content "
                     f"(provider={self.provider or 'auto'} "
                     f"model={self.summary_model or self.model})"
                 )
-            # Strip reasoning blocks the summarizer model may have emitted
-            # (<think>...</think> etc. from thinking models like MiniMax,
-            # DeepSeek, QwQ). Without this the trace is stored in
-            # _previous_summary, injected into the conversation, AND fed back
-            # into every subsequent iterative-update prompt — compounding
-            # token bloat across compactions. Mirrors title_generator.py.
+            # 剥离总结器模型可能发出的推理块（来自 MiniMax、DeepSeek、QwQ
+            # 等推理模型的 `<think>...</think>` 等）。如果不这样做，推理轨迹
+            # （trace）就会被存储在 `_previous_summary` 中，被注入到对话中，
+            # 并且会被反馈到后续的每一个迭代更新提示词中 —— 从而在多次压缩中
+            # 加剧 Token 膨胀。镜像了 title_generator.py 的做法。
             from agent.agent_runtime_helpers import strip_think_blocks
             stripped = strip_think_blocks(None, content).strip()
             if stripped:
@@ -2070,17 +2168,15 @@ This compaction should PRIORITISE preserving all information related to the focu
             self._last_summary_network_failure = False
             return self._with_summary_prefix(summary)
         except Exception as e:
-            # ``call_llm`` raises ``RuntimeError`` for two very different cases:
-            #   1. No provider configured ("No LLM provider configured ...") —
-            #      a permanent misconfiguration, long cooldown is correct.
-            #   2. An empty/invalid response from a configured provider
-            #      (``_validate_llm_response`` empty-``choices``/``None``, or our
-            #      empty-``content`` guard above) — a transient/proxy fault that
-            #      should fall back to the main model first, exactly like the
-            #      transport errors handled below.
-            # Only (1) belongs in the long no-provider cooldown; (2) and every
-            # other exception flow into the generic fallback logic so they get
-            # a main-model retry before any cooldown. (#11978, #11914)
+            # ``call_llm`` 会在两种截然不同的情况下抛出 ``RuntimeError``：
+            #   1. 未配置服务商（"No LLM provider configured ..."）——
+            #      这属于永久性的配置错误，应用较长的冷却时间是正确的。
+            #   2. 来自已配置服务商的空/无效响应
+            #      （``_validate_llm_response`` 发生空 ``choices``/返回 ``None``，或触发我们上文的
+            #      空 ``content`` 防御逻辑）—— 这属于临时/代理故障，
+            #      应当首先回退到主模型，完全就像下文处理的传输错误一样。
+            # 只有情况 (1) 属于“未配置服务商”的长冷却时间；情况 (2) 以及其他所有
+            # 异常都会流向通用的回退逻辑，以便在进入任何冷却时间之前先进行主模型重试。（#11978，#11914）
             if isinstance(e, RuntimeError) and "no llm provider configured" in str(e).lower():
                 # No provider configured — long cooldown, unlikely to self-resolve
                 self._record_compression_failure_cooldown(
@@ -2222,29 +2318,26 @@ This compaction should PRIORITISE preserving all information related to the focu
 
     @staticmethod
     def _strip_summary_prefix(summary: str) -> str:
-        """Return summary body without the current, legacy, or any historical
-        handoff prefix.
+        """返回不包含当前、遗留或任何历史交接前缀的总结正文。
 
-        Historical prefixes must be stripped too: a handoff persisted under an
-        older prefix can be inherited into a resumed lineage (#35344), and if we
-        only re-prepend the current prefix without removing the old one, the
-        stale directive it carried stays embedded in the body.
+        历史前缀也必须被剥离：在较旧的前缀下持久化的交接内容可能会被继承到恢复的谱系（lineage）中（参见 #35344）。
+        如果我们只是重新前置（re-prepend）当前的前缀而不移除旧的前缀，
+        那么它所携带的陈旧指令就会一直内嵌在正文之中。
         """
         text = (summary or "").strip()
-        # Merge-into-tail summaries wrap prior tail content before the summary
-        # body. Drop everything up to and including the delimiter so only the
-        # real summary body is carried forward on re-compaction — otherwise the
-        # [PRIOR CONTEXT] header and stale tail content leak into the next
-        # summarizer prompt.
+        # 尾部合并式总结（Merge-into-tail summaries）会在总结正文之前包裹先前的尾部内容。
+        # 丢弃分隔符及其之前的全部内容，以便在二次压缩（re-compaction）时，仅将真正的
+        # 总结正文结转（carried forward）下去 —— 否则，`[PRIOR CONTEXT]` 头部和陈旧的
+        # 尾部内容将会泄露到下一个总结器提示词（summarizer prompt）中。
         if _MERGED_SUMMARY_DELIMITER in text:
             text = text.split(_MERGED_SUMMARY_DELIMITER, 1)[1].strip()
         for prefix in (SUMMARY_PREFIX, LEGACY_SUMMARY_PREFIX, *_HISTORICAL_SUMMARY_PREFIXES):
             if text.startswith(prefix):
                 text = text[len(prefix):].lstrip()
                 break
-        # Strip the trailing end marker too — a rehydrated handoff body that
-        # keeps it would leak the boundary directive into the iterative-update
-        # summarizer prompt (and the marker is re-appended on insertion anyway).
+        # 同时也剥离尾部的结束标记 —— 如果重新恢复的交接正文（rehydrated handoff body）
+        # 保留了该标记，会将边界指令（boundary directive）泄露到迭代更新的总结器提示词中
+        # （况且该标记在插入时反正也会被重新追加）。
         if text.endswith(_SUMMARY_END_MARKER):
             text = text[: -len(_SUMMARY_END_MARKER)].rstrip()
         return text
@@ -2258,11 +2351,10 @@ This compaction should PRIORITISE preserving all information related to the focu
     @staticmethod
     def _is_context_summary_content(content: Any) -> bool:
         text = _content_text_for_contains(content).lstrip()
-        # Merge-into-tail summaries wrap prior tail content before the summary,
-        # so the handoff prefix lands after _MERGED_SUMMARY_DELIMITER rather than
-        # at the start. Detect the summary in that region too, otherwise callers
-        # (auto-focus skip, carry-forward summary find, last-real-user anchor)
-        # mistake a merged summary message for a real user turn.
+        # 尾部合并式总结（Merge-into-tail summaries）会在总结内容之前包裹先前的尾部内容，
+        # 因此交接前缀（handoff prefix）会落在 `_MERGED_SUMMARY_DELIMITER` 之后，而不是位于开头。
+        # 在该区域内也需要对总结进行检测，否则调用方（如自动焦点跳过、结转总结查找、
+        # 最后一个真实用户锚点）会将合并后的总结消息误认为是真实的用户轮次。
         if _MERGED_SUMMARY_DELIMITER in text:
             text = text.split(_MERGED_SUMMARY_DELIMITER, 1)[1].lstrip()
         if text.startswith(SUMMARY_PREFIX) or text.startswith(LEGACY_SUMMARY_PREFIX):
@@ -2341,26 +2433,25 @@ This compaction should PRIORITISE preserving all information related to the focu
         return getattr(tc, "call_id", "") or getattr(tc, "id", "") or ""
 
     def _sanitize_tool_pairs(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Fix orphaned tool_call / tool_result pairs after compression.
+        """修复压缩后孤立的 tool_call / tool_result 对。
 
-        Two failure modes:
-        1. A tool *result* references a call_id whose assistant tool_call was
-           removed (summarized/truncated).  The API rejects this with
-           "No tool call found for function call output with call_id ...".
-        2. An assistant message has tool_calls whose results were dropped.
-           The API rejects this because every tool_call must be followed by
-           a tool result with the matching call_id.
+        两种失败模式：
+        1. 工具的 *结果*（result）引用了一个其 assistant 的 tool_call 已被
+           移除（被摘要/截断）的 call_id。API 会对此予以拒绝，并报错
+           "No tool call found for function call output with call_id ..."。
+        2. assistant 消息中包含 tool_calls，但其对应的结果已被丢弃。
+           API 会对此予以拒绝，因为每个 tool_call 后面都必须紧跟一个
+           具有匹配 call_id 的工具结果（tool result）。
 
-        This method removes orphaned results and strips orphaned tool_calls
-        from assistant messages so the message list is always well-formed.
+        此方法会移除孤立的结果，并从 assistant 消息中清除孤立的 tool_calls，
+        以确保消息列表始终保持良构（well-formed）。
 
-        Previous approach inserted stub ``role="tool"`` results for orphaned
-        tool_calls.  That caused a secondary failure: the pre-API
-        ``repair_message_sequence()`` uses ``tc.get("id")`` to track known
-        call IDs while this sanitizer uses ``call_id || id``.  When the two
-        disagree (Codex Responses API format: ``id != call_id``), stubs get
-        silently dropped by the repair pass, re-exposing the original orphans.
-        Stripping at the source avoids this entire class of mismatch.
+        以前的方法是为孤立的 tool_calls 插入桩（stub）``role="tool"`` 结果。
+        但这引起了次级失败：API 前置的 ``repair_message_sequence()`` 使用
+        ``tc.get("id")`` 来跟踪已知的 call ID，而此净化器（sanitizer）使用的是
+        ``call_id || id``。当两者不一致时（Codex 响应 API 格式下：``id != call_id``），
+        桩结果会在修复步骤中被默默丢弃，从而重新暴露原本的孤立问题。
+        从源头上进行清除（Stripping）则避免了这一整类不匹配问题。
         """
         surviving_call_ids: set = set()
         for msg in messages:
@@ -2446,24 +2537,22 @@ This compaction should PRIORITISE preserving all information related to the focu
         return self.protect_first_n
 
     def _protect_head_size(self, messages: List[Dict[str, Any]]) -> int:
-        """Total count of head messages to protect.
+        """需要保护的头部消息的总数。
 
-        ``protect_first_n`` is defined as *additional* messages protected
-        beyond the system prompt.  The system prompt (if present at index 0)
-        is always implicitly protected — it's load-bearing context that
-        must never be summarised away.  This keeps semantics stable across
-        call paths where the system prompt may or may not be included in
-        the ``messages`` list (e.g. the gateway ``/compress`` handler
-        strips it before calling compress()).
+        ``protect_first_n`` 被定义为在系统提示词（system prompt）之外，*额外*需要保护
+        的消息数量。系统提示词（如果存在于索引 0 处）总是被隐式保护的 —— 它是承重级
+        的核心上下文（load-bearing context），绝对不能被总结掉。这确保了在不同调用路径
+        下的语义稳定性，因为在这些路径中，系统提示词可能包含在、也可能不包含在 ``messages``
+        列表中（例如，网关的 ``/compress`` 处理程序在调用 compress() 之前会先将其剥离）。
 
-        The ``protect_first_n`` portion DECAYS after the first compression
-        (see _effective_protect_first_n) so early user turns don't fossilize
-        across repeated compactions (#11996).
+        首次压缩之后，``protect_first_n`` 部分会**发生衰减**（参见 _effective_protect_first_n），
+        这样早期的用户轮次就不会在反复的压缩中被“固化/化石化”（fossilize）（参见 #11996）。
 
-        Examples (first compaction):
-          protect_first_n=0 → system prompt only (or nothing if no system msg)
-          protect_first_n=3 → system + first 3 non-system messages
-        After the first compaction: system prompt only.
+        示例（首次压缩）：
+          protect_first_n=0 → 仅保护系统提示词（如果没有系统消息则什么都不保护）
+          protect_first_n=3 → 系统提示词 + 前 3 条非系统消息
+        首次压缩之后：
+          仅保护系统提示词。
         """
         head = 0
         if messages and messages[0].get("role") == "system":
@@ -2723,23 +2812,20 @@ This compaction should PRIORITISE preserving all information related to the focu
         self, messages: List[Dict[str, Any]], head_end: int,
         token_budget: int | None = None,
     ) -> int:
-        """Walk backward from the end of messages, accumulating tokens until
-        the budget is reached. Returns the index where the tail starts.
+        """从消息末尾反向遍历，累加 Token 直至达到预算上限。返回尾部（tail）开始处的索引。
 
-        ``token_budget`` defaults to ``self.tail_token_budget`` which is
-        derived from ``summary_target_ratio * context_length``, so it
-        scales automatically with the model's context window.
+            ``token_budget`` 默认值为 ``self.tail_token_budget``，该值衍生自
+            ``summary_target_ratio * context_length``，因此它会随着模型的上下文窗口
+            自动缩放。
 
-        Token budget is the primary criterion.  A bounded message-count floor
-        keeps a short run of recent turns verbatim even when the budget is
-        exhausted, but the budget is allowed to exceed by up to 1.5x to avoid
-        cutting inside an oversized message (tool output, file read, etc.). If
-        even that floor exceeds 1.5x the budget, the cut is placed right after
-        the head so compression still runs.
+            Token 预算是首要基准。即使预算耗尽，有界的最低消息数量下限也会将近期的一小段
+            轮次逐字原样（verbatim）保留，但预算允许最多超额 1.5 倍，以避免从一条
+            超大消息（如工具输出、文件读取等）内部进行截断。如果连该下限也超过了预算的
+            1.5 倍，则截断位置将被直接放置在头部（head）之后，以便压缩依然能够运行。
 
-        Never cuts inside a tool_call/result group.  Always ensures the most
-        recent user message is in the tail (see ``_ensure_last_user_message_in_tail``).
-        """
+            绝不从 tool_call/result（工具调用/结果）组的内部进行截断。始终确保最晚（最新）
+            的一条用户消息包含在尾部之中（参见 ``_ensure_last_user_message_in_tail``）。
+            """
         if token_budget is None:
             token_budget = self.tail_token_budget
         n = len(messages)
@@ -2843,29 +2929,29 @@ This compaction should PRIORITISE preserving all information related to the focu
     # ------------------------------------------------------------------
 
     def compress(self, messages: List[Dict[str, Any]], current_tokens: int = None, focus_topic: str = None, force: bool = False) -> List[Dict[str, Any]]:
-        """Compress conversation messages by summarizing middle turns.
+        """通过总结中间轮次来压缩对话消息。
 
-        Algorithm:
-          1. Prune old tool results (cheap pre-pass, no LLM call)
-          2. Protect head messages (system prompt + first exchange)
-          3. Find tail boundary by token budget (~20K tokens of recent context)
-          4. Summarize middle turns with structured LLM prompt
-          5. On re-compression, iteratively update the previous summary
+        算法步骤：
+          1. 修剪旧的工具结果（开销低廉的预处理，无需调用 LLM）
+          2. 保护头部消息（系统提示词 + 第一次交谈）
+          3. 根据 Token 预算寻找尾部边界（保留约 20K Token 的近期上下文）
+          4. 使用结构化的 LLM 提示词总结中间轮次
+          5. 在二次压缩时，迭代更新上一次的总结
 
-        After compression, orphaned tool_call / tool_result pairs are cleaned
-        up so the API never receives mismatched IDs.
+        压缩完成后，孤立的 tool_call / tool_result（工具调用/工具结果）对会被清理干净，
+        从而确保 API 绝不会接收到不匹配的 ID。
 
-        Args:
-            focus_topic: Optional focus string for guided compression.  When
-                provided, the summariser will prioritise preserving information
-                related to this topic and be more aggressive about compressing
-                everything else.  Inspired by Claude Code's ``/compact``.
-            force: If True, clear any active summary-failure cooldown before
-                running so a manual ``/compress`` can retry immediately after
-                an auto-compression abort.  Auto-compress callers pass False.
+        参数：
+            focus_topic: 用于引导定向压缩的可选焦点字符串。当
+                提供该参数时，总结器会优先保留与该主题相关的信息，
+                并更具侵略性地（更大力度地）压缩其他所有内容。
+                灵感来源于 Claude Code 的 ``/compact``。
+            force: 若为 True，则在运行前清除当前处于激活状态的“总结失败冷却时间”，
+                以便在自动压缩中止后，手动的 ``/compress`` 可以立即重试。
+                自动压缩的调用者则传入 False。
         """
-        # Reset per-call summary failure state — callers inspect these fields
-        # after compress() returns to decide whether to surface a warning.
+        # 重置每次调用的总结失败状态 —— 调用者在 compress() 返回后检查这些字段，
+        # 以决定是否向用户展示警告。
         self._last_summary_dropped_count = 0
         self._last_summary_fallback_used = False
         self._last_summary_error = None
@@ -2873,33 +2959,31 @@ This compaction should PRIORITISE preserving all information related to the focu
         self._last_aux_model_failure_model = None
         self._last_compress_aborted = False
         self._last_compression_made_progress = False
-        # NOTE: do NOT reset _last_summary_auth_failure or
-        # _last_summary_network_failure here.  These flags are set by
-        # _generate_summary() on a terminal failure and are already cleared on
-        # a successful summary.  Resetting them eagerly defeats the cooldown
-        # protection: _generate_summary() returns None from the cooldown
-        # early-return without re-asserting these flags, so the abort guard
-        # below would see False and fall through to the destructive
-        # static-fallback — the exact data-loss #29559 describes.  Letting them
-        # persist across compress() calls is safe because a successful summary
-        # always clears both.
+        # 注意：【不要】在此处重置 _last_summary_auth_failure 或
+        # _last_summary_network_failure。这些标志是由 _generate_summary()
+        # 在发生终结性故障（terminal failure）时设置的，并且在成功生成总结时
+        # 已经被清除了。过早（急切地）重置它们会使冷却时间保护机制失效：
+        # _generate_summary() 会从冷却时间逻辑中提前返回并返回 None，而不会重新
+        # 设置这些标志，从而导致下方的中止保护（abort guard）检测到 False，并向下
+        # 进入具有破坏性的静态兜底方案（static-fallback） —— 这正是 #29559
+        # 中所描述的导致数据丢失的确切情况。让它们在多次 compress() 调用之间
+        # 保持持久存在是安全的，因为一次成功的总结总会清除这两个标志。
 
-        # Manual /compress (force=True) bypasses the failure cooldown so the
-        # user can retry immediately after an auto-compress abort.  Without
-        # this, /compress would silently no-op for 30-60s after a failure.
+        # 手动的 /compress（force=True）会绕过失败冷却时间，以便用户在
+        # 自动压缩中止后可以立即重试。如果没有此处理，/compress 在失败后
+        # 的 30-60 秒内将会默默地执行空操作（no-op）。
         if force:
             self._clear_compression_failure_cooldown()
         n_messages = len(messages)
         # Only need head + 3 tail messages minimum (token budget decides the real tail size)
         _min_for_compress = self._protect_head_size(messages) + 3 + 1
         if n_messages <= _min_for_compress:
-            # Record the no-op, exactly as the sibling "no compressable window"
-            # branch below does (#40803). Returning without touching the
-            # anti-thrashing counter leaves should_compress() saying True on a
-            # transcript that can never shrink: when the prompt sits above the
-            # threshold because of the incompressible floor (system prompt +
-            # tool schemas), every subsequent turn re-fires a compaction that
-            # returns here unchanged, and the CLI appears frozen.
+            # 记录该空操作（no-op），正如其下方同级的“无可压缩窗口”分支
+            # 所做的那样（参见 #40803）。如果在返回时没有更新
+            # 防抖动计数器（anti-thrashing counter），会导致 `should_compress()` 在面对
+            # 一个永远无法缩小的对话记录时始终返回 True：当提示词由于无法压缩的
+            # 基础下限（系统提示词 + 工具 schema）而超过阈值时，随后的每一个轮次
+            # 都会重新触发一次在这里原样返回的压缩操作，从而导致 CLI 看起来像卡死了一样。
             self._ineffective_compression_count += 1
             self._last_compression_savings_pct = 0.0
             if not self.quiet_mode:
@@ -2929,11 +3013,10 @@ This compaction should PRIORITISE preserving all information related to the focu
         compress_end = self._find_tail_cut_by_tokens(messages, compress_start)
 
         if compress_start >= compress_end:
-            # No compressable window — the entire transcript fits within
-            # the tail budget (soft_ceiling).  Without recording this as
-            # an ineffective compression the anti-thrashing guard in
-            # should_compress() never fires and every subsequent turn
-            # re-triggers a no-op compression loop.  (#40803)
+            # 无可压缩窗口 —— 整个对话记录完全容纳在尾部预算（软上限/soft_ceiling）之内。
+            # 如果不将其记录为一次无效压缩，`should_compress()` 中的防抖动保护机制
+            # （anti-thrashing guard）就永远不会触发，从而导致随后的每一个轮次都会
+            # 重新触发一个空操作（no-op）的压缩死循环。（参见 #40803）
             self._ineffective_compression_count += 1
             self._last_compression_savings_pct = 0.0
             if not self.quiet_mode:
@@ -2945,15 +3028,13 @@ This compaction should PRIORITISE preserving all information related to the focu
                     self._ineffective_compression_count,
                 )
             return messages
-
+        # 祛除上一轮总结之后的raw msg
         turns_to_summarize = messages[compress_start:compress_end]
-        # A persisted handoff summary can sit in the protected head after a
-        # resume (commonly immediately after the system prompt). Search from
-        # the first non-system message through the compression window so we can
-        # rehydrate iterative-summary state without serializing that handoff as
-        # a new turn. Protected messages after the handoff remain live context,
-        # so only summarize messages that are both after the handoff and inside
-        # the current compression window.
+        # 在会话恢复（resume）后，一个持久化的交接总结（handoff summary）可能会位于受保护的头部
+        # （通常紧跟在系统提示词之后）。从第一条非系统消息开始，在整个压缩窗口内进行搜索，
+        # 以便我们能够恢复迭代总结的状态，而无需将该交接总结序列化为一个新的轮次。
+        # 交接总结之后的受保护消息仍属于活动上下文（live context），因此仅总结那些
+        # 既在交接总结之后、又在当前压缩窗口之内的消息。
         summary_search_start = 1 if messages and messages[0].get("role") == "system" else 0
         summary_idx, summary_body = self._find_latest_context_summary(
             messages,
@@ -2965,11 +3046,10 @@ This compaction should PRIORITISE preserving all information related to the focu
                 self._previous_summary = summary_body
             turns_to_summarize = messages[max(compress_start, summary_idx + 1):compress_end]
         elif self._previous_summary:
-            # No handoff summary found in the current messages, but
-            # _previous_summary is non-empty — it was set by a different
-            # (now-ended) session (e.g., a cron job, a prior /new).  Discard
-            # it so _generate_summary() does not inject cross-session content
-            # into the summarizer prompt via the iterative-update path.
+            # 当前消息中未找到交接总结，但 `_previous_summary` 不为空 ——
+            # 它是由另一个（现已结束的）会话设置的（例如定时任务/cron job、先前的 `/new`）。
+            # 将其丢弃，以防止 `_generate_summary()` 通过迭代更新路径将跨会话的内容
+            # 注入到总结器提示词（summarizer prompt）中。
             self._previous_summary = None
 
         if not self.quiet_mode:
@@ -2995,31 +3075,32 @@ This compaction should PRIORITISE preserving all information related to the focu
             )
 
         # Phase 3: Generate structured summary
+        # 数据脱敏后，各个msg的简要总结（机器切分，限制最大长度）
         summary_focus_topic = focus_topic or self._derive_auto_focus_topic(messages)
         summary = self._generate_summary(turns_to_summarize, focus_topic=summary_focus_topic)
 
-        # If summary generation failed, behavior splits on
-        # ``abort_on_summary_failure`` (config: compression.abort_on_summary_failure):
-        #   True  → ABORT compression entirely. Return messages unchanged
-        #           and set _last_compress_aborted=True so callers can warn
-        #           the user and stop the auto-compress retry loop.
-        #   False → Fall through to the default fallback path below: insert
-        #           a deterministic "summary unavailable" handoff and drop
-        #           the middle window.  Records _last_summary_fallback_used /
-        #           _last_summary_dropped_count for gateway hygiene to
-        #           surface a warning.
-        # Default is False (historical behavior).
+        # 如果总结生成失败，其行为取决于
+        # ``abort_on_summary_failure`` (配置: compression.abort_on_summary_failure):
+        #   True  → 完全中止（ABORT）压缩。返回未修改的消息，
+        #           并设置 _last_compress_aborted=True，以便调用方可以警告
+        #           用户并停止自动压缩重试循环。
+        #   False → 顺延到下方的默认回退路径：插入
+        #           一个确定性的“总结不可用（summary unavailable）”交接并丢弃
+        #           中间窗口。记录 _last_summary_fallback_used /
+        #           _last_summary_dropped_count，以便网关健康检查（gateway hygiene）
+        #           显现警告。
+        # 默认值为 False（历史行为）。
         #
-        # EXCEPTION — auth AND transient network failures always abort. A
-        # 401/403 from the summary call means the credential or endpoint is
-        # broken (invalid/blocked key, or a token pointed at the wrong
-        # inference host). A connection/stream-close error means the network
-        # blipped at the compaction moment (#29559). In BOTH cases rotating into
-        # a child session with a placeholder summary on a broken credential
-        # strands the user on a degraded session for zero benefit — every
-        # subsequent call fails the same way. So when the failure was an auth
-        # error we abort regardless of abort_on_summary_failure, preserving
-        # the conversation unchanged until the credential is fixed.
+        # 异常情况 —— 身份验证（auth）与临时网络故障总是会中止。
+        # 总结调用返回的 401/403 意味着凭据或终结点
+        # 已损坏（无效/被封禁的密钥，或者指向了错误
+        # 推理主机的 Token）。连接/流关闭错误意味着网络
+        # 在压缩瞬间发生了波动（#29559）。在这两种情况下，
+        # 在凭据损坏时轮转到带有占位总结的子会话，
+        # 不仅毫无益处，还会让用户滞留在功能降级的会话中 ——
+        # 随后的每一次调用都会以相同的方式失败。因此，当失败属于
+        # 身份验证错误时，无论 abort_on_summary_failure 的值为什么，
+        # 我们都会中止压缩，在凭据修复前保持对话原样不变。
         if not summary and (
             self.abort_on_summary_failure
             or self._last_summary_auth_failure
@@ -3064,6 +3145,11 @@ This compaction should PRIORITISE preserving all information related to the focu
             msg = _fresh_compaction_message_copy(messages[i])
             if i == 0 and msg.get("role") == "system":
                 existing = msg.get("content")
+                # [注意：为了节省上下文空间，先前的部分对话轮次已被压缩为一份交接总结。
+                # 当前的会话状态可能仍会反映先前的成果，
+                # 因此请在这份总结和状态的基础上继续开展工作，而不是重复劳动。
+                # 无论是否进行过压缩，你的持久化记忆（MEMORY.md、USER.md）
+                # 都始终具有完全的权威性。]
                 _compression_note = "[Note: Some earlier conversation turns have been compacted into a handoff summary to preserve context space. The current session state may still reflect earlier work, so build on that summary and state rather than re-doing work. Your persistent memory (MEMORY.md, USER.md) remains fully authoritative regardless of compaction.]"
                 if _compression_note not in _content_text_for_contains(existing):
                     msg["content"] = _append_text_to_content(
@@ -3072,9 +3158,9 @@ This compaction should PRIORITISE preserving all information related to the focu
                     )
             compressed.append(msg)
 
-        # If LLM summary failed, insert a deterministic fallback so the model
-        # gets at least locally recoverable continuity anchors instead of a
-        # content-free "N messages were removed" marker.
+        # 如果 LLM 总结失败，插入一个确定性的回退内容，以便模型
+        # 至少能获得局部可恢复的连贯性锚点，而不是一个
+        # 没有实质内容的“移除了 N 条消息”的标记。
         if not summary:
             if not self.quiet_mode:
                 logger.warning("Summary generation failed — inserting deterministic fallback context summary")
@@ -3089,31 +3175,27 @@ This compaction should PRIORITISE preserving all information related to the focu
         _merge_summary_into_tail = False
         last_head_role = messages[compress_start - 1].get("role", "user") if compress_start > 0 else "user"
         first_tail_role = messages[compress_end].get("role", "user") if compress_end < n_messages else "user"
-        # When the only protected head message is the system prompt, the
-        # summary becomes the first *visible* message in the API request
-        # (most adapters — Anthropic, Bedrock — send the system prompt as
-        # a separate ``system`` parameter, not inside ``messages[]``).
-        # Anthropic unconditionally rejects requests whose first message
-        # is not role=user, so we must pin the summary to "user" and
-        # prevent the flip logic below from reverting it (#52160).
+        # 当唯一受保护的头部消息（head message）是系统提示词时，
+        # 总结将成为 API 请求中第一个 *可见* 的消息
+        # （大多数适配器 —— Anthropic、Bedrock —— 会将系统提示词作为
+        # 一个独立的 ``system`` 参数发送，而不是放在 ``messages[]`` 内部）。
+        # Anthropic 会无条件拒绝第一个消息不是 role=user 的请求，
+        # 因此我们必须将总结固定为 "user" 角色，
+        # 并防止下方的翻转逻辑将其还原（#52160）。
         _force_user_leading = last_head_role == "system"
-        # Zero-user-turn guard (#58753). The #52160 guard above only fires
-        # when the system prompt sits *inside* ``messages`` (the gateway
-        # ``/compress`` path). The main auto-compression path passes the
-        # transcript WITHOUT the system prompt (it is prepended at
-        # request-build time), so ``last_head_role`` defaults to "user" and
-        # the summary is emitted as role="assistant". On a session whose only
-        # genuine user turn falls into the compressed middle — e.g. a
-        # ``hermes kanban`` worker seeded with a single short
-        # ``"work kanban task <id>"`` prompt followed by nothing but
-        # assistant/tool turns — that leaves the compressed transcript with
-        # ZERO user-role messages. OpenAI-compatible backends (vLLM/Qwen)
-        # reject such a request with a non-retryable
-        # ``400 No user query found in messages``, crashing the worker with no
-        # possible recovery (every resume replays the same poisoned history).
-        # If no user-role message survives in either the protected head or the
-        # preserved tail, the summary MUST carry role="user" so the request
-        # always has at least one user turn.
+        # 零用户轮次保护（#58753）。上方的 #52160 保护仅在系统提示词
+        # 位于 ``messages`` *内部* 时（即网关的 ``/compress`` 路径）才会触发。
+        # 主自动压缩路径传递的转录记录中不包含系统提示词（它是在
+        # 构建请求时被前置追加的），因此 ``last_head_role`` 默认为 "user"，
+        # 总结会以 role="assistant" 的形式发出。在某些会话中，唯一真正的
+        # 用户轮次恰好落在了被压缩的中间区域 —— 例如，一个 ``hermes kanban``
+        # 工作流在启动时仅被塞入了一个简短的 ``"work kanban task <id>"`` 提示词，
+        # 随后全是 assistant/tool 轮次 —— 这会导致压缩后的转录记录中包含
+        # 零个用户角色的消息。兼容 OpenAI 的后端（如 vLLM/Qwen）会拒绝
+        # 此类请求，并返回不可重试的 ``400 No user query found in messages`` 错误，
+        # 从而导致工作流崩溃且无法恢复（每次恢复运行都会重放同一段被污染的
+        # 历史记录）。如果受保护的头部和保留的尾部中都没有用户角色的消息幸存，
+        # 则总结【必须】携带 role="user"，以确保请求中始终至少包含一个用户轮次。
         if not _force_user_leading:
             _user_survives = any(
                 messages[i].get("role") == "user"
@@ -3124,32 +3206,31 @@ This compaction should PRIORITISE preserving all information related to the focu
             )
             if not _user_survives:
                 _force_user_leading = True
-        # Pick a role that avoids consecutive same-role with both neighbors.
-        # Priority: avoid colliding with head (already committed), then tail.
+        # 选择一个能避免与两侧邻居连续出现相同角色的角色。
+        # 优先级：首先避免与头部（已提交）冲突，其次是尾部。
         if last_head_role in {"assistant", "tool"} or _force_user_leading:
             summary_role = "user"
         else:
             summary_role = "assistant"
-        # If the chosen role collides with the tail AND flipping wouldn't
-        # collide with the head, flip it.
+        # 如果选中的角色与尾部相撞，并且翻转后不会
+        # 与头部相撞，则进行翻转。
         if summary_role == first_tail_role:
             flipped = "assistant" if summary_role == "user" else "user"
             if flipped != last_head_role and not _force_user_leading:
                 summary_role = flipped
             else:
-                # Both roles would create consecutive same-role messages
-                # (e.g. head=assistant, tail=user — neither role works).
-                # Merge the summary into the first tail message instead
-                # of inserting a standalone message that breaks alternation.
+                # 两个角色都会导致连续出现相同角色的消息
+                # （例如：head=assistant，tail=user —— 哪种角色都不行）。
+                # 将摘要合并到第一条 tail 消息中，
+                # 而不是插入一条会破坏交替的独立消息。
                 _merge_summary_into_tail = True
 
-        # When the summary lands as a standalone role="user" message,
-        # weak models read the verbatim "## Active Task" quote of a past
-        # user request as fresh input (#11475, #14521).
-        # When it lands as role="assistant", models may regurgitate the
-        # summary text as their own output (#33256). In both cases, append
-        # the explicit end marker so the model has a clear "summary ends
-        # here, respond to the message below" signal.
+        # 当摘要作为一条独立的 role="user" 消息时，
+        # 弱模型会将过去用户请求的“## 活跃任务”字面引用误读为新的输入（#11475，#14521）。
+        # 当它作为 role="assistant" 时，模型可能会将摘要文本
+        # 机械地重复为自己的输出（#33256）。在这两种情况下，都要追加
+        # 显式的结束标记，以便模型拥有清晰的“摘要在此结束，
+        # 请响应下方消息”的信号。
         if not _merge_summary_into_tail:
             summary = summary + "\n\n" + _SUMMARY_END_MARKER
 
@@ -3163,16 +3244,16 @@ This compaction should PRIORITISE preserving all information related to the focu
         for i in range(compress_end, n_messages):
             msg = _fresh_compaction_message_copy(messages[i])
             if _merge_summary_into_tail and i == compress_end:
-                # Merge the summary into the first tail message, but place
-                # the END MARKER at the very end so the model sees an
-                # unambiguous boundary. Old tail content is preserved as
-                # reference material BEFORE the summary, clearly delimited
-                # so it is not mistaken for a new message to respond to.
-                # Uses _append_text_to_content to safely handle both
-                # string and multimodal-list content types.
-                # Fixes ghost-message leakage across compaction boundaries
-                # where old head messages survived verbatim and appeared
-                # before the summary.
+                # 将摘要合并到第一条 tail 消息中，但将
+                # 结束标记（END MARKER）放在最末尾，以便模型看到一个
+                # 明确无误的边界。旧的 tail 内容保留在摘要之前
+                # 作为参考资料，并清晰地划分开，
+                # 以免被误认为是需要响应的新消息。
+                # 使用 _append_text_to_content 来安全地处理
+                # 字符串和多模态列表（multimodal-list）两种内容类型。
+                # 修复了跨压缩边界的幽灵消息（ghost-message）泄漏问题，
+                # 之前旧的 head 消息会原封不动地幸存下来并出现在
+                # 摘要之前。
                 old_content = msg.get("content", "")
                 suffix = (
                     "\n\n" + _MERGED_SUMMARY_DELIMITER + "\n\n"
@@ -3194,35 +3275,33 @@ This compaction should PRIORITISE preserving all information related to the focu
 
         compressed = self._sanitize_tool_pairs(compressed)
 
-        # Replace image parts in all compressed messages before the newest
-        # image-bearing user turn with a short text placeholder. Without
-        # this, tail messages keep their original multi-MB base-64 image
-        # payloads forever, which can push every subsequent API request
-        # past the provider's body-size limit and wedge the session.
-        # Port of Kilo-Org/kilocode#9434.
+        # 将最新一个带有图片的 user 轮次之前的所有被压缩消息中的图片部分
+        # 替换为简短的文本占位符。如果不进行此处理，tail 消息将永远保留
+        # 它们原本数 MB 大小的 base-64 图片载荷，这可能会使后续的每一次
+        # API 请求都超出服务商的请求体大小限制，从而导致会话卡死（wedge）。
+        # 移植自 Kilo-Org/kilocode#9434。
         compressed = _strip_historical_media(compressed)
 
         new_estimate = estimate_messages_tokens_rough(compressed)
 
-        # Anti-thrashing: measure effectiveness on a like-for-like basis.
+        # 防抖动/防抖机制：在同等基础上衡量有效性。
         #
-        # ``display_tokens`` is usually ``current_tokens`` — the provider's real
-        # prompt count, which includes the system prompt and tool schemas.
-        # ``new_estimate`` covers the messages ONLY. Comparing the two makes a
-        # compaction that freed almost nothing look like it saved ~96%, so the
-        # counter below resets every pass and the anti-thrashing guard is dead
-        # code. Compaction can only shrink messages, so score it against the
-        # messages it was given.
+        # ``display_tokens`` 通常是 ``current_tokens`` —— 也就是服务商实际的
+        # prompt 算力占用（Token 计数），其中包含了系统提示词（system prompt）和工具模式（tool schemas）。
+        # 而 ``new_estimate`` 仅涵盖消息（messages）部分。将两者进行对比，会使一个
+        # 几乎没有释放任何空间的消息压缩过程，看起来像是节省了大约 96% 的空间，
+        # 从而导致下方的计数器在每次传递时都会重置，使防抖机制形同虚设。
+        # 消息压缩只能缩小消息本身，因此应根据它所接收的消息来对其效果进行评分。
         pre_estimate = estimate_messages_tokens_rough(messages)
         saved_estimate = pre_estimate - new_estimate
         savings_pct = (saved_estimate / pre_estimate * 100) if pre_estimate > 0 else 0
         self._last_compression_savings_pct = savings_pct
 
-        # Message-only savings are diagnostic. The anti-thrashing verdict is
-        # owned by the next provider-reported prompt count, which answers the
-        # actual question: did this completed boundary get under the threshold?
-        # Counting a low message-savings estimate here as well would give one
-        # compaction two strikes when that real reading remains over threshold.
+        # 仅针对消息的节省量仅用于诊断。防抖机制的最终判定
+        # 由下一次服务商报告的 prompt 计数决定，它回答了
+        # 实际的问题：这个已完成的边界是否降到了阈值以下？
+        # 如果在此处也把低的消息节省估算值计算在内，那么在实际读取值
+        # 仍然超出阈值的情况下，会让一次压缩被判定两次失败（两击出局）。
 
         if not self.quiet_mode:
             logger.info(
@@ -3234,10 +3313,11 @@ This compaction should PRIORITISE preserving all information related to the focu
             )
             logger.info("Compression #%d complete", self.compression_count)
 
-        # Enforced invariant (#57491): no compacted message may leave compress()
-        # carrying a session-store persistence marker. The per-site strips above
-        # are positional; this single terminal sweep makes it structural so a
-        # future copy site cannot re-leak the marker into the child-session flush.
+        # 强制不变性（#57491）：任何被压缩的消息在离开 compress() 时，
+        # 都不得携带会话存储持久化标记（session-store persistence marker）。
+        # 上面针对每个位置的清除操作是基于位置的；而这次统一的终端清扫
+        # 从结构上保证了这一点，从而使未来的复制位置无法将该标记
+        # 再次泄漏到子会话的刷新中。
         _strip_persistence_markers(compressed)
         self._last_compression_made_progress = True
 

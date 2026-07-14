@@ -495,37 +495,34 @@ def redact_sensitive_text(
     code_file: bool = False,
     file_read: bool = False,
 ) -> str:
-    """Apply all redaction patterns to a block of text.
+    """将所有的脱敏（redaction）模式应用到文本块中。
 
-    Safe to call on any string -- non-matching text passes through unchanged.
-    Enabled by default. Disable via security.redact_secrets: false in config.yaml.
-    Set force=True for safety boundaries that must never return raw secrets
-    regardless of the user's global logging redaction preference.
+    可以安全地对任何字符串调用 —— 未匹配的文本将原样传回。
+    默认启用。可通过 config.yaml 中的 `security.redact_secrets: false` 进行禁用。
+    针对必须绝对不能返回原始凭据（raw secrets）的安全边界，设置 force=True，
+    而无需顾及用户全局日志脱敏偏好的设置。
 
-    Set code_file=True to skip the ENV-assignment and JSON-field regex
-    patterns when the text is known to be source code (e.g. MAX_TOKENS=***
-    constants, "apiKey": "test" fixtures). Prefix patterns, auth headers,
-    private keys, DB connstrings, JWTs, and URL secrets are still redacted.
+    当已知文本为源代码时（例如 MAX_TOKENS=*** 常量、"apiKey": "test" 测试固件），
+    设置 code_file=True 以跳过环境变量（ENV）赋值和 JSON 字段的正则表达式模式。
+    前缀模式、认证请求头（auth headers）、私钥、数据库连接字符串、JWT 以及 URL
+    中的敏感凭据仍会被脱敏。
 
-    Set file_read=True for file *content* returned to the agent (read_file /
-    search_files / cat). Secrets are STILL redacted — they are never exposed —
-    but prefix-matched credentials are replaced with a non-reusable sentinel
-    (``«redacted:ghp_…»``) instead of a head/tail-preserving mask
-    (``ghp_S1...Pn2T``). The old mask looked like a real-but-truncated key, so
-    an agent reading it from config.yaml and writing it back silently corrupted
-    the stored credential into a dead 13-char value → 401 (issue #35519). The
-    sentinel is syntactically invalid as a token, so it can't be mistaken for a
-    usable key or written back as one. Implies code_file=True (config/data
-    files shouldn't trigger the source-code ENV/JSON false-positive paths).
+    对于返回给智能体的文件*内容*（read_file / search_files / cat），设置 file_read=True。
+    凭据【仍然】会被脱敏 —— 它们绝不会被泄露 —— 但通过前缀匹配的凭据将被替换为
+    不可重用的哨兵标记（sentinel，如 ``«redacted:ghp_…»``），而不是保留头部/尾部的
+    掩码（mask，如 ``ghp_S1...Pn2T``）。旧的掩码看起来像是一个真实但被截断的密钥，
+    因此智能体从 config.yaml 中读取它并将其写回时，会默默地将存储的凭据损坏为一个
+    失效的 13 字符值，从而导致 401 错误（参见 issue #35519）。该哨兵标记在语法上
+    作为一个 Token 是无效的，因此它不会被误认为是可用的密钥，也不会被作为密钥写回。
+    此参数会隐式启用 code_file=True（因为配置文件/数据文件不应该触发针对源代码的
+     ENV/JSON 误报路径）。
 
-    Performance: each regex pattern is gated behind a cheap substring
-    pre-check (e.g. ``"=" in text`` for ENV assignments, ``"://" in text``
-    for URLs, ``"eyJ" in text`` for JWTs). On a typical hermes log line
-    (no secrets) this drops the 13-pattern scan from ~5.6us to ~1.8us per
-    record (-68%). The pre-checks are conservative — false positives
-    still run the full regex, which then doesn't match. False negatives
-    are impossible because every regex requires the gated substring to
-    match.
+    性能表现：每个正则表达式模式都被置于开销低廉的子字符串预检查之后（例如：针对环境变量
+    赋值检查是否包含 ``"="``，针对 URL 检查是否包含 ``"://"``，针对 JWT 检查是否包含 ``"eyJ"``）。
+    在一条典型的 hermes 日志行（不包含敏感凭据）上，这使得每条记录扫描 13 个模式的时间从
+    约 5.6 微秒降至约 1.8 微秒（降低了 68%）。预检查是保守的 —— 误报（false positives）
+    仍会运行完整的正则表达式，只是随后不会匹配成功。而漏报（false negatives）是不可能的，
+    因为每个正则表达式都要求其把关的子字符串必须匹配成功。
     """
     if text is None:
         return None

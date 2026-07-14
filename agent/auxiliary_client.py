@@ -205,11 +205,11 @@ def _aux_interrupt_protected() -> bool:
 
 @contextlib.contextmanager
 def aux_interrupt_protection(active: bool = True):
-    """Mark the current thread's auxiliary LLM call as interrupt-protected.
+    """将当前线程的辅助 LLM 调用标记为受中断保护。
 
-    Used by atomic aux tasks (compression) so a mid-flight gateway interrupt
-    doesn't abort the call and trigger a degraded fallback. Re-entrant-safe:
-    restores the previous value on exit.
+    由原子性辅助任务（压缩）使用，从而使进行中的网关中断
+    不会中止该调用并触发降级回退。具备可重入安全性：
+    在退出时恢复先前的值。
     """
     prev = getattr(_aux_interrupt_protection, "active", False)
     _aux_interrupt_protection.active = active

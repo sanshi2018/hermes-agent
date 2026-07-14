@@ -598,35 +598,30 @@ def repair_message_sequence_with_cursor(agent, messages: List[Dict]) -> int:
 
 
 def strip_think_blocks(agent, content: str) -> str:
-    """Remove reasoning/thinking blocks from content, returning only visible text.
+    """从内容中移除推理/思考块，仅返回可见文本。
 
-    Handles four cases:
-      1. Closed tag pairs (``<think>…</think>``) — the common path when
-         the provider emits complete reasoning blocks.
-      2. Unterminated open tag at a block boundary (start of text or
-         after a newline) — e.g. MiniMax M2.7 / NIM endpoints where the
-         closing tag is dropped.  Everything from the open tag to end
-         of string is stripped.  The block-boundary check mirrors
-         ``gateway/stream_consumer.py``'s filter so models that mention
-         ``<think>`` in prose aren't over-stripped.
-      3. Stray orphan open/close tags that slip through.
-      4. Tag variants: ``<think>``, ``<thinking>``, ``<reasoning>``,
-         ``<REASONING_SCRATCHPAD>``, ``<thought>`` (Gemma 4), all
-         case-insensitive.
+    处理以下四种情况：
+      1. 闭合标签对（``<think>…</think>``）—— 当服务商发出完整的推理块时的常见路径。
+      2. 块边界处（文本开头或换行符之后）未闭合的开放标签 —— 例如 MiniMax M2.7 / NIM
+         端点，这些情况下结束标签会被丢弃。从开放标签到字符串结尾的所有内容都会被剥离。
+         块边界检查镜像了 ``gateway/stream_consumer.py`` 的过滤器，从而避免模型在正文中
+         提及 ``<think>`` 时被过度剥离。
+      3. 漏掉的孤立开放/闭合标签。
+      4. 标签变体：``<think>``、``<thinking>``、``<reasoning>``、
+         ``<REASONING_SCRATCHPAD>``、``<thought>``（Gemma 4），均不区分大小写。
 
-    Additionally strips standalone tool-call XML blocks that some open
-    models (notably Gemma variants on OpenRouter) emit inside assistant
-    content instead of via the structured ``tool_calls`` field:
+    此外，还会剥离某些开源模型（尤其是 OpenRouter 上的 Gemma 变体）在 assistant
+    内容内部发出的独立工具调用 XML 块，而不是通过结构化的 ``tool_calls`` 字段发出的块：
       * ``<tool_call>…</tool_call>``
       * ``<tool_calls>…</tool_calls>``
       * ``<tool_result>…</tool_result>``
       * ``<function_call>…</function_call>``
       * ``<function_calls>…</function_calls>``
-      * ``<function name="…">…</function>`` (Gemma style)
-    Ported from openclaw/openclaw#67318. The ``<function>`` variant is
-    boundary-gated (only strips when the tag sits at start-of-line or
-    after punctuation and carries a ``name="..."`` attribute) so prose
-    mentions like "Use <function> in JavaScript" are preserved.
+      * ``<function name="…">…</function>``（Gemma 风格）
+
+    移植自 openclaw/openclaw#67318。对 ``<function>`` 变体进行了边界把关（仅当标签
+    位于行首或标点符号之后，且带有 ``name="..."`` 属性时才进行剥离），以便保留正文中
+    诸如“在 JavaScript 中使用 <function>”之类的提及。
     """
     if not content:
         return ""

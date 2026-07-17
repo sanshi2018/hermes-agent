@@ -120,18 +120,17 @@ _TUI_EMBEDDED_PANE_CLARIFIER = (
 
 
 def _tui_embedded_pane_clarifier(hint: str) -> str:
-    """Append the desktop-embedded-terminal-pane clarifier to a tui hint.
+    """将桌面嵌入式终端面板说明附加到 TUI 提示中。
 
-    Triggered by ``HERMES_DESKTOP_TERMINAL=1`` (set by ``main.cjs`` only on the
-    shell env of the desktop's embedded TUI PTY — never on the chat backend).
-    This is a runtime-surface qualifier, not a config override, so it lives at
-    the resolution site rather than inside ``_resolve_platform_hint`` (which
-    is purely the config-platform_hints override applier). Byte-stable for the
-    cache: called once per session build, deterministically from env state.
+    由 ``HERMES_DESKTOP_TERMINAL=1`` 触发（该变量由 ``main.cjs`` 仅在
+    桌面嵌入式 TUI PTY 的 shell 环境中设置 —— 绝不会在聊天后端中设置）。
+    这是一个运行时界面的限定符，而不是配置重写，因此它存在于
+    解析位置，而不是存在于 ``_resolve_platform_hint`` 内部（该方法
+    纯粹是配置平台提示 [config-platform_hints] 重写的应用者）。对
+    缓存来说是字节级稳定的：每次会话构建时调用一次，由环境变量状态决定。
 
-    Idempotent and empty-safe: re-applying on an already-augmented hint is a
-    no-op, and an empty input returns empty (we never synthesize the
-    clarifier without its tui framing).
+    幂等且对空值安全：在已增强的提示上重新应用是无操作（no-op），
+    并且空输入会返回空值（我们绝不会在没有其 TUI 框架的情况下单独合成该说明）。
     """
     if not hint:
         return hint
@@ -143,32 +142,31 @@ def _tui_embedded_pane_clarifier(hint: str) -> str:
 
 
 def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) -> Dict[str, str]:
-    """Assemble the system prompt as three ordered parts.
+    """将系统提示词（system prompt）组装为有序的三个部分。
 
-    Returns a dict with three keys:
-      * ``stable``   — identity, tool guidance, skills prompt,
-        environment hints, platform hints, model-family operational
-        guidance.
-      * ``context``  — context files (AGENTS.md, .cursorrules, etc.)
-        and caller-supplied system_message.
-      * ``volatile`` — memory snapshot, user profile, external
-        memory provider block, timestamp line.
+    返回一个包含三个键的字典：
+      * ``stable``   — 身份标识、工具引导、技能提示词、
+        环境提示、平台提示、模型家族运行指引。
+      * ``context``  — 上下文文件（AGENTS.md、.cursorrules 等）
+        以及调用者提供的 system_message。
+      * ``volatile`` — 记忆快照、用户配置文件、外部
+        记忆服务商数据块、时间戳行。
 
-    Joined into a single string by :func:`build_system_prompt` and
-    cached on ``agent._cached_system_prompt`` for the lifetime of the
-    AIAgent.  Hermes never re-renders parts of this string mid-
-    session — that's the only way to keep upstream prompt caches
-    warm across turns.
+    由 :func:`build_system_prompt` 拼接成单个字符串，并在
+    AIAgent 的生命周期内缓存于 ``agent._cached_system_prompt`` 中。
+    Hermes 绝不会在会话中途重新渲染该字符串的任何部分 —— 这是
+    在跨轮次对话中保持上游 prompt 缓存活跃（warm）的唯一方法。
     """
-    # Local import to avoid pulling model_tools at module load.  Tests
-    # patch ``run_agent.get_toolset_for_tool`` and similar helpers, so
-    # we resolve through ``_ra()`` to honor those patches.
+    # ------------------------------------------------------------
+    # 局部导入，以避免在模块加载时拉入 model_tools。
+    # 测试会对 ``run_agent.get_toolset_for_tool`` 类似的高级辅助函数进行打补丁（patch），
+    # 因此我们通过 ``_ra()`` 进行解析，以使这些补丁生效。
     _r = _ra()
 
-    # Resolve the model's context window once so context-file caps can scale
-    # to it (dynamic cap — see prompt_builder._dynamic_context_file_max_chars).
-    # None falls back to the historical flat default. This value is stable for
-    # the life of the conversation, so it does not threaten prompt caching.
+    # 仅解析一次模型的上下文窗口，以便上下文文件上限可以据此进行伸缩
+    # （动态上限 —— 参见 prompt_builder._dynamic_context_file_max_chars）。
+    # 若为 None，则回退到历史固定的默认值。此值在对话的生命周期内是稳定的，
+    # 因此不会对 prompt 缓存造成影响。
     _ctx_len: Optional[int] = None
     _cc = getattr(agent, "context_compressor", None)
     if _cc is not None:
@@ -179,9 +177,9 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # ── Stable tier ────────────────────────────────────────────────
     stable_parts: List[str] = []
 
-    # Try SOUL.md as primary identity unless the caller explicitly skipped it.
-    # Some execution modes (cron) still want HERMES_HOME persona while keeping
-    # cwd project instructions disabled.
+    # 除非调用者显式跳过，否则尝试将 SOUL.md 作为主要身份。
+    # 某些执行模式（如 cron）仍需要使用 HERMES_HOME 人格，
+    # 同时保持禁用当前工作目录（cwd）下的项目指令。
     _soul_loaded = False
     if agent.load_soul_identity or not agent.skip_context_files:
         _soul_content = _r.load_soul_md(_ctx_len)
@@ -193,26 +191,27 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         # Fallback to hardcoded identity
         stable_parts.append(DEFAULT_AGENT_IDENTITY)
 
+    # 指向 hermes-agent 技能和文档的指针，用于解答用户关于 Hermes 自身的问题。
     # Pointer to the hermes-agent skill + docs for user questions about Hermes itself.
     stable_parts.append(HERMES_AGENT_HELP_GUIDANCE)
 
-    # Universal task-completion / no-fabrication guidance.  Applied to ALL
-    # models regardless of tool_use_enforcement gating — the failure modes
-    # this targets (stopping after a stub; fabricating output when a real
-    # path is blocked) are not model-family specific.  Gated only by
-    # config.yaml ``agent.task_completion_guidance`` (default True) so
-    # users who want a leaner prompt can turn it off.
+    # 通用的任务完成 / 杜绝编造引导。应用于所有
+    # 模型，无论是否启用了工具使用强制（tool_use_enforcement）限制 —— 该引导
+    # 所针对的失败模式（如遇到占位存根就停止、在真实路径受阻时编造输出）
+    # 并非特定模型家族所独有。该功能仅受
+    # config.yaml 中 ``agent.task_completion_guidance`` 的控制（默认为 True），
+    # 这样想要更精简提示词的用户可以将其关闭。
     if getattr(agent, "_task_completion_guidance", True) and agent.valid_tool_names:
         stable_parts.append(TASK_COMPLETION_GUIDANCE)
 
-    # Universal parallel-tool-call guidance.  Tells the model to batch
-    # independent tool calls into one assistant turn rather than emitting one
-    # call per turn — the runtime already runs independent calls concurrently
-    # (read-only tools always; non-overlapping path-scoped file ops), so the
-    # only thing missing was steering the model to produce the batch.  Cuts
-    # round-trips and the resent-context cost that compounds over a long
-    # conversation.  Gated by config.yaml ``agent.parallel_tool_call_guidance``
-    # (default True) and only injected when tools are actually loaded.
+    # 通用并行工具调用（parallel-tool-call）引导。告诉模型将
+    # 独立的工具调用合并（batch）到单个助手轮次中，而不是每轮只发出一个
+    # 调用 —— 运行时（runtime）已经能够并发运行独立的调用
+    # （只读工具一律并发；非重叠路径范围的文件操作也并发），因此
+    # 唯一缺少的就是引导模型去生成这样的批量调用。这减少了
+    # 往返次数，并降低了在长期对话中不断累积的重复发送上下文（resent-context）的成本。
+    # 该功能受 config.yaml 中的 ``agent.parallel_tool_call_guidance`` 控制
+    # （默认为 True），并且仅在实际加载了工具时才会注入。
     if getattr(agent, "_parallel_tool_call_guidance", True) and agent.valid_tool_names:
         stable_parts.append(PARALLEL_TOOL_CALL_GUIDANCE)
 
@@ -224,10 +223,10 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         tool_guidance.append(SESSION_SEARCH_GUIDANCE)
     if "skill_manage" in agent.valid_tool_names:
         tool_guidance.append(SKILLS_GUIDANCE)
-    # Kanban worker/orchestrator lifecycle — only present when the
-    # dispatcher spawned this process (kanban_show check_fn gates on
-    # HERMES_KANBAN_TASK env var). Normal chat sessions never see
-    # this block. Resolved once at __init__ (see _kanban_worker_guidance).
+    # 看板工作器/编排器生命周期 —— 仅在调度器派生此进程时存在
+    # （kanban_show 的 check_fn 门控取决于 HERMES_KANBAN_TASK 环境变量）。
+    # 正常的聊天会话永远不会看到此代码块。
+    # 在 __init__ 时解析一次（参见 _kanban_worker_guidance）。
     _kanban_guidance = getattr(agent, "_kanban_worker_guidance", None)
     if _kanban_guidance:
         tool_guidance.append(_kanban_guidance)
@@ -237,15 +236,15 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     if tool_guidance:
         stable_parts.append(" ".join(tool_guidance))
 
-    # Steering only lands inside tool results, so it's only reachable when the
-    # agent has tools. Static text → byte-stable prompt (no cache hit).
+    # 引导仅在工具结果中生效，因此只有当智能体拥有工具时才可触达。
+    # 静态文本 → 字节级稳定提示词（无缓存命中）。
     if agent.valid_tool_names:
         stable_parts.append(STEER_CHANNEL_NOTE)
 
-    # Computer-use — goes in as its own block rather than being merged into
-    # tool_guidance because the content is multi-paragraph. The guidance is
-    # rendered for the host platform so Windows/Linux hosts don't see
-    # macOS-only wording (Mac, Space, cmd+s).
+    # 电脑使用（Computer-use）—— 作为其独立的代码块传入，
+    # 而不是合并到 tool_guidance 中，因为其内容包含多个段落。
+    # 该引导是针对宿主平台进行渲染的，因此 Windows/Linux 宿主机
+    # 不会看到仅限 macOS 的措辞（如 Mac、Space、cmd+s）。
     if "computer_use" in agent.valid_tool_names:
         from agent.prompt_builder import computer_use_guidance
         stable_parts.append(computer_use_guidance())
@@ -253,13 +252,13 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     nous_subscription_prompt = _r.build_nous_subscription_prompt(agent.valid_tool_names)
     if nous_subscription_prompt:
         stable_parts.append(nous_subscription_prompt)
-    # Tool-use enforcement: tells the model to actually call tools instead
-    # of describing intended actions.  Controlled by config.yaml
+    # 工具调用强制执行：指示模型实际调用工具，而不是描述预期的操作。
+    # 由 config.yaml 控制
     # agent.tool_use_enforcement:
-    #   "auto" (default) — matches TOOL_USE_ENFORCEMENT_MODELS
-    #   true  — always inject (all models)
-    #   false — never inject
-    #   list  — custom model-name substrings to match
+    #   "auto" (默认) — 匹配 TOOL_USE_ENFORCEMENT_MODELS
+    #   true  — 总是注入 (所有模型)
+    #   false — 从不注入
+    #   list  — 需匹配的自定义模型名称子字符串列表
     if agent.valid_tool_names:
         _enforce = agent._tool_use_enforcement
         _inject = False
@@ -277,15 +276,15 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         if _inject:
             stable_parts.append(TOOL_USE_ENFORCEMENT_GUIDANCE)
             _model_lower = (agent.model or "").lower()
-            # Google model operational guidance (conciseness, absolute
-            # paths, parallel tool calls, verify-before-edit, etc.)
+            # Google 模型操作指南（简洁性、绝对
+            # 路径、并行工具调用、先验证后修改等）
             if "gemini" in _model_lower or "gemma" in _model_lower:
                 stable_parts.append(GOOGLE_MODEL_OPERATIONAL_GUIDANCE)
-            # OpenAI GPT/Codex execution discipline (tool persistence,
-            # prerequisite checks, verification, anti-hallucination).
-            # Also applied to xAI Grok — same failure modes (claims completion
-            # without tool calls, suggests workarounds instead of using
-            # existing tools, replies with plans instead of executing).
+            # OpenAI GPT/Codex 执行纪律（工具持久性、
+            # 先决条件检查、验证、防幻觉）。
+            # 同样适用于 xAI Grok —— 相同的失败模式（声称已完成
+            # 却未调用工具，建议采用变通方案而非使用
+            # 现有工具，以计划回复而非实际执行）。
             if "gpt" in _model_lower or "codex" in _model_lower or "grok" in _model_lower:
                 stable_parts.append(OPENAI_MODEL_EXECUTION_GUIDANCE)
 
@@ -298,10 +297,10 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
             )
             if toolset
         }
-        # Focus mode (opt-in) demotes non-coding skill categories to
-        # names-only in the index (never hidden — skill_view/skills_list
-        # reach everything, and every name stays visible for recall). The
-        # default coding posture leaves the index untouched.
+        # 专注模式（选择性开启）会将索引中的非编程技能类别降级为仅显示名称
+        # （绝不隐藏 —— skill_view/skills_list 仍能访问所有内容，
+        # 且每个名称都保持可见以便于检索/回想）。
+        # 默认的编程模式下，索引保持原样。
         _compact_cats = frozenset()
         try:
             from agent.coding_context import coding_compact_skill_categories
@@ -321,11 +320,10 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     if skills_prompt:
         stable_parts.append(skills_prompt)
 
-    # Alibaba Coding Plan API always returns "glm-4.7" as model name regardless
-    # of the requested model. Inject explicit model identity into the system prompt
-    # so the agent can correctly report which model it is (workaround for API bug).
-    # Stable for the lifetime of an agent instance — model and provider are fixed
-    # at construction time.
+    # 阿里巴巴 CodeQwen/Coding Plan API 无论请求哪个模型，始终返回 "glm-4.7"
+    # 作为模型名称。将明确的模型身份注入到系统 prompt 中，
+    # 以便智能体（agent）能够正确报告它是什么模型（该方案用于规避此 API Bug）。
+    # 在智能体实例的生命周期内保持稳定 —— 模型和服务商在构建（初始化）时即已固定。
     if agent.provider == "alibaba":
         _model_short = agent.model.split("/")[-1] if "/" in agent.model else agent.model
         stable_parts.append(
@@ -342,11 +340,11 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     if _env_hints:
         stable_parts.append(_env_hints)
 
-    # Coding posture (base Hermes, any interactive coding surface in a code
-    # workspace — see agent/coding_context.py). The operating brief + the live
-    # git/workspace snapshot are built once here and cached for the session;
-    # the snapshot is never re-probed per turn (that would break the prompt
-    # cache), so the brief tells the model to re-check git before relying on it.
+    # 编码姿态（基础 Hermes，代码工作区中的任何交互式编码界面
+    # —— 参见 agent/coding_context.py）。操作简报 + 实时的
+    # git/工作区快照在此处仅构建一次，并在当前会话中缓存；
+    # 每一轮绝不会重新探测该快照（因为那会破坏提示词
+    # 缓存），因此简报会告知模型在依赖 git 之前先重新检查它。
     if agent.valid_tool_names:
         try:
             from agent.coding_context import coding_system_blocks
@@ -362,13 +360,13 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
             # Coding-context probing must never block prompt build.
             pass
 
-    # Local Python toolchain probe — names python/pip/uv/PEP-668 state when
-    # something is non-default so the model can pick the right install
-    # strategy without discovering by failure.  Emits a single line; emits
-    # NOTHING when the environment is clean (no token cost).  Skipped
-    # entirely for remote terminal backends (the host's Python state is
-    # irrelevant when tools run inside docker/modal/ssh).  Gated by
-    # config.yaml ``agent.environment_probe`` (default True).
+    # 本地 Python 工具链探测器 —— 当 python/pip/uv/PEP-668 的状态
+    # 为非默认时指明其情况，以便模型能够选择正确的安装
+    # 策略，而无需通过试错来摸索。输出单行信息；当
+    # 环境干净时无任何输出（不消耗 token）。对于远程终端后端
+    # 则完全跳过此操作（当工具运行在 docker/modal/ssh 内部时，
+    # 宿主机的 Python 状态是无关紧要的）。该功能由
+    # config.yaml 中的 ``agent.environment_probe`` 控制（默认为 True）。
     if getattr(agent, "_environment_probe", True):
         try:
             from tools.env_probe import get_environment_probe_line
@@ -401,6 +399,14 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
             "you to."
         )
     else:
+        # f"当前激活的 Hermes 配置文件: {active_profile}。此会话读取 "
+        # f"和写入 ~/.hermes/profiles/{active_profile}/。默认 "
+        # f"配置文件的文件存在于 ~/.hermes/skills/、~/.hermes/plugins/、"
+        # f"~/.hermes/cron/、~/.hermes/memories/ —— 它们属于 "
+        # f"从另一个终端运行的不同会话。切勿修改 "
+        # f"另一个配置文件的 skills/plugins/cron/memories，除非用户 "
+        # f"明确指示你这样做。跨配置文件写入保护默认将 "
+        # f"拒绝此类写入；只有在得到明确指示后，才传递 cross_profile=True。"
         stable_parts.append(
             f"Active Hermes profile: {active_profile}. This session reads "
             f"and writes ~/.hermes/profiles/{active_profile}/. The default "
@@ -438,16 +444,16 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # ── Context tier (cwd-dependent, may change between sessions) ─
     context_parts: List[str] = []
 
-    # Note: ephemeral_system_prompt is NOT included here. It's injected at
-    # API-call time only so it stays out of the cached/stored system prompt.
+    # 注意：此处的系统提示词中不包含 ephemeral_system_prompt（临时系统提示词）。
+    # 它仅在 API 调用时被注入，因此它会保持在缓存/存储的系统提示词之外。
     if system_message is not None:
         context_parts.append(system_message)
 
     if not agent.skip_context_files:
-        # Prefer the configured TERMINAL_CWD (gateway mode). When unset (local
-        # CLI), None lets build_context_files_prompt fall back to the launch
-        # dir — the user's real cwd there, but the install dir for the gateway
-        # daemon, which is why the gateway sets TERMINAL_CWD.
+        # 优先使用配置的 TERMINAL_CWD（网关模式）。当未设置时（本地
+        # CLI），None 会让 build_context_files_prompt 回退到启动
+        # 目录 —— 即用户在该处的实际当前工作目录（cwd），但对于网关
+        # 守护进程来说则是安装目录，这就是为什么网关要设置 TERMINAL_CWD 的原因。
         context_files_prompt = _r.build_context_files_prompt(
             cwd=resolve_context_cwd(), skip_soul=_soul_loaded,
             context_length=_ctx_len)
@@ -479,12 +485,12 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
 
     from hermes_time import now as _hermes_now
     now = _hermes_now()
-    # Date-only (not minute-precision) so the system prompt is byte-stable
-    # for the full day.  Minute-precision changes invalidate prefix-cache KV
-    # on every rebuild path (compression boundary, fresh-agent gateway turns,
-    # session resume without a stored prompt).  The model can still query the
-    # exact wall-clock time via tools when it actually needs it.
-    # Credit: @iamfoz (PR #20451).
+    # 仅保留日期（不精确到分钟），以便系统提示词在整个自然日内
+    # 保持字节级稳定。精确到分钟的变化会导致每次重建路径时
+    # （压缩边界、新智能体网关轮次、无存储提示词的会话恢复）
+    # 前缀缓存 KV 失效。当模型真正需要时，它仍然可以通过工具
+    # 查询精确的墙上时钟时间（挂钟时间）。
+    # 鸣谢：@iamfoz（PR #20451）。
     timestamp_line = f"Conversation started: {now.strftime('%A, %B %d, %Y')}"
     if agent.pass_session_id and agent.session_id:
         timestamp_line += f"\nSession ID: {agent.session_id}"
@@ -502,25 +508,23 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
 
 
 def build_system_prompt(agent: Any, system_message: Optional[str] = None) -> str:
-    """Assemble the full system prompt from all layers.
+    """从所有层级组装出完整的系统提示词（system prompt）。
 
-    Called once per session (cached on ``agent._cached_system_prompt``) and
-    only rebuilt after context compression events. This ensures the system
-    prompt is stable across all turns in a session, maximizing prefix cache
-    hits.
+    每个会话仅调用一次（缓存于 ``agent._cached_system_prompt``），且
+    仅在上下文压缩事件后重新构建。这确保了系统提示词在会话的
+    所有轮次中保持稳定，从而最大化前缀缓存（prefix cache）命中率。
 
-    Layers are ordered cache-friendly: stable identity/guidance first,
-    then session-stable context files, then per-call volatile content
-    (memory, USER profile, timestamp).  The whole string is treated as
-    one cached block — Hermes never rebuilds or reinjects parts of it
-    mid-session, which is the only way to keep upstream prompt caches
-    warm across turns.
+    各层级的排列顺序对缓存友好：首先是稳定的身份/引导信息（identity/guidance），
+    然后是会话级稳定的上下文文件，最后是单次调用级易变的内容
+    （记忆、USER 配置文件、时间戳）。整个字符串被视为一个缓存块
+    —— Hermes 绝不会在会话中途重建或重新注入其中的部分内容，
+    这是在跨轮次对话中保持上游 prompt 缓存活跃（warm）的唯一方法。
     """
     parts = build_system_prompt_parts(agent, system_message=system_message)
     joined = "\n\n".join(p for p in (parts["stable"], parts["context"], parts["volatile"]) if p)
 
-    # Surface context-file truncation warnings through the normal agent status
-    # channel so gateway/CLI users see them in chat instead of only in logs.
+    # 通过常规的代理状态通道（agent status channel）显现上下文文件截断警告，
+    # 以便网关/CLI 用户能够在聊天中看到它们，而不是只能在日志中看到。
     for warning in drain_truncation_warnings():
         agent._emit_status(warning)
 
@@ -528,10 +532,10 @@ def build_system_prompt(agent: Any, system_message: Optional[str] = None) -> str
 
 
 def invalidate_system_prompt(agent: Any) -> None:
-    """Invalidate the cached system prompt, forcing a rebuild on the next turn.
+    """使缓存的系统提示词（system prompt）失效，强制在下一轮中重新构建。
 
-    Called after context compression events. Also reloads memory from disk
-    so the rebuilt prompt captures any writes from this session.
+    在上下文压缩事件后调用。同时从磁盘重新加载记忆，
+    以便重建的提示词能够捕获本会话中的任何写入操作。
     """
     agent._cached_system_prompt = None
     if agent._memory_store:

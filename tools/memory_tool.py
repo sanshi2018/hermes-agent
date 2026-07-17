@@ -166,21 +166,20 @@ class MemoryStore:
         }
 
     def load_from_disk(self):
-        """Load entries from MEMORY.md and USER.md, capture system prompt snapshot.
+        """从 MEMORY.md 和 USER.md 加载条目，并捕获系统提示词快照。
 
-        The frozen snapshot is what enters the system prompt. We scan each
-        entry for injection/promptware patterns at snapshot-build time —
-        ANY hit replaces the entry text in the snapshot with a placeholder
-        like ``[BLOCKED: …]``, so a poisoned-on-disk memory file (supply
-        chain, compromised tool, sister-session write) cannot inject into
-        the system prompt.
+        冻结的快照是最终进入系统提示词的内容。我们在构建快照时会扫描每个
+        条目是否存在注入/提示词攻击（promptware）模式 ——
+        任何命中都会将快照中的条目文本替换为类似 ``[BLOCKED: …]`` 的占位符，
+        这样在磁盘上被污染的记忆文件（供应链攻击、被攻破的工具、姐妹会话写入）
+        就无法注入到系统提示词中。
 
-        The live ``memory_entries`` / ``user_entries`` lists keep the
-        original text so the user can still SEE poisoned entries via
-        see poisoned entries by inspecting the source files directly, and remove them — silently dropping them would hide the attack from the user.
+        活动的 ``memory_entries`` / ``user_entries`` 列表会保留原始文本，
+        以便用户仍能通过直接检查源文件来看到被污染的条目并将其移除 ——
+        如果默默地丢弃它们，将会对用户隐瞒该攻击行为。
 
-        Scanning is deterministic from disk bytes, so the snapshot remains
-        stable for the entire session (prefix-cache invariant holds).
+        扫描是基于磁盘字节确定性进行的，因此快照在整个会话期间保持稳定
+        （前缀缓存不变性保持成立）。
         """
         mem_dir = get_memory_dir()
         mem_dir.mkdir(parents=True, exist_ok=True)
@@ -192,9 +191,9 @@ class MemoryStore:
         self.memory_entries = list(dict.fromkeys(self.memory_entries))
         self.user_entries = list(dict.fromkeys(self.user_entries))
 
-        # Sanitize entries for the system-prompt snapshot only.  Live state
-        # (memory_entries / user_entries) keeps the raw text so the user
-        # can see + remove poisoned entries via the memory tool.
+        # 仅对系统提示词快照的条目进行净化。活动状态
+        # （memory_entries / user_entries）会保留原始文本，以便用户
+        # 能够通过记忆工具看到并移除被污染的条目。
         sanitized_memory = self._sanitize_entries_for_snapshot(self.memory_entries, "MEMORY.md")
         sanitized_user = self._sanitize_entries_for_snapshot(self.user_entries, "USER.md")
 
@@ -206,16 +205,14 @@ class MemoryStore:
 
     @staticmethod
     def _sanitize_entries_for_snapshot(entries: List[str], filename: str) -> List[str]:
-        """Return ``entries`` with any threat-matching entry replaced by a placeholder.
+        """返回 ``entries``，其中任何匹配到威胁的条目都已被替换为占位符。
 
-        Each entry is scanned with the shared threat-pattern library at the
-        ``"strict"`` scope (same as memory writes).  On match, the entry is
-        replaced in the returned list with ``"[BLOCKED: <filename> entry
-        contained threat pattern: <ids>. Removed from system prompt.]"`` —
-        the placeholder enters the snapshot, the original entry stays in
-        live state for the user to inspect and delete.
+        每个条目都会在 ``"strict"`` 作用域（与记忆写入相同）下使用共享的威胁模式库
+        进行扫描。一旦匹配成功，返回的列表中的该条目将被替换为
+        ``"[BLOCKED: <filename> entry contained threat pattern: <ids>. Removed from system prompt.]"`` ——
+        该占位符会进入快照，而原始条目则保留在活动状态中，供用户检查和删除。
 
-        Empty or already-block-marker entries pass through unchanged.
+        空条目或已经是阻塞标记（block-marker）的条目将原样通过。
         """
         from tools.threat_patterns import scan_for_threats
 
@@ -613,14 +610,13 @@ class MemoryStore:
         })
 
     def format_for_system_prompt(self, target: str) -> Optional[str]:
-        """
-        Return the frozen snapshot for system prompt injection.
+        """返回用于注入系统提示词的冻结快照。
 
-        This returns the state captured at load_from_disk() time, NOT the live
-        state. Mid-session writes do not affect this. This keeps the system
-        prompt stable across all turns, preserving the prefix cache.
+        此函数返回在 load_from_disk() 时捕获的状态，而“不是”实时
+        状态。会话中途的写入不会影响此状态。这使得系统提示词
+        在所有轮次中保持稳定，从而保留前缀缓存。
 
-        Returns None if the snapshot is empty (no entries at load time).
+        如果快照为空（加载时无条目），则返回 None。
         """
         block = self._system_prompt_snapshot.get(target, "")
         return block if block else None

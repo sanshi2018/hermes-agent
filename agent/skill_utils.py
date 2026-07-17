@@ -355,18 +355,15 @@ def _load_raw_config() -> Dict[str, Any]:
 
 
 def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
-    """Read disabled skill names from config.yaml.
+    """从 config.yaml 中读取禁用的技能名称。
 
-    Args:
-        platform: Explicit platform name (e.g. ``"telegram"``).  When
-            *None*, resolves from ``HERMES_PLATFORM`` or
-            ``HERMES_SESSION_PLATFORM`` env vars.  Returns the global
-            disabled list, unioned with the platform-specific list when a
-            platform is resolved (a globally-disabled skill stays disabled
-            on every platform).
+    参数:
+        platform: 明确的平台名称（例如 ``"telegram"``）。当为 *None* 时，
+            从环境变量 ``HERMES_PLATFORM`` 或 ``HERMES_SESSION_PLATFORM``
+            中解析。返回全局禁用列表，并在解析出具体平台时，将其与该平台
+            特定的禁用列表合并（全局禁用的技能在所有平台上都将保持禁用状态）。
 
-    Reads the config file directly (no CLI config imports) to stay
-    lightweight.
+    直接读取配置文件（不导入 CLI 配置），以保持轻量化。
     """
     parsed = _load_raw_config()
     if not parsed:
@@ -783,13 +780,13 @@ def extract_skill_description(frontmatter: Dict[str, Any]) -> str:
 
 
 def iter_skill_index_files(skills_dir: Path, filename: str):
-    """Walk skills_dir yielding sorted paths matching *filename*.
+    """遍历 skills_dir，生成并返回与 *filename* 匹配的已排序路径。
 
-    Excludes Hermes metadata, VCS, virtualenv/dependency, cache, and skill
-    support directories. Support directories (references/templates/assets/
-    scripts) can contain arbitrary markdown and even archived package
-    ``SKILL.md`` files, but they are progressive-disclosure data loaded through
-    ``skill_view(..., file_path=...)`` rather than active skill roots.
+    排除 Hermes 元数据、版本控制系统（VCS）、虚拟环境/依赖项、缓存以及技能
+    辅助目录。辅助目录（references/templates/assets/scripts）可以包含
+    任意的 markdown 甚至归档的包 ``SKILL.md`` 文件，但它们属于渐进式呈现
+    的数据，应通过 ``skill_view(..., file_path=...)`` 加载，而不是作为
+    活跃的技能根目录。
     """
     skills_dir_str = str(skills_dir)
     matches: list[str] = []

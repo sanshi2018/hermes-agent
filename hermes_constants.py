@@ -53,20 +53,20 @@ def _get_platform_default_hermes_home() -> Path:
 
 
 def get_hermes_home() -> Path:
-    """Return the Hermes home directory (default: platform-native path).
+    """返回 Hermes 主目录（默认：平台原生路径）。
 
-    Reads HERMES_HOME env var, falls back to the platform-native default.
-    This is the single source of truth — all other copies should import this.
+    读取 HERMES_HOME 环境变量，若未设置则回退到平台原生的默认值。
+    这是唯一的真实数据源（Single Source of Truth）—— 所有其他副本都应当导入此函数。
 
-    When ``HERMES_HOME`` is unset but an ``active_profile`` file indicates
-    a non-default profile is active, logs a loud one-shot warning to
-    ``errors.log`` so cross-profile data corruption is diagnosable instead
-    of silent.  Behavior is unchanged otherwise — we still return
-    the platform-native default — because raising here would brick 30+ module-level
-    callers that import this at load time.  Subprocess spawners are
-    expected to propagate ``HERMES_HOME`` explicitly (see the systemd
-    template in ``hermes_cli/gateway.py`` and the kanban dispatcher in
-    ``hermes_cli/kanban_db.py``).  See https://github.com/NousResearch/hermes-agent/issues/18594.
+    当未设置 ``HERMES_HOME`` 但 ``active_profile`` 文件指示当前激活了非默认
+    配置文件时，会向 ``errors.log`` 记录一条显眼的一次性警告（one-shot warning），
+    以便跨配置文件的数据损坏是可诊断的，而非默默发生。
+    其他情况下的行为保持不变 —— 我们依然返回平台原生的默认路径 —— 因为在此处抛出
+    异常会导致在加载时（load time）导入此函数的 30 多个模块级调用者直接崩溃。
+    子进程生成器（Subprocess spawners）需要显式地传递 ``HERMES_HOME``
+    （参见 ``hermes_cli/gateway.py`` 中的 systemd 模板以及 ``hermes_cli/kanban_db.py``
+    中的看板调度器）。
+    详情参见 https://github.com/NousResearch/hermes-agent/issues/18594。
     """
     override = get_hermes_home_override()
     if override:

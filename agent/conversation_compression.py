@@ -389,26 +389,24 @@ def conversation_history_after_compression(agent: Any, messages: list) -> Option
 
 
 def _ensure_compressed_has_user_turn(original_messages: list, compressed: list) -> None:
-    """Preserve a real user turn when a compressor returns assistant/tool-only context.
+    """当压缩器仅返回 assistant/tool（助手/工具）上下文时，保留一个真实的用户轮次。
 
-    On repeated compaction the protected head decays to the system prompt only,
-    the middle summary can land as ``role="assistant"``, and a tool-heavy tail
-    can be all assistant/tool — so the compacted transcript can legitimately
-    contain zero user messages. Strict chat templates (LM Studio / llama.cpp
-    Jinja) then fail with "No user query found in messages" (#55677).
+    在反复压缩过程中，受保护的 head 会衰减到仅剩系统提示词（system prompt），
+    中间的摘要可能会作为 ``role="assistant"`` 存入，而包含大量工具调用的 tail
+    可能全是 assistant/tool —— 因此压缩后的脚本中确实可能出现零个用户消息的情况。
+    严格的聊天模板（如 LM Studio / llama.cpp 的 Jinja 模板）随后会因
+    "No user query found in messages"（消息中未找到用户查询）而失败（#55677）。
 
-    The restored turn is appended at the END: the guard only runs when
-    ``compressed`` currently ends with an assistant/tool message (any existing
-    user turn — including a todo-snapshot append — short-circuits the
-    ``any()`` check), so appending a user message never creates consecutive
-    same-role messages. ``_fresh_compaction_message_copy`` copies the message
-    and strips the ``_db_persisted`` marker so the rotation/in-place flush
-    still persists the restored row to the new session (#57491).
+    恢复的轮次会被追加到最末尾（END）：该保护机制仅在 ``compressed`` 当前以
+    assistant/tool 消息结尾时才会运行（任何已存在的用户轮次 —— 包括追加的
+    todo 镜像快照 —— 都会直接触发 ``any()`` 检查的短路退出），因此追加用户消息
+    绝对不会导致产生连续的同角色消息。``_fresh_compaction_message_copy`` 会复制
+    该消息并清除 ``_db_persisted`` 标记，以便轮转/原地刷新（rotation/in-place flush）
+    仍能将恢复的行持久化到新会话中（#57491）。
 
-    If the pre-compression transcript itself carried no user turn at all
-    (near-impossible — every real conversation opens with a user request —
-    but kept as a defensive backstop), a minimal continuation marker is
-    appended instead so strict templates still see a user message.
+    如果压缩前的脚本本身就完全不包含任何用户轮次（这几乎是不可能的 —— 每一个真实的
+    对话都以用户请求开始 —— 但此处作为防御性兜底保留），则会追加一个极简的
+    延续标记（continuation marker），以确保严格的模板仍能看到一条用户消息。
     """
     if any(isinstance(msg, dict) and msg.get("role") == "user" for msg in compressed):
         return
@@ -640,11 +638,10 @@ def compress_context(
         _release_lock()
         raise
 
-    # If compression aborted (aux LLM failed to produce a usable summary)
-    # the compressor returns the input messages unchanged.  Surface the
-    # error to the user, skip the session-rotation work entirely (no
-    # session has logically ended), and let auto-compress callers detect
-    # the no-op via len(returned) == len(input).
+    # 如果压缩中止（辅助 LLM 未能生成可用的摘要），
+    # 压缩器将原样返回输入消息。将该错误呈现给用户，
+    # 完全跳过会话轮转（session-rotation）工作（逻辑上没有会话结束），
+    # 并让自动压缩调用者通过 len(returned) == len(input) 检测到这一无操作（no-op）。
     if getattr(agent.context_compressor, "_last_compress_aborted", False):
         try:
             _err = getattr(agent.context_compressor, "_last_summary_error", None) or "unknown error"
@@ -662,9 +659,9 @@ def compress_context(
         finally:
             _release_lock()
 
-    # A compressor that returns the exact input object made no structural
-    # progress. Do not rotate/rewrite the session or arm post-compression
-    # deferral in that case; its own anti-thrash counter records the no-op.
+    # 压缩器如果返回了完全相同的输入对象，则说明没有取得任何结构性进展。
+    # 在这种情况下，不要轮转/重写会话，也不要启用压缩后延迟（post-compression deferral）；
+    # 压缩器自身的防抖动计数器会记录下这次无操作（no-op）。
     if compressed is messages:
         logger.info(
             "Compression made no progress (session=%s) — skipping boundary rewrite.",
@@ -686,10 +683,10 @@ def compress_context(
                     "Inserted a fallback context marker."
                 )
         else:
-            # No hard failure — but did the configured aux model error out
-            # and get recovered by retrying on main?  Surface that so users
-            # know their auxiliary.compression.model setting is broken even
-            # though compression succeeded.
+            # 不是硬性失败 —— 但配置的辅助模型是否报错，
+            # 并通过在主模型上重试得以恢复？
+            # 将此情况呈现给用户，以便他们知道即使压缩成功，
+            # 他们的 auxiliary.compression.model 设置也是损坏的。
             _aux_fail_model = getattr(agent.context_compressor, "_last_aux_model_failure_model", None)
             _aux_fail_err = getattr(agent.context_compressor, "_last_aux_model_failure_error", None)
             if _aux_fail_model:
@@ -709,6 +706,7 @@ def compress_context(
         _ensure_compressed_has_user_turn(messages, compressed)
 
         agent._invalidate_system_prompt()
+        # TODO 260715-16:18 read
         new_system_prompt = agent._build_system_prompt(system_message)
         agent._cached_system_prompt = new_system_prompt
 

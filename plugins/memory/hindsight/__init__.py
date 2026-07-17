@@ -1443,18 +1443,30 @@ class HindsightMemoryProvider(MemoryProvider):
 
     def system_prompt_block(self) -> str:
         if self._memory_mode == "context":
+            # f"# Hindsight 记忆机制\n"
+            # f"已激活（上下文模式）。存储库: {self._bank_id}，容量预算: {self._budget}。\n"
+            # f"相关记忆会自动注入到上下文中。"
             return (
                 f"# Hindsight Memory\n"
                 f"Active (context mode). Bank: {self._bank_id}, budget: {self._budget}.\n"
                 f"Relevant memories are automatically injected into context."
             )
         if self._memory_mode == "tools":
+            # f"# Hindsight 记忆机制\n"
+            # f"已激活（工具模式）。存储库: {self._bank_id}，容量预算: {self._budget}。\n"
+            # f"使用 hindsight_recall 进行搜索，使用 hindsight_reflect 进行综合，"
+            # f"使用 hindsight_retain 存储事实。"
             return (
                 f"# Hindsight Memory\n"
                 f"Active (tools mode). Bank: {self._bank_id}, budget: {self._budget}.\n"
                 f"Use hindsight_recall to search, hindsight_reflect for synthesis, "
                 f"hindsight_retain to store facts."
             )
+        # f"# Hindsight 记忆机制\n"
+        # f"已激活。存储库: {self._bank_id}，容量预算: {self._budget}。\n"
+        # f"相关记忆会自动注入到上下文中。"
+        # f"使用 hindsight_recall 进行搜索，使用 hindsight_reflect 进行综合，"
+        # f"使用 hindsight_retain 存储事实。"
         return (
             f"# Hindsight Memory\n"
             f"Active. Bank: {self._bank_id}, budget: {self._budget}.\n"

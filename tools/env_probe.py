@@ -213,13 +213,12 @@ def _build_probe_line() -> str:
 
 
 def get_environment_probe_line(*, force_refresh: bool = False) -> str:
-    """Return the cached probe line (building it on first call).
+    """返回缓存的探测行（在首次调用时构建它）。
 
-    Returns "" when the environment is clean — the system prompt
-    assembler should drop the section in that case rather than
-    emit an empty heading.
+    当环境干净时返回 "" —— 在这种情况下，系统提示词
+    组装器应丢弃该部分，而不是输出一个空标题。
 
-    ``force_refresh`` is for tests; real callers should never need it.
+    ``force_refresh`` 是用于测试的；真正的调用者绝不应该需要它。
     """
     global _CACHED_LINE
     if force_refresh:

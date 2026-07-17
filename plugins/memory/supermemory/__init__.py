@@ -675,6 +675,11 @@ class SupermemoryMemoryProvider(MemoryProvider):
     def system_prompt_block(self) -> str:
         if not self._active:
             return ""
+        # "# 超级记忆机制",
+        # f"已激活。容器: {self._container_tag}。",
+        # ("使用 supermemory-search、supermemory-save、supermemory-forget "
+        #  "和 supermemory-profile（别名: supermemory_search、supermemory_store、"
+        #  "supermemory_forget、supermemory_profile）。"),
         lines = [
             "# Supermemory",
             f"Active. Container: {self._container_tag}.",
@@ -683,6 +688,8 @@ class SupermemoryMemoryProvider(MemoryProvider):
         if self._enable_custom_containers and self._custom_containers:
             tags_str = ", ".join(self._allowed_containers)
             lines.append(f"\nMulti-container mode enabled. Available containers: {tags_str}.")
+            # ("向 supermemory_search、supermemory_store、supermemory_forget "
+            #  "和 supermemory_profile 传递一个可选的 container_tag，以针对特定的容器。")
             lines.append("Pass an optional container_tag to supermemory_search, supermemory_store, supermemory_forget, and supermemory_profile to target a specific container.")
             if self._custom_container_instructions:
                 lines.append(f"\n{self._custom_container_instructions}")

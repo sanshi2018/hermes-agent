@@ -357,13 +357,13 @@ PROFILE_SCOPED_AREAS = ("skills", "plugins", "cron", "memories")
 
 
 def _resolve_active_profile_name() -> str:
-    """Return the active profile name derived from HERMES_HOME.
+    """返回基于 HERMES_HOME 推导出的活动配置文件名称。
 
     ``~/.hermes``              -> ``"default"``
     ``~/.hermes/profiles/X``  -> ``"X"``
 
-    Falls back to ``"default"`` on any resolution failure so the guard
-    never raises into the tool path.
+    在任何解析失败的情况下都会回退到 ``"default"``，
+    因此该保护机制绝不会向工具路径抛出异常。
     """
     try:
         home_real = _hermes_home_path().resolve()

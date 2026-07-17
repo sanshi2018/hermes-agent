@@ -589,11 +589,11 @@ class HonchoMemoryProvider(MemoryProvider):
         return "\n\n".join(parts)
 
     def system_prompt_block(self) -> str:
-        """Return system prompt text, adapted by recall_mode.
+        """返回由 recall_mode（召回模式）适配后的系统提示词文本。
 
-        Returns only the mode header and tool instructions — static text
-        that doesn't change between turns (prompt-cache friendly).
-        Live context (representation, card) is injected via prefetch().
+        仅返回模式标题和工具指令 —— 这些是不会在不同轮次间
+        变化的静态文本（对提示词缓存友好）。
+        实时上下文（表征、卡片）是通过 prefetch() 注入的。
         """
         if self._cron_skipped:
             return ""
@@ -603,6 +603,9 @@ class HonchoMemoryProvider(MemoryProvider):
 
         # ----- B1: adapt text based on recall_mode -----
         if self._recall_mode == "context":
+            # Honcho 记忆机制
+            # "已激活（上下文注入模式）。相关的用户上下文会在每一轮对话前自动 "
+            # "注入。无任何记忆工具可用 —— 上下文由系统自动管理。"
             header = (
                 "# Honcho Memory\n"
                 "Active (context-injection mode). Relevant user context is automatically "
@@ -610,6 +613,13 @@ class HonchoMemoryProvider(MemoryProvider):
                 "managed automatically."
             )
         elif self._recall_mode == "tools":
+            # Honcho 记忆机制
+            # "已激活（仅工具模式）。使用 honcho_profile 获取快速的事实快照，"
+            # "使用 honcho_search 获取原始摘录，使用 honcho_context 获取原始对等上下文，"
+            # "使用 honcho_reasoning 获取综合答案（传递推理级别 [reasoning_level] "
+            # "minimal/low/medium/high/max —— 你在每次调用时自行选择深度），"
+            # "使用 honcho_conclude 保存关于用户的事实。"
+            # "无自动上下文注入 —— 你必须使用工具来访问记忆。"
             header = (
                 "# Honcho Memory\n"
                 "Active (tools-only mode). Use honcho_profile for a quick factual snapshot, "
@@ -620,6 +630,13 @@ class HonchoMemoryProvider(MemoryProvider):
                 "No automatic context injection — you must use tools to access memory."
             )
         else:  # hybrid
+            # # Honcho 记忆机制
+            # "已激活（混合模式）。相关上下文会自动注入，并且记忆工具也可用。"
+            # "使用 honcho_profile 获取快速的事实快照，"
+            # "使用 honcho_search 获取原始摘录，使用 honcho_context 获取原始对等上下文，"
+            # "使用 honcho_reasoning 获取综合答案（传递推理级别 [reasoning_level]"
+            # "minimal/low/medium/high/max —— 你在每次调用时自行选择深度），"
+            # "使用 honcho_conclude 保存关于用户的事实。"
             header = (
                 "# Honcho Memory\n"
                 "Active (hybrid mode). Relevant context is auto-injected AND memory tools are available. "

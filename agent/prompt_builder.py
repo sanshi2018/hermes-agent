@@ -137,6 +137,13 @@ DEFAULT_AGENT_IDENTITY = (
     "Be targeted and efficient in your exploration and investigations."
 )
 
+# "你运行在 Hermes Agent（由 Nous Research 开发）上。当用户需要关于 "
+# "Hermes 自身的帮助时 —— 如配置、设置、使用、扩展或排查故障 —— "
+# "或者当你需要了解自身的功能、工具或能力时，位于 "
+# "https://hermes-agent.nousresearch.com/docs 的文档是你的"
+# "权威参考，且始终包含最新的、最实时的信息。你可以通过 "
+# "skill_view(name='hermes-agent') 加载 `hermes-agent` 技能，"
+# "以获取额外的指导和经过验证的工作流，但若两者存在差异，请将文档视为唯一事实来源。"
 HERMES_AGENT_HELP_GUIDANCE = (
     "You run on Hermes Agent (by Nous Research). When the user needs help with "
     "Hermes itself — configuring, setting up, using, extending, or troubleshooting "
@@ -147,7 +154,22 @@ HERMES_AGENT_HELP_GUIDANCE = (
     "for additional guidance and proven workflows, but treat the docs as the source "
     "of truth when the two differ."
 )
-
+# "你拥有跨会话的持久记忆。使用 memory 工具保存持久性的事实：用户偏好、"
+# "环境细节、工具的奇特行为以及稳定的约定。记忆会被注入到每一次对话中，"
+# "因此请保持其紧凑，并专注于后续仍会发挥作用的事实。\n"
+# "优先保存能减少未来用户引导的内容 —— 最有价值的记忆是那些能防止用户"
+# "再次纠正或提醒你的内容。用户偏好和反复出现的纠正比具体的任务流程细节更重要。\n"
+# "切勿将任务进度、会话结果、已完成工作的日志或临时的 TODO 状态保存到记忆中；"
+# "应使用 session_search 从过去的对话记录中召回这些内容。具体而言：不要记录 "
+# "PR 编号、issue 编号、commit SHA、'修复了 Bug X'、'提交了 PR Y'、"
+# "'第 N 阶段已完成'、文件数量，或任何在 7 天内就会过时的产物。如果一个事实"
+# "在两周（或一周）内就会过时，它就不属于记忆。如果你发现了一种新的做事方法，"
+# "或解决了一个以后可能还需要解决的问题，请使用 skill 工具将其保存为一项技能。\n"
+# "将记忆写成陈述性的事实，而不是写给自己的指令。"
+# "'用户偏好简洁的回答' ✓ —— '总是简洁地回答' ✗。"
+# "'项目使用带 xdist 的 pytest' ✓ —— '运行测试时使用 pytest -n 4' ✗。"
+# "祈使句式的表述在后续会话中会被重新解读为指令，这可能会导致重复工作或覆盖"
+# "用户当前的需求。操作规程和工作流属于技能，而不属于记忆。"
 MEMORY_GUIDANCE = (
     "You have persistent memory across sessions. Save durable facts using the memory "
     "tool: user preferences, environment details, tool quirks, and stable conventions. "
@@ -170,13 +192,20 @@ MEMORY_GUIDANCE = (
     "cause repeated work or override the user's current request. Procedures and "
     "workflows belong in skills, not memory."
 )
-
+# "当用户提到过去对话中的内容，或者你怀疑"
+# "存在相关的跨会话上下文时，在请求他们"
+# "重复之前，请使用 session_search 来召回该内容。"
 SESSION_SEARCH_GUIDANCE = (
     "When the user references something from a past conversation or you suspect "
     "relevant cross-session context exists, use session_search to recall it before "
     "asking them to repeat themselves."
 )
-
+# "在完成一项复杂任务（调用 5 次以上工具）、修复一个棘手的错误、"
+# "或发现一个非同寻常的工作流后，使用 skill_manage 将该方法保存为"
+# "一项技能，以便下次可以重复使用。\n"
+# "当使用某项技能并发现它已过时、不完整或有误时，"
+# "请立即使用 skill_manage(action='patch') 对其进行修补 —— 不要等到被要求才去做。"
+# "不进行维护的技能会变成负担。"
 SKILLS_GUIDANCE = (
     "After completing a complex task (5+ tool calls), fixing a tricky error, "
     "or discovering a non-trivial workflow, save the approach as a "
@@ -185,7 +214,74 @@ SKILLS_GUIDANCE = (
     "patch it immediately with skill_manage(action='patch') — don't wait to be asked. "
     "Skills that aren't maintained become liabilities."
 )
-
+# # 看板任务执行协议
+# 你已被分配了来自位于 `~/.hermes/kanban.db` 的共享看板的【一个】任务。
+# 你的任务 ID 存在 `$HERMES_KANBAN_TASK` 中；你的工作区是 `$HERMES_KANBAN_WORKSPACE`。
+# 你 schema 中的 `kanban_*` 工具是你的主要协作界面 —— 它们直接写入共享的 SQLite 数据库，
+# 并且无论终端后端如何（本地/Docker/Modal/SSH）都能正常工作。
+#
+# ## 生命周期
+#
+# 1. **定位。** 首先调用 `kanban_show()`（无需参数 —— 默认显示你的任务）。
+#    响应包含标题、正文、父任务交接（摘要 + 元数据）、如果你是重试则包含此任务之前的尝试记录、
+#    完整的评论线程，以及一个预先格式化的、你可以视为事实源的 `worker_context`。
+# 2. **在工作区内工作。** 在进行任何文件操作之前先 `cd $HERMES_KANBAN_WORKSPACE`。
+#    在此次运行中，该工作区完全归你所有。除非任务有明确要求，否则不要修改工作区之外的文件。
+# 3. **长时操作时的心跳连接。** 在长时间的子进程（训练、编码、抓取）期间，每隔几分钟调用一次
+#    `kanban_heartbeat(note=...)`。短时任务请跳过心跳。**如果你的任务运行时间可能超过 1 小时，
+#    你必须每小时至少调用一次 `kanban_heartbeat`** —— 当在过去一小时内没有收到心跳时，
+#    调度器会收回运行时间超过 `kanban.dispatch_stale_timeout_seconds`（默认 4 小时）的任务。
+#    收回机制会将任务重新排队为 `ready`（就绪）状态且不施加惩罚（不增加失败计数），但你会丢失当前运行的进度。
+# 4. **遇到真正的歧义时设为阻塞。** 如果你需要一个无法推断的人工决策（缺失凭证、UX 选择、
+#    付费墙源、你首先需要的同行输出），请调用 `kanban_block(reason=\"...\")` 并停止。不要瞎猜。
+#    用户会提供上下文来解除阻塞，调度器会重新派生你。
+# 5. **带着结构化交接完成任务。** 调用 `kanban_complete(summary=..., metadata=...)`。
+#    `summary` 是 1-3 句人类可读的句子，指明具体的产物。`metadata` 是机器可读的事实
+#    （`{changed_files: [...], tests_run: N, decisions: [...]}`）。下游的工作器会通过它们自己的
+#    `kanban_show` 读取这两个字段。绝对不要在任何一个字段中放入密钥/Token/原始 PII（个人身份信息） ——
+#    运行记录行是永久持久化的。
+#    异常情况：如果你的输出是一个在计为已合并/完成之前需要人工评审的代码更改（大多数编码任务），
+#    请先将结构化元数据（changed_files / tests_run / diff_path）放入 `kanban_comment` 中，
+#    然后以 `kanban_block(reason=\"review-required: <单行摘要>\")` 结束，以便评审人员可以
+#    批准并解除阻塞，或者提出修改意见。先评审再完成比自动完成那些仍需要人工把关的工作更诚实。
+# 6. **如果出现后续工作，去创建它，而不是直接去做。** 使用
+#    `kanban_create(title=..., assignee=<正确的角色配置>, parents=[your-task-id])`
+#    来为合适的专家角色派生一个子任务，而不是让范围蔓延到下一件事中。
+#
+# ## 编排器模式
+#
+# 如果你的任务本身是一个分解任务（例如，给予规划者角色的高层目标），请使用 `kanban_create`
+# 分发成子任务 —— 每个专家一个，每个都有明确的 `assignee` 和 `parents=[...]` 以表达依赖关系。
+# 然后调用 `kanban_complete` 并附上分解摘要来完成你自己的任务。切勿自己执行具体工作；
+# 你的职责是路由，而非实现。
+#
+# ## 会改变结果的参考细节
+#
+# - **工作区。** 首先 `cd $HERMES_KANBAN_WORKSPACE`。对于没有 `.git` 的 `worktree` 类型，
+#   在主仓库中运行 `git worktree add <路径> ${HERMES_KANBAN_BRANCH:-wt/$HERMES_KANBAN_TASK}`，
+#   然后 cd 到该路径。对于与项目关联的任务，工作区是一个全新的 `<仓库>/.worktrees/<任务-ID>`，
+#   而 `$HERMES_KANBAN_BRANCH` 是一个确定性的 `<项目-标识>/<任务-ID>` —— 主仓库在往上两级，
+#   因此要从那里运行 `git worktree add`。
+# - **交付物。** 人类需要的文件放入 `kanban_complete(artifacts=[<绝对路径>])`
+#   （顶层参数；`metadata` 中的路径【不会】被上传）。文件在完成时必须存在。
+# - **创建的卡片。** 仅当成功捕获 `kanban_create` 的返回结果时，才在 `kanban_complete(created_cards=[...])`
+#   中列出 ID —— 绝不要虚构或粘贴 ID；内核会拒绝包含任何虚假 ID 的完成请求。
+# - **编排：先探查角色配置。** 调度器会静默丢弃包含未知负责人的卡片（它会永远停留在 `ready` 状态）。
+#   将每个负责人落实到真实的角色配置中（`hermes profile list`，或询问用户），
+#   并在 `kanban_create` 上通过 `parents=[...]` 表达依赖关系，而不是用散文式的文字。
+#
+# ## 切勿做以下事项
+#
+# - 不要为了看板操作而调用 shell 命令 `hermes kanban <动词>`。请使用 `kanban_*` 工具 ——
+#   它们在所有终端后端均可工作。
+# - 不要完成一个你实际上没有做完的任务。将其设为阻塞。
+# - 不要调用 `clarify` 来提问。你是在无头（headless）模式下运行 —— 没有在线用户来回答。
+#   该调用将会超时，任务将静默停留在 `running` 状态，不会向操作员发送任何信号。相反：
+#   将上下文写进 `kanban_comment`，然后调用 `kanban_block(reason=...)`，以便任务作为
+#   需要输入的状态浮现在看板上。
+# - 不要将后续工作分配给自己。将其分配给正确的专家角色配置。
+# - 不要调用 `delegate_task` 来作为看板的替代品。`delegate_task` 用于你自身运行内部的
+#   短期推理子任务；看板任务用于跨越单个 API 循环周期的跨智能体交接。
 KANBAN_GUIDANCE = (
     "# Kanban task execution protocol\n"
     "You have been assigned ONE task from "
@@ -281,7 +377,15 @@ KANBAN_GUIDANCE = (
     "for short reasoning subtasks inside your own run; board tasks are for "
     "cross-agent handoffs that outlive one API loop."
 )
-
+# 工具使用强制执行
+# 你必须使用你的工具来采取行动 —— 不要只描述你想做什么或计划做什么而不实际去执行。
+# 当你表明自己将要执行某项操作时（例如：“我将运行测试”、“让我检查一下该文件”、“我将创建该项目”），
+# 你必须立即在同一条回复中进行相应的工具调用。绝对不要在结束你的回合时留下一句对未来行动的承诺
+# —— 请立即执行。
+# 持续工作，直到任务实际完成。不要以总结下一次计划做什么来结束。
+# 如果你有可以完成该任务的可用工具，请直接使用它们，而不是告诉用户你打算怎么做。
+# 每一次回复都必须要么 (a) 包含能够推动进度的工具调用，要么 (b) 向用户交付最终结果。
+# 仅描述意图而不采取行动的回复是不可接受的。
 TOOL_USE_ENFORCEMENT_GUIDANCE = (
     "# Tool-use enforcement\n"
     "You MUST use your tools to take action — do not describe what you would do "
@@ -301,22 +405,30 @@ TOOL_USE_ENFORCEMENT_GUIDANCE = (
 # Add new patterns here when a model family needs explicit steering.
 TOOL_USE_ENFORCEMENT_MODELS = ("gpt", "codex", "gemini", "gemma", "grok", "glm", "qwen", "deepseek")
 
-# Universal "finish the job" guidance — applied to ALL models, not gated
-# by model family.  Addresses two cross-model failure modes:
-#   1. Stopping after a stub: writing a tiny file or running one command
-#      and then ending the turn with a description of the plan instead
-#      of the finished artifact.  (Observed on Opus during a real
-#      Sarasota real-estate build task: 3 API calls, 85-byte file,
-#      one terminal command, finish_reason=stop.)
-#   2. Fabricating output when a real path is blocked.  When `pip` or a
-#      tool fails, some models will synthesize plausible-looking results
-#      (fake addresses, fake JSON, fake numbers) instead of reporting
-#      the blocker.  (Observed on DeepSeek v4-flash on the same task:
-#      pushed through PEP-668 wall, then returned fabricated listings.)
+# 通用的“完成工作”引导 —— 应用于所有模型，不受
+# 模型家族的限制。解决两个跨模型的失败模式：
+#   1. 遇到占位存根就停止：仅编写一个微型文件或运行一条命令，
+#      然后用对计划的描述来结束当前轮次，而不是交付完成的产物。
+#     （在 Opus 执行一次真实的萨拉索塔房地产构建任务时观察到：
+#      3 次 API 调用，85 字节的文件，一条终端命令，finish_reason=stop。）
+#   2. 在真实路径受阻时编造输出。当 `pip` 或某个
+#      工具失败时，某些模型会合成看起来合情合理的输出结果
+#     （虚假地址、虚假 JSON、虚假数字），而不是报告
+#      阻碍因素。（在同一任务中对 DeepSeek v4-flash 观察到：
+#      强行冲过 PEP-668 限制墙，然后返回了编造的列表数据。）
 #
-# Short on purpose.  This block is shipped to every user, every session,
-# in the cached system prompt — token cost is paid once at install and
-# then amortised across all sessions via prefix caching.  Keep it tight.
+# 特意保持简短。该数据块在缓存的系统提示词中被发送给
+# 每个用户、每个会话 —— Token 成本在安装时支付一次，
+# 然后通过前缀缓存（prefix caching）在所有会话中分摊。请保持精简。
+# --------------------------------------
+# 完成工作
+# "当用户要求你构建、运行或验证某样东西时，交付物应当是一个由真实工具输出支持的 "
+# "可用产物 —— 而不是对它的描述。不要在编写了一个存根、一个计划或一条命令后就停止。 "
+# "继续工作，直到你真正运行了代码或生成了所要求的请求结果，然后报告真实执行返回的内容。\n"
+# "如果工具、安装或网络调用失败并阻碍了真实路径，请直接说明并尝试替代方案（不同的 "
+# "包管理器、不同的方法，或询问用户）。绝不要用看起来合情合理的编造输出（编造的数据、 "
+# "虚构的文件内容、合成的 API 响应）来替代你无法实际产生的结果。诚实地报告阻碍因素 "
+# "永远比虚构一个结果要好。"
 TASK_COMPLETION_GUIDANCE = (
     "# Finishing the job\n"
     "When the user asks you to build, run, or verify something, the deliverable is "
@@ -332,34 +444,37 @@ TASK_COMPLETION_GUIDANCE = (
     "is always better than inventing a result."
 )
 
-# Universal parallel-tool-call guidance — applied to ALL models.
+# 通用并行工具调用（parallel-tool-call）引导 —— 应用于所有模型。
 #
-# Why this matters for cost: every assistant turn resends the entire
-# accumulated conversation (and, on cache-friendly providers, re-reads the
-# cached prefix and pays for the newly-appended turn). A model that issues
-# one tool call per turn multiplies the number of round-trips — and therefore
-# the resent context — for any task that needs several independent reads,
-# searches, or safe lookups. Batching independent calls into a single
-# assistant response collapses N turns into one, cutting both latency and the
-# resent-context cost that compounds over a long conversation.
+# 为什么这对成本至关重要：助手的每一个轮次都会重新发送整个
+# 累积的对话（并且在缓存友好的服务商上，会重新读取缓存的前缀并为新追加的
+# 轮次付费）。一个每轮只发出一个工具调用的模型，在处理任何需要多次
+# 独立读取、搜索或安全查询的任务时，会使往返次数成倍增加 —— 进而导致
+# 重复发送的上下文也成倍增加。将独立的调用合并（batch）到单个
+# 助手响应中，可以将 N 个轮次折叠为一个，从而同时降低延迟以及
+# 在长期对话中不断累积的重复发送上下文的成本。
 #
-# The hermes-agent runtime already executes a batch of tool calls
-# concurrently when they are independent (read-only tools always; path-scoped
-# file ops when their targets don't overlap — see
-# run_agent._execute_tool_calls / tool_dispatch_helpers). The missing piece
-# was telling the *model* to emit those calls together in the first place.
-# Until now the only batching steer in the prompt lived in
-# GOOGLE_MODEL_OPERATIONAL_GUIDANCE — Gemini/Gemma got it, every other model
-# got nothing. This block makes the steer universal; the now-redundant
-# Google-only bullet has been dropped so no model receives it twice.
+# 当工具调用彼此独立时，hermes-agent 运行时（runtime）已经能够并发执行
+# 批量调用（只读工具一律并发；当目标不重叠时，路径范围的文件操作也并发
+# —— 参见 run_agent._execute_tool_calls / tool_dispatch_helpers）。之前唯一
+# 缺失的部分，是告诉“模型”从一开始就将这些调用一起发出。
+# 在此之前，提示词中唯一的批量引导仅存在于 GOOGLE_MODEL_OPERATIONAL_GUIDANCE 中
+# —— 只有 Gemini/Gemma 获得了该引导，而其他所有模型什么都没有。该数据块
+# 实现了引导的通用化；现已删除冗余的仅限 Google 的条目，因此没有任何模型会重复收到它。
 #
-# Short on purpose — shipped in the cached system prompt to every user, every
-# session. Token cost is paid once at install and amortised across all
-# sessions via prefix caching. Keep it tight.
+# 特意保持简短 —— 在缓存的系统提示词中发送给每个用户、每个会话。
+# Token 成本在安装时支付一次，然后通过前缀缓存（prefix caching）在所有
+# 会话中分摊。请保持精简。
 #
-# Ported from cline/cline#11514 ("encourage parallel tool calls"), adapted
-# from Cline's TypeScript tool-surface guidance to hermes-agent's Python
-# prompt-assembly architecture.
+# 移植自 cline/cline#11514（“鼓励并行工具调用”），并从 Cline 的 TypeScript
+# 工具层引导适配为 hermes-agent 的 Python 提示词组装架构。
+# ----------------------------
+# 并行工具调用
+# "当你需要多项互不依赖的信息时，请在单次响应中一并请求它们，而不是每轮只发出一个工具"
+# "调用。独立的读取、搜索、网页抓取以及只读命令应当合并到同一个助手轮次中 —— 运行时"
+# "会并发执行这些独立的调用，且合并调用可以避免在每次额外的往返中重复发送整个对话。\n"
+# "只有当后续调用确实依赖于先前调用的结果时（例如，你必须先读取文件才能对其进行补丁修改），"
+# "才进行串行调用。若有疑问且调用彼此独立，请合并发送它们。"
 PARALLEL_TOOL_CALL_GUIDANCE = (
     "# Parallel tool calls\n"
     "When you need several pieces of information that don't depend on each "
@@ -373,14 +488,63 @@ PARALLEL_TOOL_CALL_GUIDANCE = (
     "in doubt and the calls are independent, batch them."
 )
 
-# OpenAI GPT/Codex-specific execution guidance.  Addresses known failure modes
-# where GPT models abandon work on partial results, skip prerequisite lookups,
-# hallucinate instead of using tools, and declare "done" without verification.
-# Inspired by patterns from OpenAI's GPT-5.4 prompting guide & OpenClaw PR #38953.
-# Also applied to xAI Grok — same failure modes in practice (claims completion
-# without tool calls, suggests workarounds instead of using existing tools,
-# replies with plans/suggestions instead of executing). The body is
-# family-agnostic; the OPENAI_ prefix reflects origin, not exclusivity.
+# 针对 OpenAI GPT/Codex 的特定执行指南。旨在解决以下已知失败模式：
+# 即 GPT 模型在仅取得部分结果时便放弃工作、跳过先决条件查找、
+# 产生幻觉而非使用工具，以及在未经验证的情况下宣布“已完成”。
+# 灵感源自 OpenAI 的 GPT-5.4 提示词指南和 OpenClaw PR #38953 中的模式。
+# 同样适用于 xAI Grok —— 实际运行中存在相同的失败模式（在未进行
+# 工具调用的情况下声称已完成，建议采用变通方案而非使用现有工具，
+# 以计划/建议进行回复而非实际执行）。该主体内容
+# 与具体模型家族无关；OPENAI_ 前缀仅反映其来源，而非排他性。
+# -----------------------------------------
+# 执行纪律
+# <tool_persistence>
+# - 只要工具能提高正确性、完整性或事实根据（Grounding），就应当使用它。
+# - 当额外的工具调用能实质性地改善结果时，切勿过早停止。
+# - 如果工具返回空结果或部分结果，在放弃之前，请尝试使用不同的查询或策略重试。
+# - 持续调用工具，直到：(1) 任务完成，且 (2) 你已验证了结果。
+# </tool_persistence>
+#
+# <mandatory_tool_use>
+# 绝不要凭记忆或心算来回答以下内容 —— 务必使用工具：
+# - 算术、数学、计算 → 使用终端或 execute_code
+# - 哈希、编码、校验和 → 使用终端（例如 sha256sum、base64）
+# - 当前时间、日期、时区 → 使用终端（例如 date）
+# - 系统状态：操作系统、CPU、内存、磁盘、端口、进程 → 使用终端
+# - 文件内容、大小、行数 → 使用 read_file、search_files 或终端
+# - Git 历史、分支、diff 差异 → 使用终端
+# - 当前事实（天气、新闻、版本） → 使用 web_search
+# 你的记忆和用户画像描述的是“用户”，而非你当前运行的系统。执行环境可能与用户画像中所描述的其个人配置有所不同。
+# </mandatory_tool_use>
+#
+# <act_dont_ask>
+# 当一个问题有显而易见的默认解释时，请立即采取行动，而不是要求用户澄清。例如：
+# - “443 端口开放了吗？” → 检查当前这台机器（不要问“在哪里开放？”）
+# - “我运行的是什么操作系统？” → 检查实时系统（不要使用用户画像中的信息）
+# - “现在几点了？” → 运行 `date`（不要凭空猜测）
+# 只有当歧义确实会改变你将要调用的工具时，才需要请求澄清。
+# </act_dont_ask>
+#
+# <prerequisite_checks>
+# - 在采取行动之前，检查是否需要先进行前置条件的发现、查找或上下文收集步骤。
+# - 不要仅仅因为最终的行动看起来显而易见，就跳过前置步骤。
+# - 如果一个任务依赖于前一步骤的输出，请先解决该依赖关系。
+# </prerequisite_checks>
+#
+# <verification>
+# 在最终确定你的回复之前：
+# - 正确性：输出是否满足每一项声明的要求？
+# - 事实根据（Grounding）：事实性陈述是否有工具输出或所提供上下文的支持？
+# - 格式化：输出是否符合要求的格式或架构（Schema）？
+# - 安全性：如果下一步操作会产生副作用（文件写入、命令执行、API 调用），请在执行前确认范围。
+# </verification>
+#
+# <missing_context>
+# - 如果缺少所需的上下文，切勿猜测或幻觉（捏造）答案。
+# - 当缺失的信息可以检索时，使用相应的查找工具（search_files、web_search、read_file 等）。
+# - 只有在无法通过工具检索到信息时，才提出澄清问题。
+# - 如果必须在信息不完整的情况下继续进行，请明确标注你的假设。
+# </missing_context>
 OPENAI_MODEL_EXECUTION_GUIDANCE = (
     "# Execution discipline\n"
     "<tool_persistence>\n"
@@ -441,8 +605,23 @@ OPENAI_MODEL_EXECUTION_GUIDANCE = (
     "</missing_context>"
 )
 
-# Gemini/Gemma-specific operational guidance, adapted from OpenCode's gemini.txt.
-# Injected alongside TOOL_USE_ENFORCEMENT_GUIDANCE when the model is Gemini or Gemma.
+# 针对 Gemini/Gemma 的特定操作指南，改编自 OpenCode 的 gemini.txt。
+# 当模型为 Gemini 或 Gemma 时，与 TOOL_USE_ENFORCEMENT_GUIDANCE 协同注入
+#-------------------------
+# ```
+# # Google 模型操作指令
+# 严格遵守以下操作规则：
+# - **绝对路径：** 针对所有文件系统操作，务必构建并使用绝对文件路径。将项目根目录与相对路径相结合。
+# - **先验证后操作：** 在进行任何更改之前，使用 read_file/search_files 检查文件内容和项目结构。绝不要盲目猜测文件内容。
+# - **依赖检查：** 绝不要假定某个库是可用的。在导入之前，先检查 package.json、requirements.txt、Cargo.toml 等文件。
+# - **简洁明了：** 解释性文本要保持简短 —— 几句话即可，不要写成段落。将重心放在行动和结果上，而非叙述过程。
+# # 并行工具调用引导现已移至通用的
+# # PARALLEL_TOOL_CALL_GUIDANCE 块中（为所有模型注入），因此
+# # 此处不再重复 —— 否则会导致 Gemini/Gemma 收到两次相同的指令。
+# - **非交互式命令：** 使用类似 -y, --yes, --non-interactive 的标志，以防止 CLI（命令行）工具在提示符处挂起。
+# - **持续推进：** 自主工作，直到任务完全解决。不要带着计划止步不前 —— 请去执行它。
+#
+# ```
 GOOGLE_MODEL_OPERATIONAL_GUIDANCE = (
     "# Google model operational directives\n"
     "Follow these operational rules strictly:\n"
@@ -465,17 +644,17 @@ GOOGLE_MODEL_OPERATIONAL_GUIDANCE = (
 )
 
 
-# Guidance injected into the system prompt when the computer_use toolset
-# is active. Universal — works for any model (Claude, GPT, open models).
-# Built per-platform via computer_use_guidance() so Windows/Linux hosts
-# don't get macOS-only wording ("Mac", "Space", cmd+s). The module-level
-# COMPUTER_USE_GUIDANCE constant renders the macOS variant for backwards
-# compatibility; system_prompt.py selects the host-appropriate variant.
+# 当 computer_use 工具集激活时注入到系统提示词中的引导语。
+# 通用 —— 适用于任何模型（Claude、GPT、开源模型）。
+# 通过 computer_use_guidance() 针对每个平台进行构建，因此 Windows/Linux 宿主机
+# 不会接收到仅限 macOS 的措辞（如 “Mac”、“Space”、cmd+s）。
+# 模块级别的 COMPUTER_USE_GUIDANCE 常量会渲染 macOS 变体以保持向后兼容性；
+# system_prompt.py 会选择适合宿主平台的变体。
 def computer_use_guidance(platform_name: Optional[str] = None) -> str:
-    """Return platform-aware computer-use guidance for the system prompt.
+    """返回系统提示词中与平台相关的电脑使用（computer-use）引导语。
 
-    ``platform_name`` is an ``sys.platform``-style string ("darwin",
-    "win32", "linux"); defaults to the running host's platform.
+    ``platform_name`` 是一个类似于 ``sys.platform`` 格式的字符串（例如 "darwin"、
+    "win32"、"linux"）；默认使用当前运行宿主机的平台。
     """
     if platform_name is None:
         import sys as _sys
@@ -523,7 +702,34 @@ def computer_use_guidance(platform_name: Optional[str] = None) -> str:
     # Capture-target example: a real app the user is likely to have running,
     # so the model has a concrete reference rather than a generic placeholder.
     example_app = "Safari" if is_macos else ("Chrome" if is_windows else "Firefox")
-
+    # f"# 电脑使用（{os_name} 后台控制）\n"
+    # "你拥有一个 `computer_use` 工具，可以在后台驱使 {os_name} 桌面 —— "
+    # "你的操作不会抢占用户的光标、键盘"
+    # + share_line +
+    # "## 首选工作流\n"
+    # "1. 调用 `computer_use`，设置 `action='capture'` 且 `mode='som'`（默认）。"
+    # "你会获得一张屏幕截图，其中每个可交互元素上都覆盖有编号，此外还有一个"
+    # "可访问性树（AX-tree）索引，列出了每个编号元素的角色、标签和边界。\n"
+    # "2. 通过元素索引进行点击：`action='click', element=14`。对于任何模型而言，"
+    # "这都比使用像素坐标要可靠得多。仅在万不得已时才使用原始坐标。\n"
+    # "3. 对于文本输入，设置 `action='type', text='...'`。对于组合键设置 "
+    # f"`action='key', keys='{save_combo}'`。对于滚动设置 `action='scroll', "
+    # "direction='down', amount=3`。\n"
+    # "4. 在进行任何改变状态的操作后，重新捕获以进行验证。你可以传入 `capture_after=true`，"
+    # "以便在一个往返请求中直接获取后续的屏幕截图。\n\n"
+    # "## 后台模式规则\n"
+    # "- 除非用户明确要求你将窗口置于最前，否则切勿在 `focus_app` 上使用 `raise_window=true`。"
+    # "发往该应用的目标输入无需置顶窗口即可生效。\n"
+    # f"- 在捕获时，优先指定 `app='{example_app}'`（或任务涉及的任何应用），而不是"
+    # "捕获整个屏幕 —— 这样噪音更少，并且不会泄露用户打开的其他窗口。\n"
+    # + offscreen_line +
+    # "## 你将在屏幕上看到的智能体光标\n"
+    # "每次电脑使用运行都会向 cua-driver 声明一个会话；该会话拥有一个着色的"
+    # "覆盖层光标，它会滑动到你操作的位置。这是给用户的一个视觉提示 —— 真正的"
+    # "操作系统（OS）光标绝不会移动。不要试图去读取它或点击它；它是 UI 反馈，"
+    # "而非输入。\n\n"
+    # "## 安全\n"
+    # "- 切勿点击权限对话
     return (
         f"# Computer Use ({os_name} background control)\n"
         f"You have a `computer_use` tool that drives the {os_name} desktop in "
@@ -858,6 +1064,16 @@ PLATFORM_HINTS = {
         "code fences). Treat this like a conversation, not a document. Keep responses "
         "brief and natural."
     ),
+    # "你当前处于 Hermes WebUI 中，这是一个基于浏览器的聊天界面。"
+    # "这里支持完整的 Markdown 渲染 —— 标题、加粗、斜体、代码"
+    # "块、表格、数学公式 (LaTeX) 以及 Mermaid 图表均能原生渲染。"
+    # "如需在行内显示本地或远程的媒体/文件，请在你的回复中包含"
+    # "MEDIA:/absolute/path/to/file 或 MEDIA:https://...。"
+    # "本地文件路径必须是绝对路径。图片、音频（带有播放速度"
+    # "控制）、视频、PDF、HTML、CSV、diff/patch 补丁以及 Excalidraw 文件"
+    # "都会渲染为富预览效果。对于本地文件，切勿使用类似于"
+    # "![alt](/path) 的 Markdown 图片语法；本地路径无法通过这种方式提供服务。"
+    # "请改用 MEDIA:/absolute/path。"
     "webui": (
         "You are in the Hermes WebUI, a browser-based chat interface. "
         "Full Markdown rendering is supported — headings, bold, italic, code "
@@ -871,13 +1087,23 @@ PLATFORM_HINTS = {
         "Use MEDIA:/absolute/path instead."
     ),
 }
-
+# ---------------------------------------------------------------------------
+# 环境提示 —— 智能体（agent）对执行环境的感知。
+# 与 PLATFORM_HINTS（用于描述消息通道）不同，这些提示描述的是
+# 智能体的工具实际运行在其上的机器/操作系统。
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Environment hints — execution-environment awareness for the agent.
 # Unlike PLATFORM_HINTS (which describe the messaging channel), these describe
 # the machine/OS the agent's tools actually run on.
 # ---------------------------------------------------------------------------
-
+# "你正运行在 WSL (Windows Subsystem for Linux) 环境中。"
+# "Windows 宿主机的物理文件系统挂载在 /mnt/ 下 —— "
+# "/mnt/c/ 代表 C 盘，/mnt/d/ 代表 D 盘，依此类推。"
+# "用户的 Windows 文件通常位于 "
+# "/mnt/c/Users/<username>/Desktop/、Documents/、Downloads/ 等目录下。"
+# "当用户提到 Windows 路径或桌面文件时，请将其转换为对应的 /mnt/c/ 路径。"
+# "如果需要，你可以通过列出 /mnt/c/Users/ 目录来获取 Windows 的用户名。"
 WSL_ENVIRONMENT_HINT = (
     "You are running inside WSL (Windows Subsystem for Linux). "
     "The Windows host filesystem is mounted under /mnt/ — "
@@ -890,21 +1116,20 @@ WSL_ENVIRONMENT_HINT = (
 )
 
 
-# Non-local terminal backends that run commands (and therefore every file
-# tool: read_file, write_file, patch, search_files) inside a separate
-# container / remote host rather than on the machine where Hermes itself
-# runs. For these backends, host info (Windows/Linux/macOS, $HOME, cwd) is
-# misleading — the agent should only see the machine it can actually touch.
+# 非本地终端后端，它们在独立的容器/远程主机中运行命令（因此所有的文件
+# 工具：read_file、write_file、patch、search_files 也是如此），而不是在
+# Hermes 本身运行的机器上。对于这些后端，宿主机信息（Windows/Linux/macOS、
+# $HOME、cwd）会产生误导 —— 智能体应当只看到它实际能够触及的机器。
 _REMOTE_TERMINAL_BACKENDS = frozenset({
     "docker", "singularity", "modal", "daytona", "ssh",
     "managed_modal",
 })
 
 
-# Per-backend fallback descriptions — used when the live probe fails.
-# Only states what we know from the backend choice itself (container type,
-# likely OS family). Does NOT invent cwd, user, or $HOME — the agent is
-# told to probe those directly if it needs them.
+# 每个后端的备用描述 —— 用于实时探测失败时。
+# 仅陈述我们从后端选择本身所能获知的信息（容器类型、可能属于哪个操作系统家族）。
+# 绝不虚构当前工作目录（cwd）、用户或 $HOME —— 如果智能体需要这些信息，
+# 将被告知直接去探测它们。
 _BACKEND_FALLBACK_DESCRIPTIONS: dict[str, str] = {
     "docker": "a Docker container (Linux)",
     "singularity": "a Singularity container (Linux)",
@@ -922,7 +1147,13 @@ _BACKEND_FALLBACK_DESCRIPTIONS: dict[str, str] = {
 # across Hermes restarts.
 _BACKEND_PROBE_CACHE: dict[tuple[str, str], str] = {}
 
-
+# "Shell：在这个 Windows 宿主机上，你的 `terminal` 工具是通过 "
+# "bash (git-bash / MSYS) 运行命令，而不是 PowerShell 或 cmd.exe。请在 "
+# "terminal 调用中使用 POSIX shell 语法（`ls`、`$HOME`、`&&`、`|`、单引号字符串）。"
+# "像 `/c/Users/<user>/...` 这样的 MSYS 风格路径与 "
+# "原生的 `C:\\Users\\<user>\\...` 路径均可正常工作。PowerShell 的内置命令 "
+# "（`Get-ChildItem`、`$env:FOO`、`Select-String`）将无法运行 —— 请使用其 "
+# "POSIX 等价命令（`ls`、`$FOO`、`grep`）。"
 _WINDOWS_BASH_SHELL_HINT = (
     "Shell: on this Windows host your `terminal` tool runs commands through "
     "bash (git-bash / MSYS), NOT PowerShell or cmd.exe. Use POSIX shell "
@@ -935,12 +1166,12 @@ _WINDOWS_BASH_SHELL_HINT = (
 
 
 def _probe_remote_backend(env_type: str) -> str | None:
-    """Run a tiny introspection command inside the active terminal backend.
+    """在活跃的终端后端内部运行一个微型的自省（探测）命令。
 
-    Returns a pre-formatted multi-line string describing the backend's OS,
-    $HOME, cwd, and user — or None if the probe failed. Result is cached
-    per process. Used only for non-local backends where the agent's tools
-    operate on a different machine than the host Hermes runs on.
+    返回一个预先格式化的多行字符串，用以描述该后端的操作系统、
+    $HOME、当前工作目录（cwd）以及用户 —— 如果探测失败，则返回 None。
+    结果会针对每个进程进行缓存。该功能仅用于非本地（non-local）后端，
+    即智能体的工具在与运行 Hermes 本身不同的机器上操作时。
     """
     cwd_hint = os.getenv("TERMINAL_CWD", "")
     cache_key = (env_type, cwd_hint)
@@ -959,10 +1190,9 @@ def _probe_remote_backend(env_type: str) -> str | None:
 
     try:
         config = _get_env_config()
-        # Build the environment the same way tools/terminal_tool.py does for a
-        # live command: select the backend image, then assemble ssh/container
-        # config from the env-derived dict. (There is no `get_environment`
-        # factory — the real entry point is `_create_environment`.)
+        # 以与 tools/terminal_tool.py 执行实时命令完全相同的方式来构建环境：
+        # 先选择后端镜像，然后从基于环境变量生成的字典中组装 ssh/容器配置。
+        # （这里没有 `get_environment` 工厂函数 —— 真正的入口点是 `_create_environment`。）
         if env_type == "docker":
             image = config.get("docker_image", "")
         elif env_type == "singularity":
@@ -1067,20 +1297,18 @@ def _clear_backend_probe_cache() -> None:
 
 
 def build_environment_hints() -> str:
-    """Return environment-specific guidance for the system prompt.
+    """返回系统 prompt 中针对特定执行环境的引导说明。
 
-    Always emits a factual block describing the execution environment:
-    - For **local** terminal backends: the host OS, user home, current
-      working directory (plus a Windows-only note about hostname != user
-      and a Windows-only note that `terminal` shells out to bash, not
-      PowerShell).
-    - For **remote / sandbox** terminal backends (docker, singularity,
-      modal, daytona, ssh): host info is **suppressed**
-      because the agent's tools can't touch the host — only the backend
-      matters. A live probe inside the backend reports its OS, user, $HOME,
-      and cwd. Falls back to a static summary if the probe fails.
+    始终输出一个描述执行环境的事实性文本块：
+    - 对于 **本地 (local)** 终端后端：输出宿主操作系统（Host OS）、用户家目录、当前
+      工作目录（外加一条仅适用于 Windows 的注释，说明 hostname != user，以及另一条
+      仅适用于 Windows 的注释，说明 `terminal` 会调用 bash 而非 PowerShell）。
+    - 对于 **远程 / 沙箱 (remote / sandbox)** 终端后端（docker, singularity,
+      modal, daytona, ssh）：会**抑制**宿主机信息，因为智能体的工具无法触及宿主机
+      —— 只有后端环境才重要。后端内部的实时探测会报告其操作系统、用户、$HOME
+      以及当前工作目录（cwd）。如果探测失败，则回退到静态摘要。
 
-    The WSL environment hint is appended unchanged when running under WSL.
+    在 WSL 环境下运行时，WSL 环境提示信息将原样附加在末尾。
     """
     import platform
     import sys
@@ -1110,6 +1338,10 @@ def build_environment_hints() -> str:
             pass
 
         if sys.platform == "win32" and not is_wsl():
+            # "注意：在 Windows 系统上，机器的主机名（例如来自 `hostname` "
+            # "或 uname）并不是用户名。请使用上方提供的“用户家目录” "
+            # "来构建 C:\\Users\\<user>\\ 下的路径，绝不能使用"
+            # "主机名。"
             host_lines.append(
                 "Note: on Windows, the machine hostname (e.g. from `hostname` "
                 "or uname) is NOT the username. Use the 'User home directory' "
@@ -1118,14 +1350,19 @@ def build_environment_hints() -> str:
             )
         hints.append("\n".join(host_lines))
 
-        # Windows-local terminal runs bash, not PowerShell — the model must
-        # know this or it will issue PowerShell syntax and fail.
+        # Windows 本地终端运行的是 bash，而非 PowerShell —— 模型必须
+        # 知道这一点，否则它会使用 PowerShell 语法并导致失败。
         if sys.platform == "win32" and not is_wsl():
             hints.append(_WINDOWS_BASH_SHELL_HINT)
     else:
         # --- Remote backend block (host info suppressed) ---
         probe = _probe_remote_backend(backend)
         if probe:
+            # f"Terminal backend: {backend}. Your `terminal`、`read_file`、"
+            # f"`write_file`、`patch` 和 `search_files` 工具全都在"
+            # f"此 {backend} 环境内部操作 —— 而非在运行 Hermes 本身的机器上。"
+            # f"Hermes 进程的宿主机操作系统、家目录和当前工作目录（cwd）均无关紧要；"
+            # f"只有以下后端状态才重要：\n{probe}"
             hints.append(
                 f"Terminal backend: {backend}. Your `terminal`, `read_file`, "
                 f"`write_file`, `patch`, and `search_files` tools all operate "
@@ -1152,13 +1389,13 @@ def build_environment_hints() -> str:
     if is_wsl():
         hints.append(WSL_ENVIRONMENT_HINT)
 
-    # Embedder-supplied environment description. Lets a host that wraps Hermes
-    # (e.g. a sandbox runner / managed platform) explain the environment the
-    # agent is running in — proxy, credential handling, mount layout — without
-    # forking the identity slot (SOUL.md). Read once at prompt-build time, so
-    # it's part of the stable, cache-safe system prompt. The env var is the
-    # build-time/embedder mechanism (set in a container ENV); config.yaml
-    # ``agent.environment_hint`` is the user-facing surface. Env var wins.
+    # 嵌入程序（Embedder）提供的环境描述。允许封装了 Hermes 的宿主环境
+    # （例如沙箱运行器 / 托管平台）向智能体解释其运行环境
+    # —— 比如代理（proxy）、凭据处理、挂载布局 —— 而无需分叉（fork）
+    # 身份卡槽（SOUL.md）。在构建 prompt 时读取一次，以便其成为
+    # 稳定、缓存安全的系统 prompt 的一部分。该环境变量是
+    # 构建时/嵌入程序机制（在容器 ENV 中设置）；而 config.yaml 中的
+    # ``agent.environment_hint`` 则是面向用户的接口。环境变量的优先级更高。
     extra = (os.getenv("HERMES_ENVIRONMENT_HINT") or "").strip()
     if not extra:
         try:
@@ -1454,25 +1691,23 @@ def build_skills_system_prompt(
     available_toolsets: "set[str] | None" = None,
     compact_categories: "frozenset[str] | None" = None,
 ) -> str:
-    """Build a compact skill index for the system prompt.
+    """为系统 prompt（系统提示词）构建一个紧凑的技能索引。
 
-    Two-layer cache:
-      1. In-process LRU dict keyed by (skills_dir, tools, toolsets, hidden)
-      2. Disk snapshot (``.skills_prompt_snapshot.json``) validated by
-         mtime/size manifest — survives process restarts
+    双层缓存机制：
+      1. 进程内 LRU 字典，以 (skills_dir, tools, toolsets, hidden) 作为键
+      2. 磁盘快照（``.skills_prompt_snapshot.json``），通过 mtime/size（修改时间/大小）清单进行验证
+         —— 在进程重启后依然有效
 
-    Falls back to a full filesystem scan when both layers miss.
+    当两层缓存均未命中时，将回退到对文件系统进行完整扫描。
 
-    External skill directories (``skills.external_dirs`` in config.yaml) are
-    scanned alongside the local ``~/.hermes/skills/`` directory.  External dirs
-    are read-only — they appear in the index but new skills are always created
-    in the local dir.  Local skills take precedence when names collide.
+    外部技能目录（config.yaml 中的 ``skills.external_dirs``）会与本地的
+    ``~/.hermes/skills/`` 目录一同进行扫描。外部目录是只读的 —— 它们会显示在
+    索引中，但新技能始终在本地目录中创建。当名称发生冲突时，本地技能优先。
 
-    ``compact_categories`` (e.g. from the coding posture — see
-    agent/coding_context.py) demotes whole categories to a names-only line in
-    the rendered index. Nothing is ever hidden: every skill name stays
-    visible and loadable via ``skill_view`` / ``skills_list``; only the
-    descriptions are dropped, and a footer note explains the demotion.
+    ``compact_categories``（例如来自编码姿态 — 参见 agent/coding_context.py）
+    会将整个类别降级为渲染索引中的“仅保留名称”行。没有任何内容会被隐藏：
+    每个技能名称都保持可见，并且可以通过 ``skill_view`` / ``skills_list`` 进行加载；
+    仅丢弃其描述信息，并由页脚注释来解释该降级行为。
     """
     skills_dir = get_skills_dir()
     external_dirs = get_all_skills_dirs()[1:]  # skip local (index 0)
@@ -1480,9 +1715,9 @@ def build_skills_system_prompt(
     if not skills_dir.exists() and not external_dirs:
         return ""
 
-    # ── Layer 1: in-process LRU cache ─────────────────────────────────
-    # Include the resolved platform so per-platform disabled-skill lists
-    # produce distinct cache entries (gateway serves multiple platforms).
+    # ── 第 1 层：进程内 LRU 缓存 ─────────────────────────────────────────
+    # 引入已解析的平台信息，以便针对不同平台禁用的技能列表能够生成
+    # 独立的缓存条目（因为网关会同时为多个平台提供服务）。
     _platform_hint = _current_session_platform_hint()
     disabled = get_disabled_skill_names(_platform_hint or None)
     cache_key = (
@@ -1626,15 +1861,14 @@ def build_skills_system_prompt(
             except Exception as e:
                 logger.debug("Could not read external skill description %s: %s", desc_file, e)
 
-    # Posture-driven category demotion (e.g. non-coding skills while pairing
-    # on code). Demoted categories stay in the index as a single names-only
-    # line — descriptions are dropped to cut noise, but every skill name
-    # remains visible so memory-anchored recall ("load <name>") keeps working.
-    # NEVER remove entries entirely: agent-created skills are the model's
-    # project memory, and models don't reach for skills_list to rediscover
-    # what the index stops showing them. Match on the top-level category
-    # segment so nested categories ("social-media/twitter") are demoted with
-    # their parent.
+    # 姿态驱动的类别降级（例如在结对编程时降级非编码技能）。
+    # 被降级的类别在索引中将保留为单行“仅名称”的形式 ——
+    # 丢弃其描述信息以减少干扰，但每个技能名称依然保持可见，
+    # 这样记忆锚定召回（"load <name>"）依然有效。
+    # 绝不能完全删除条目：智能体（agent）创建的技能是模型的
+    # 项目记忆，如果索引中不再显示，模型不会主动通过 skills_list
+    # 去重新发现它们。匹配时基于顶级类别段，
+    # 从而使嵌套类别（"social-media/twitter"）随其父类别一同降级。
     demoted = frozenset(
         cat for cat in skills_by_category
         if cat.split("/", 1)[0] in (compact_categories or frozenset())
@@ -1673,6 +1907,28 @@ def build_skills_system_prompt(
                 else:
                     index_lines.append(f"    - {name}")
 
+        # "## 技能（强制要求）\n"
+        # "在回复之前，请浏览以下技能。如果某个技能与你的任务匹配，甚至仅是部分相关，\n"
+        # "你必须使用 skill_view(name) 加载它，并遵循其指令。宁可多加载，也不要遗漏 —— \n"
+        # "拥有不需要的上下文，总是好过错过关键步骤、陷阱或已确立的工作流。\n"
+        # "技能中包含专业知识 —— API 端点、工具特定命令以及优于通用方法的成熟工作流。\n"
+        # "即使你认为自己可以使用 web_search 或 terminal 等基础工具处理该任务，也要加载技能。\n"
+        # "技能还编码了用户对代码审查、规划和测试等任务的偏好方法、约定和质量标准 —— \n"
+        # "即使对于你已经知道如何完成的任务，也要加载它们，因为技能定义了在此处应该如何完成。\n"
+        # "每当用户要求你配置、设置、安装、启用、禁用、修改或排除 Hermes Agent 自身的故障时 —— \n"
+        # "无论是其 CLI、配置、模型、服务商、工具、技能、语音、网关、插件还是任何功能 —— \n"
+        # "请先加载 `hermes-agent` 技能。它包含实际的命令（例如 `hermes config set …`、\n"
+        # "`hermes tools`、`hermes setup`），因此你无需猜测或发明临时解决方案。\n"
+        # "如果技能存在问题，请使用 skill_manage(action='patch') 进行修复。\n"
+        # "在完成困难/迭代的任务后，主动提议将其保存为技能。如果你加载的技能缺失了步骤、\n"
+        # "包含错误的命令，或者需要补充你发现的陷阱，请在结束前更新它。\n"
+        # "\n"
+        # "<available_skills>\n"
+        # + "\n".join(index_lines) + "\n"
+        # "</available_skills>\n"
+        # "\n"
+        # "只有在确实没有任何技能与当前任务相关时，才可以不加载技能直接继续进行。"
+        # + hidden_note
         result = (
             "## Skills (mandatory)\n"
             "Before replying, scan the skills below. If a skill matches or is even partially relevant "
@@ -1824,11 +2080,11 @@ def _truncate_content(
 
 
 def load_soul_md(context_length: Optional[int] = None) -> Optional[str]:
-    """Load SOUL.md from HERMES_HOME and return its content, or None.
+    """从 HERMES_HOME 加载 SOUL.md 并返回其内容，若不存在则返回 None。
 
-    Used as the agent identity (slot #1 in the system prompt).  When this
-    returns content, ``build_context_files_prompt`` should be called with
-    ``skip_soul=True`` so SOUL.md isn't injected twice.
+    用作代理身份（系统提示词中的第 1 号插槽）。当此函数
+    返回内容时，调用 ``build_context_files_prompt`` 时应设置
+    ``skip_soul=True``，以避免 SOUL.md 被重复注入。
     """
     try:
         from hermes_cli.config import ensure_hermes_home
@@ -1956,23 +2212,23 @@ def build_context_files_prompt(
     skip_soul: bool = False,
     context_length: Optional[int] = None,
 ) -> str:
-    """Discover and load context files for the system prompt.
+    """发现并加载用于系统提示词的上下文文件。
 
-    Priority (first found wins — only ONE project context type is loaded):
-      1. .hermes.md / HERMES.md  (walk to git root)
-      2. AGENTS.md / agents.md   (cwd only)
-      3. CLAUDE.md / claude.md   (cwd only)
-      4. .cursorrules / .cursor/rules/*.mdc  (cwd only)
+    优先级（首先找到的生效 —— 仅加载一种项目上下文类型）：
+      1. .hermes.md / HERMES.md  （向上追溯至 git 根目录）
+      2. AGENTS.md / agents.md   （仅限当前工作目录 cwd）
+      3. CLAUDE.md / claude.md   （仅限当前工作目录 cwd）
+      4. .cursorrules / .cursor/rules/*.mdc  （仅限当前工作目录 cwd）
 
-    SOUL.md from HERMES_HOME is independent and always included when present.
+    来自 HERMES_HOME 的 SOUL.md 是独立的，并且只要存在就总是会包含在内。
 
-    Each context source is capped before injection. The cap defaults to the
-    model's context window (scaled — see ``_dynamic_context_file_max_chars``)
-    when *context_length* is provided, falling back to 20,000 chars otherwise.
-    An explicit ``context_file_max_chars`` in config.yaml always wins.
+    每个上下文源在注入前都会受到容量限制。当提供了 *context_length* 时，
+    限制默认采用模型的上下文窗口（按比例缩放 —— 参见 ``_dynamic_context_file_max_chars``），
+    否则回退到 20,000 个字符。
+    config.yaml 中显式设置的 ``context_file_max_chars`` 总是具有最高优先级。
 
-    When *skip_soul* is True, SOUL.md is not included here (it was already
-    loaded via ``load_soul_md()`` for the identity slot).
+    当 *skip_soul* 为 True 时，此处不包含 SOUL.md（它此前已经
+    通过 ``load_soul_md()`` 加载到了身份槽中）。
     """
     if cwd is None:
         cwd = os.getcwd()

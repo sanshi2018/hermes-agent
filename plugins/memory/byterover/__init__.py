@@ -262,6 +262,10 @@ class ByteRoverMemoryProvider(MemoryProvider):
     def system_prompt_block(self) -> str:
         if not _resolve_brv_path():
             return ""
+        # ByteRover 记忆机制
+        # "已激活。具有层级上下文的持久化知识树。\n"
+        # "使用 brv_query 搜索过去的知识，使用 brv_curate 存储"
+        # "重要事实，使用 brv_status 检查状态。"
         return (
             "# ByteRover Memory\n"
             "Active. Persistent knowledge tree with hierarchical context.\n"

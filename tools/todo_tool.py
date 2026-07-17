@@ -110,10 +110,9 @@ class TodoStore:
 
     def format_for_injection(self) -> Optional[str]:
         """
-        Render the todo list for post-compression injection.
+        渲染压缩后注入的待办事项列表。
 
-        Returns a human-readable string to append to the compressed
-        message history, or None if the list is empty.
+        返回一个可读的字符串以追加到压缩的消息历史中，如果列表为空则返回 None。
         """
         if not self._items:
             return None
@@ -126,8 +125,8 @@ class TodoStore:
             "cancelled": "[~]",
         }
 
-        # Only inject pending/in_progress items — completed/cancelled ones
-        # cause the model to re-do finished work after compression.
+        # 仅注入处于 pending/in_progress（待处理/进行中）状态的项目 ——
+        # 已完成/已取消的项目会导致模型在压缩后重新去做已经完成的工作。
         active_items = [
             item for item in self._items
             if item["status"] in {"pending", "in_progress"}

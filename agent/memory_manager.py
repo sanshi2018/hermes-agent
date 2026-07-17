@@ -454,10 +454,10 @@ class MemoryManager:
     # -- System prompt -------------------------------------------------------
 
     def build_system_prompt(self) -> str:
-        """Collect system prompt blocks from all providers.
+        """从所有提供方收集系统提示词块。
 
-        Returns combined text, or empty string if no providers contribute.
-        Each non-empty block is labeled with the provider name.
+        返回组合后的文本，若无提供方提供内容则返回空字符串。
+        每个非空的提示词块都会用提供方的名称进行标记。
         """
         blocks = []
         for provider in self._providers:

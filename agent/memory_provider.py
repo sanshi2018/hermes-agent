@@ -83,11 +83,11 @@ class MemoryProvider(ABC):
         """
 
     def system_prompt_block(self) -> str:
-        """Return text to include in the system prompt.
+        """返回要包含在系统提示词中的文本。
 
-        Called during system prompt assembly. Return empty string to skip.
-        This is for STATIC provider info (instructions, status). Prefetched
-        recall context is injected separately via prefetch().
+        在组装系统提示词期间被调用。返回空字符串以跳过。
+        这适用于静态的提供方信息（指令、状态）。预取
+        的召回上下文是通过 prefetch() 单独注入的。
         """
         return ""
 

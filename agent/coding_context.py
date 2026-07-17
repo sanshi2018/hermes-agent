@@ -297,11 +297,11 @@ class ContextProfile:
     compact_skill_categories: tuple[str, ...] = ()
 
 
-# Skill categories that are clearly not part of a coding workflow. Demoted to
-# names-only in the prompt's skill index under the opt-in ``focus`` mode only
-# (deny-list — anything not listed here, incl. custom user categories, keeps
-# full entries). Coding-adjacent categories (devops, github, mcp,
-# data-science, diagramming, research, security, …) are intentionally absent.
+# 明显不属于编码工作流的技能类别。在启用了选入式 ``focus`` 模式下，
+# 它们在 prompt 的技能索引中会被降级为“仅保留名称”
+# （黑名单机制 —— 任何未在此列出的类别，包括用户自定义类别，
+# 都将保留完整条目）。与编码相邻的类别（devops、github、mcp、
+# data-science、diagramming、research、security 等）有意未包含在此。
 _NON_CODING_SKILL_CATEGORIES = (
     "apple", "communication", "cooking", "creative", "email", "finance",
     "gaming", "gifs", "health", "media", "music", "note-taking",
@@ -522,11 +522,11 @@ class RuntimeMode:
         return [self.profile.toolset, *_enabled_mcp_servers(config)]
 
     def system_blocks(self) -> list[str]:
-        """Stable system-prompt blocks for this posture (brief + workspace).
+        """用于此姿态（简报 + 工作区）的稳定系统提示词块。
 
-        The operating brief carries a model-family edit-format nudge appended
-        to it (one cached string, not a separate block) so the model is steered
-        toward the `patch` mode it handles best — see ``_edit_format_line``.
+        操作简报在其末尾附加了一个针对模型系列的编辑格式提示
+        （作为单一缓存字符串，而非独立的块），从而将模型引导至
+        其最擅长处理的 `patch` 模式 —— 参见 ``_edit_format_line``。
         """
         if not self.is_coding:
             return []
@@ -547,22 +547,20 @@ class RuntimeMode:
         return blocks
 
     def compact_skill_categories(self) -> frozenset[str]:
-        """Skill categories to demote to names-only in the prompt's skill index.
+        """在提示词的技能索引中降级为仅显示名称的技能类别。
 
-        Gated on the opt-in ``focus`` mode, like the toolset collapse: the
-        default posture leaves the skill index untouched. Users who didn't ask
-        for a lean prompt keep full entries for every category — index changes
-        under ``auto`` proved too surprising in practice, even names-only ones
-        (a demoted description is information the model no longer weighs when
-        deciding what to load).
+        受限于选择性开启的 ``focus`` 模式，类似于工具集的折叠：默认
+        姿态不会触碰技能索引。没有要求精简提示词的用户将
+        保留每个类别的完整条目 —— 实践证明，在 ``auto`` 模式下对索引
+        进行更改（即使只是降级为仅显示名称）在实际中会带来太多令人意外的情况
+        （被降级去掉的描述是模型在决定加载什么内容时不再权衡的信息）。
 
-        Demoted — never hidden — even under ``focus``. An earlier revision
-        fully pruned these categories from the index, which caused silent
-        capability loss in a real workflow: agent-created skills are the
-        model's accumulated project memory (server-ops runbooks, learned
-        pitfalls, …), and models do not reliably reach for ``skills_list`` to
-        rediscover what the index stopped showing them. Names-only keeps every
-        skill loadable on recall while still cutting the description noise.
+        仅降级 —— 绝不隐藏 —— 即使在 ``focus`` 模式下也是如此。早期的
+        版本曾将这些类别从索引中完全裁剪掉，这在实际工作流中导致了隐性的
+        能力丧失：智能体创建的技能是模型累积的项目记忆（服务器运维操作手册、
+        吸取的教训等），而模型并不会可靠地去调用 ``skills_list`` 来重新
+        发现索引中不再向其展示的内容。仅显示名称在减少描述噪音的同时，
+        仍能保证每个技能在被回想起时是可加载的。
         """
         if not self.is_coding or self.config_mode != "focus":
             return frozenset()
@@ -576,14 +574,13 @@ def resolve_runtime_mode(
     config: Optional[dict[str, Any]] = None,
     model: Optional[str] = None,
 ) -> RuntimeMode:
-    """Resolve the operating posture once. Cheap — a handful of ``stat`` calls.
+    """一次性解析运行姿态（operating posture）。开销极低 —— 仅需少数几次 ``stat`` 调用。
 
-    This is the single entry point every domain should call. The returned
-    object is immutable and safe to cache for the session. Detection itself is
-    intentionally *not* memoized (see ``_detect_profile_name``) so a long-lived
-    process can't pin a stale posture; callers resolve once per session and
-    hold the result. ``model`` is recorded only to steer edit-format guidance;
-    it never affects detection.
+    这是每个领域（domain）都应当调用的唯一入口点。返回的对象是
+    不可变的，在当前会话（session）中可以安全地进行缓存。检测本身刻意
+    *不*进行记忆化（memoization，参见 ``_detect_profile_name``），
+    以防长生命周期的进程锁定在过期的姿态上；调用者应在每个会话中解析一次并持有该结果。
+    记录 ``model`` 仅用于引导修改格式指南（edit-format guidance）；它绝不会影响检测。
     """
     resolved_cwd = _resolve_cwd(cwd)
     mode = _coding_mode(config)
@@ -651,13 +648,13 @@ def coding_compact_skill_categories(
     cwd: Optional[str | Path] = None,
     config: Optional[dict[str, Any]] = None,
 ) -> frozenset[str]:
-    """Skill categories the active posture demotes to names-only in the index.
+    """当前激活的姿态将索引中的技能类别降级为仅显示名称。
 
-    Empty outside the coding posture and outside the opt-in ``focus`` mode —
-    the default posture never touches the skill index. Under ``focus``,
-    demoted — never hidden: every skill name stays in the index and remains
-    loadable via ``skill_view`` / ``skills_list``; only descriptions are
-    dropped.
+    在编程姿态（coding posture）之外以及未选择性开启的 ``focus`` 模式下，
+    此项为空 —— 默认姿态绝不会触碰技能索引。在 ``focus`` 模式下，
+    仅进行降级，而绝不隐藏：每个技能名称都会保留在索引中，
+    且仍可通过 ``skill_view`` / ``skills_list`` 正常加载；
+    仅仅是丢弃了其对应的描述信息。
     """
     return resolve_runtime_mode(
         platform=platform, cwd=cwd, config=config

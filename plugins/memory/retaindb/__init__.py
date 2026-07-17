@@ -531,6 +531,10 @@ class RetainDBMemoryProvider(MemoryProvider):
 
     def system_prompt_block(self) -> str:
         project = self._client.project if self._client else "retaindb"
+        # RetainDB 记忆机制
+        # f"已激活。项目: {project}。\n"
+        # "使用 retaindb_search 查找记忆，使用 retaindb_remember 存储事实，"
+        # "使用 retaindb_profile 获取用户概览，使用 retaindb_context 获取当前任务上下文。"
         return (
             "# RetainDB Memory\n"
             f"Active. Project: {project}.\n"

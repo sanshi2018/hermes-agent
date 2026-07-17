@@ -205,21 +205,20 @@ _compile()
 
 
 def scan_for_threats(content: str, scope: str = "context") -> List[str]:
-    """Return a list of matched pattern IDs in ``content`` at the given scope.
+    """返回在给定作用域下 ``content`` 中匹配到的模式 ID 列表。
 
-    ``scope`` selects which pattern set to apply:
+    ``scope`` 用于选择要应用的模式集：
 
-    - ``"all"`` (narrow): classic injection + exfil only — minimal false
-      positives, suitable for any text.
-    - ``"context"`` (default): adds promptware / C2 / role-play patterns —
-      suitable for context files, memory entries, and tool results.
-    - ``"strict"`` (broad): adds persistence / SSH backdoor / exfil-URL
-      patterns — appropriate for user-mediated writes (memory tool,
-      skills install) where false positives can be resolved interactively.
+    - ``"all"``（窄范围）：仅包含经典注入 + 敏感数据外发（exfil） —— 误报率极低，
+      适用于任何文本。
+    - ``"context"``（默认）：增加提示词攻击（promptware）/ 命令与控制（C2）/ 角色扮演模式 ——
+      适用于上下文文件、记忆条目和工具结果。
+    - ``"strict"``（宽范围）：增加持久化 / SSH 后门 / 敏感数据外发 URL（exfil-URL）
+      模式 —— 适用于用户媒介的写入操作（记忆工具、技能安装），在这些场景下
+      可以通过交互方式来解决误报问题。
 
-    Also checks for invisible unicode characters (returned as
-    ``"invisible_unicode_U+XXXX"`` so the caller can surface the offending
-    codepoint in a log line).
+    同时还会检查不可见的 Unicode 字符（作为 ``"invisible_unicode_U+XXXX"`` 返回，
+    以便调用者可以在日志行中呈现违规的码点）。
     """
     if not content:
         return []
@@ -228,20 +227,19 @@ def scan_for_threats(content: str, scope: str = "context") -> List[str]:
 
     content = content[:MAX_SCAN_CHARS]
 
-    # Invisible unicode — single pass through the content set, not 17
-    # ``in`` lookups.  Run this on the RAW content before NFKC normalisation,
-    # since normalisation can strip some of these codepoints.
+    # 不可见 Unicode 字符 —— 对内容集进行单次遍历，而不是进行 17 次
+    # ``in`` 查找。在 NFKC 标准化之前对原始（RAW）内容运行此检查，
+    # 因为标准化可能会清除其中部分码点。
     char_set = set(content)
     invisible_hits = char_set & INVISIBLE_CHARS
     for ch in invisible_hits:
         findings.append(f"invisible_unicode_U+{ord(ch):04X}")
 
-    # Normalise to NFKC so full-width / compatibility Unicode variants
-    # (e.g. ｃａｔ → cat, Ａ → A) are folded to their ASCII counterparts before
-    # the regex engine sees them.  This prevents homograph substitution from
-    # bypassing keyword checks (e.g. ``ｃａｔ ~/.hermes/.env``).  NOTE: this
-    # does NOT defend against cross-script confusables (Cyrillic ``а`` U+0430),
-    # which NFKC leaves untouched — that needs a TR#39 confusable database.
+    # 标准化为 NFKC，以便全角/兼容性 Unicode 变体
+    # （例如 ｃａｔ → cat，Ａ → A）在进入正则引擎之前被折叠为对应的 ASCII 字符。
+    # 这可以防止同形字替换绕过关键字检查（例如 ``ｃａｔ ~/.hermes/.env``）。
+    # 注意：这并不能防御跨语系的混淆字（如西里尔字母 ``а`` U+0430），
+    # NFKC 不会对其进行处理 —— 这需要 TR#39 混淆字数据库来防范。
     normalised = unicodedata.normalize("NFKC", content)
 
     # Threat patterns

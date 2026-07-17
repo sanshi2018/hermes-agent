@@ -394,6 +394,17 @@ class Mem0MemoryProvider(MemoryProvider):
             mode_label = "platform (cloud API)"
         # Rerank is a Mem0 Platform feature only.
         rerank_note = " Rerank is available on search." if (self._mode == "platform" and not self._host) else ""
+        # # Mem0 记忆机制
+        # f"已激活。模式: {mode_label}。用户: {self._user_id}。\n"
+        # "你对该用户在过去的对话中留有持久记忆。"
+        # "在回答任何可能依赖于先前上下文（用户的偏好、事实、历史、人物、"
+        # "项目或早先的决定）的问题之前，你应该调用 mem0_search —— 不要仅依赖于"
+        # "当前的聊天窗口，也不要假设你没有任何记忆。\n"
+        # "对于包含多个部分或多跳的问题，请使用不同的措辞/角度进行多次搜索，"
+        # "并针对初次搜索结果中浮现的内容进行跟进搜索；仅靠一次搜索很少是足够的。"
+        # "在回答之前，请持续搜索，直到你掌握了该问题所需的每一个事实。\n"
+        # "工具：mem0_search 用于查找记忆，mem0_add 用于存储事实，"
+        # f"mem0_update 和 mem0_delete 用于通过 ID 进行管理。{rerank_note}"
         return (
             "# Mem0 Memory\n"
             f"Active. Mode: {mode_label}. User: {self._user_id}.\n"

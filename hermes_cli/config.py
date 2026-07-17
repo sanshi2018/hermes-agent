@@ -912,17 +912,17 @@ def _ensure_default_soul_md(home: Path) -> None:
 
 
 def ensure_hermes_home():
-    """Ensure ~/.hermes directory structure exists with secure permissions.
+    """确保 ~/.hermes 目录结构存在且具备安全权限。
 
-    In managed mode (NixOS), dirs are created by the activation script with
-    setgid + group-writable (2770). We skip mkdir and set umask(0o007) so
-    any files created (e.g. SOUL.md) are group-writable (0660).
+    在托管模式（NixOS）下，目录由激活脚本创建，并带有 setgid + 组可写权限（2770）。
+    我们会跳过 mkdir 并设置 umask(0o007)，从而确保任何创建的文件（例如 SOUL.md）
+    都具备组可写权限（0660）。
     """
     home = get_hermes_home()
-    # Named profiles must be created explicitly (e.g. ``hermes profile create``).
-    # If a stale process keeps running after the profile was renamed/deleted,
-    # silently mkdir-ing the old HERMES_HOME would resurrect an empty skeleton
-    # and make the deleted profile reappear in Desktop/profile lists.
+    # 命名配置文件必须显式创建（例如 ``hermes profile create``）。
+    # 如果在配置文件被重命名/删除后，某个陈旧的进程仍在运行，
+    # 那么默默地为旧的 HERMES_HOME 执行 mkdir 将会复活一个空骨架，
+    # 并导致已被删除的配置文件重新出现在桌面/配置文件列表中。
     if home.parent.name == "profiles" and not home.exists():
         raise FileNotFoundError(
             f"Named profile home does not exist: {home}. "

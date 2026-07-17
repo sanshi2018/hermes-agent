@@ -196,6 +196,10 @@ class HolographicMemoryProvider(MemoryProvider):
                 "Use fact_store(action='add') to store durable structured facts about people, projects, preferences, decisions.\n"
                 "Use fact_feedback to rate facts after using them (trains trust scores)."
             )
+        # f"# 全息记忆机制\n"
+        # f"已激活。已存储 {total} 条带有实体解析和信任度评分的事实。\n"
+        # f"使用 fact_store 进行搜索、探测实体、跨实体推理或添加事实。\n"
+        # f"在使用事实后，使用 fact_feedback 对事实进行评分（以此训练信任度评分）。"
         return (
             f"# Holographic Memory\n"
             f"Active. {total} facts stored with entity resolution and trust scoring.\n"

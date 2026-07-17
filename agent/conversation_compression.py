@@ -712,41 +712,36 @@ def compress_context(
 
         if agent._session_db:
             try:
-                # Trigger memory extraction on the current session before the
-                # transcript is rewritten (runs in BOTH modes — the logical
-                # conversation's pre-compaction turns are about to be summarized
-                # away regardless of whether the id rotates).
+                # 在对话文字记录被重写之前，触发当前会话的记忆提取
+                # （在两种模式下均会运行 — 无论 ID 是否轮换，逻辑对话
+                # 中压缩前的轮次都即将被摘要精简掉）。
                 agent.commit_memory_session(messages)
 
                 if in_place:
-                    # ── In-place compaction: keep the same session_id ──────────
-                    # No end_session, no new row, no parent_session_id, no title
-                    # renumber, no contextvar/env/logging re-sync. The session's
-                    # id, title, cwd, /goal, and gateway routing all stay put.
+                    # ── 原地压缩（In-place compaction）：保持相同的 session_id ───────
+                    # 不结束会话（no end_session）、不生成新行、不改变 parent_session_id、不重新生成标题、
+                    # 不对轮次重新编号，也不进行 contextvar/环境变量/日志的重新同步。该会话的
+                    # id、标题、当前工作目录（cwd）、/goal 以及网关路由都保持原样。
                     #
-                    # Durable, NON-DESTRUCTIVE replace: soft-archive the
-                    # pre-compaction turns (active=0, kept on disk + FTS-searchable +
-                    # recoverable) and insert `compressed` as the new live (active=1)
-                    # set, atomically. `compressed` already carries the surviving
-                    # tail (current-turn messages the compressor kept via
-                    # protect_last_n), so we DON'T pre-flush here — a flush would
-                    # INSERT current-turn rows that archive_and_compact would then
-                    # archive alongside the rest (harmless but wasted writes). The
-                    # live-context load filters active=1, so a resume reloads ONLY
-                    # the compacted set; the original turns remain under the SAME id
-                    # for search/recovery (Teknium review — keep one durable id
-                    # WITHOUT destroying history, unlike a hard replace_messages).
-                    # See #38763.
+                    # 持久化且【非破坏性】的替换：以原子方式对压缩前的轮次进行软归档
+                    # （active=0，保留在磁盘上 + 可支持全文检索 + 可恢复），并插入 `compressed`
+                    # 作为新的活跃（active=1）集合。由于 `compressed` 已经包含了保留下来的尾部数据
+                    # （压缩器通过 protect_last_n 保留的当前轮次消息），所以我们在此处【不要】进行预刷新（pre-flush）
+                    # — 刷新会插入当前轮次的行，而这些行随后会被 archive_and_compact 一并归档
+                    # （虽然无害，但会造成无谓的写入）。活跃上下文的加载会过滤 active=1，因此恢复（resume）
+                    # 时只会重新加载压缩后的集合；而原始轮次仍保留在【同一个】id 下，以便于搜索/恢复
+                    # （根据 Teknium 的评审意见 — 保持一个持久的 id 且【不破坏】历史记录，这与硬替换
+                    # replace_messages 不同）。参见 #38763。
                     agent._session_db.archive_and_compact(agent.session_id, compressed)
-                    # Reset the flush identity set so the next turn's appends are
-                    # diffed against the COMPACTED transcript: the compacted dicts
-                    # are passed as conversation_history next turn and skipped by
-                    # identity, so only genuinely new turn messages get appended
-                    # (no dup of the summary, no resurrection of dropped turns).
+                    # 重置刷新标识集（flush identity set），以便下一轮的追加操作
+                    # 能够与【压缩后】的对话记录进行差异对比（diff）：压缩后的字典
+                    # 将在下一轮作为 conversation_history 传入，并会通过标识进行跳过，
+                    # 从而确保只有真正属于新一轮的消息才会被追加
+                    # （既不会重复添加摘要，也不会使已被丢弃的轮次“起死回生”）。
                     agent._flushed_db_message_ids = set()
-                    # Rotation-independent signal: the conversation was compacted in
-                    # place (id unchanged). The gateway reads this (NOT an id-change
-                    # diff) to re-baseline transcript handling.
+                    # 轮转无关信号（Rotation-independent signal）：对话已被原地压缩
+                    # （ID 未发生改变）。网关会读取此信号（这【不是】一个 ID 变更的
+                    # diff 对比），用以重新基准化（re-baseline）对话记录的处理。
                     compacted_in_place = True
                 else:
                     # ── Rotation (legacy): end this session, fork a continuation ─
@@ -870,20 +865,20 @@ def compress_context(
                 else:
                     logger.warning("Session DB compression split failed — new session will NOT be indexed: %s", e)
 
-        # Compaction-boundary bookkeeping, computed once. `old_session_id` is only
-        # bound in the rotation branch; in-place leaves it unset. `_boundary_parent`
-        # is the id the boundary notifications attribute the prior state to: the old
-        # id on rotation, the (unchanged) current id in-place.
+        # 压缩边界记账（Compaction-boundary bookkeeping），仅计算一次。
+        # `old_session_id` 仅在轮转（rotation）分支中进行绑定；原地压缩（in-place）时
+        # 则保持未设置状态。`_boundary_parent` 是边界通知将先前状态归属到的 ID：
+        # 在轮转时为旧 ID，在原地压缩时则为（未发生改变的）当前 ID。
         _old_sid = locals().get("old_session_id")
         _is_boundary = bool(_old_sid) or in_place
         _boundary_parent = _old_sid or agent.session_id or ""
 
-        # Notify the context engine that a compaction boundary occurred. Plugin
-        # engines (e.g. hermes-lcm) use boundary_reason="compression" to preserve
-        # DAG lineage / checkpoint per-session state across the boundary instead of
-        # re-initializing fresh. See hermes-lcm#68. Built-in ContextCompressor
-        # ignores kwargs. Fires in BOTH modes: rotation passes old→new ids; in-place
-        # passes the SAME id (the boundary is real even though the id didn't move).
+        # 通知上下文引擎（context engine）发生了一个压缩边界。插件
+        # 引擎（例如 hermes-lcm）使用 boundary_reason="compression" 来保留
+        # DAG 谱系（lineage），以便跨越边界时对每个会话的状态进行检查点（checkpoint）记录，
+        # 而不是重新初始化一个全新的会话。参见 hermes-lcm#68。内置的 ContextCompressor
+        # 会忽略 kwargs。在【两种】模式下都会触发：轮转模式会传递 旧→新 ID；原地模式
+        # 则会传递【相同的】ID（尽管 ID 没有改变，但该边界是真实存在的）。
         try:
             if _is_boundary and hasattr(agent.context_compressor, "on_session_start"):
                 agent.context_compressor.on_session_start(
@@ -896,12 +891,11 @@ def compress_context(
         except Exception as _ce_err:
             logger.debug("context engine on_session_start (compression): %s", _ce_err)
 
-        # Notify memory providers of the compaction boundary so provider-cached
-        # per-session state (Hindsight's _document_id, accumulated turn buffers,
-        # counters) refreshes. reset=False because the logical conversation
-        # continues. See #6672. Fires in BOTH modes: in-place uses the same id as
-        # parent (the conversation didn't fork, but the buffer must still be told
-        # the transcript was compacted so it doesn't double-count dropped turns).
+        # 通知内存提供者（memory providers）已发生压缩边界，以便提供者缓存的
+        # 特定会话状态（如 Hindsight 的 _document_id、累积的轮次缓冲区、
+        # 计数器）进行刷新。因为逻辑上的对话仍在继续，所以设置 reset=False。
+        # 参见 #6672。在【两种】模式下都会触发：原地模式使用与父会话相同的 id
+        # （对话并没有分叉，但仍必须告知缓冲区对话记录已被压缩，以避免对已丢弃的轮次进行重复计数）。
         try:
             if _is_boundary and agent._memory_manager:
                 agent._memory_manager.on_session_switch(
@@ -913,12 +907,12 @@ def compress_context(
         except Exception as _me_err:
             logger.debug("memory manager on_session_switch (compression): %s", _me_err)
 
-        # Warn on repeated compressions (quality degrades with each pass).
-        # Route through _emit_status (like the other compression warnings above)
-        # so the warning reaches the TUI / Telegram / Discord via status_callback,
-        # not just CLI stdout. _emit_status still _vprints for the CLI, and
-        # storing it on _compression_warning lets replay_compression_warning
-        # re-deliver it once a late-bound gateway status_callback is wired (#36908).
+        # 针对重复压缩发出警告（每压缩一次，质量都会随之下降）。
+        # 通过 _emit_status 进行路由（就像上面其他压缩警告一样），
+        # 以便警告能通过 status_callback 送达 TUI / Telegram / Discord，
+        # 而不仅仅是 CLI 的标准输出（stdout）。_emit_status 仍然会为 CLI 进行 _vprint 打印，
+        # 并且将其存储在 _compression_warning 中，可以让 replay_compression_warning
+        # 在后期绑定的网关 status_callback 接通后，重新投递该警告（#36908）。
         _cc = agent.context_compressor.compression_count
         if _cc >= 2:
             _cc_msg = (
@@ -928,10 +922,10 @@ def compress_context(
             agent._compression_warning = _cc_msg
             agent._emit_status(_cc_msg)
 
-        # Emit session:compress event so hooks (e.g. MemPalace sync) can ingest
-        # the completed old session before its details are lost. In in-place mode
-        # there is no old id (same session); ``in_place=True`` tells hooks the
-        # transcript was compacted on the same id rather than rotated.
+        # 触发 session:compress 事件，以便钩子函数（例如 MemPalace 同步）能够
+        # 在已完成的旧会话细节丢失之前对其进行摄取。在原地（in-place）模式下
+        # 不存在旧 ID（会话相同）；``in_place=True`` 会告知钩子函数，
+        # 对话记录是在同一个 ID 上被压缩的，而不是进行了轮转。
         if getattr(agent, "event_callback", None):
             try:
                 agent.event_callback("session:compress", {
@@ -944,15 +938,15 @@ def compress_context(
             except Exception as e:
                 logger.debug("event_callback error on session:compress: %s", e)
 
-        # Surface the compaction mode to the caller (run_conversation / gateway)
-        # via a rotation-independent flag. The gateway uses this — NOT an
-        # id-change diff — to re-baseline transcript handling (history_offset=0 +
-        # rewrite on the same id) when compaction happened in place. See #38763.
+        # 通过一个与轮转无关的标志（rotation-independent flag），将压缩模式显式提供给
+        # 调用者（run_conversation / gateway）。当原地发生压缩时，网关会利用此标志
+        # — 而【不是】通过 ID 变更的 diff 对比 — 来重新基准化（re-baseline）对话记录的
+        # 处理（即在同一个 ID 上将 history_offset 设为 0 并进行重写）。参见 #38763。
         agent._last_compaction_in_place = compacted_in_place
 
-        # Keep the post-compression rough estimate for diagnostics, but do not
-        # treat it as provider-reported prompt usage. Schema-heavy rough estimates
-        # can remain above threshold even after the next real API request fits.
+        # 保留压缩后的粗略预估值用于诊断，但不要
+        # 将其视为服务商报告的 prompt 使用量。即使在下一次真实的 API 请求
+        # 能够容纳之后，包含大量 Schema 的粗略预估值可能仍会高于阈值。
         _compressed_est = estimate_request_tokens_rough(
             compressed,
             system_prompt=new_system_prompt or "",
@@ -962,16 +956,15 @@ def compress_context(
         agent.context_compressor.last_prompt_tokens = -1
         agent.context_compressor.last_completion_tokens = 0
         agent.context_compressor.awaiting_real_usage_after_compression = True
-        # Arm the effectiveness verdict only after a completed rewrite crosses
-        # the full compaction boundary. Exceptions, aborts, and no-op attempts
-        # leave this false, so unrelated later usage cannot be charged to an
-        # attempt that never changed the transcript.
+        # 只有在一次完整的重写跨越了整个压缩边界之后，才激活（Arm）有效性判定。
+        # 异常、中止以及无实际操作（no-op）的尝试都会使该值保持为 false，
+        # 从而确保后续无关的使用不会被归咎于一次从未改变过对话记录的尝试。
         if getattr(agent.context_compressor, "_last_compression_made_progress", False):
             agent.context_compressor._verify_compaction_cleared_threshold = True
 
-        # Clear the file-read dedup cache.  After compression the original
-        # read content is summarised away — if the model re-reads the same
-        # file it needs the full content, not a "file unchanged" stub.
+        # 清除文件读取的去重缓存。压缩之后，原始的
+        # 读取内容已被摘要精简 — 如果模型重新读取相同的
+        # 文件，它需要的是完整的内容，而不是一个“文件未更改”的存根。
         try:
             from tools.file_tools import reset_file_dedup
             reset_file_dedup(task_id)

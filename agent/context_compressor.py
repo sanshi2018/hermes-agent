@@ -754,23 +754,21 @@ class ContextCompressor(ContextEngine):
         self.awaiting_real_usage_after_compression = False
 
     def on_session_end(self, session_id: str, messages: List[Dict[str, Any]]) -> None:
-        """Clear all per-session compaction state at a real session boundary.
+        """在一个真正的会话边界处，清除所有针对该会话的压缩状态。
 
-        Session end (CLI exit, gateway expiry, session-id rotation) goes
-        through this method rather than ``on_session_reset()`` (/new, /reset).
-        The original fix (#38788) only cleared ``_previous_summary``, but the
-        same cross-session contamination risk applies to every per-session
-        variable that ``on_session_reset()`` clears: stale
-        ``_ineffective_compression_count`` can suppress compression in a
-        subsequent live session; ``_summary_failure_cooldown_until`` can block
-        summary generation; ``_last_compress_aborted`` can make callers think
-        compression is still aborted; ``_last_aux_model_failure_*`` can surface
-        stale error warnings; ``_last_summary_dropped_count`` /
-        ``_last_summary_fallback_used`` can produce misleading user warnings.
+        会话结束（CLI 退出、网关过期、会话 ID 轮转）会走这个方法，
+        而不是走 ``on_session_reset()``（针对 /new、/reset）。
+        最初的修复方案（#38788）只清除了 ``_previous_summary``，但跨会话污染的
+        风险同样适用于 ``on_session_reset()`` 所清除的每一个特定会话变量：
+        过期的 ``_ineffective_compression_count`` 可能会抑制后续活动会话中的压缩；
+        ``_summary_failure_cooldown_until`` 可能会阻止摘要的生成；
+        ``_last_compress_aborted`` 可能会让调用者误以为压缩仍处于中止状态；
+        ``_last_aux_model_failure_*`` 可能会抛出过期的错误警告；
+        ``_last_summary_dropped_count`` / ``_last_summary_fallback_used``
+        则可能会产生误导性的用户警告。
 
-        ``compress()`` already guards ``_previous_summary`` leakage at the
-        point of use; this is defense-in-depth that resets the full per-session
-        surface the moment the owning session ends.
+        ``compress()`` 已经在具体使用的地方对 ``_previous_summary`` 的泄漏做了防范；
+        而本方法则是一种深度防御机制，在所属会话结束的瞬间，重置整个会话的所有状态面。
         """
         self._previous_summary = None
         self._last_summary_error = None

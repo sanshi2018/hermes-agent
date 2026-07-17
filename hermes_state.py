@@ -1191,19 +1191,17 @@ class SessionDB:
             return False
 
     def _execute_write(self, fn: Callable[[sqlite3.Connection], T]) -> T:
-        """Execute a write transaction with BEGIN IMMEDIATE and jitter retry.
+        """使用 BEGIN IMMEDIATE 和抖动重试机制执行写入事务。
 
-        *fn* receives the connection and should perform INSERT/UPDATE/DELETE
-        statements.  The caller must NOT call ``commit()`` — that's handled
-        here after *fn* returns.
+        *fn* 接收数据库连接，并应该执行 INSERT/UPDATE/DELETE 语句。
+        调用者【切勿】调用 ``commit()`` — 该操作会在 *fn* 返回后在此处进行统一处理。
 
-        BEGIN IMMEDIATE acquires the WAL write lock at transaction start
-        (not at commit time), so lock contention surfaces immediately.
-        On ``database is locked``, we release the Python lock, sleep a
-        random 20-150ms, and retry — breaking the convoy pattern that
-        SQLite's built-in deterministic backoff creates.
+        BEGIN IMMEDIATE 在事务开始时（而非提交时）就会获取 WAL 写入锁，
+        因此锁冲突会立即暴露。当遇到 ``database is locked``（数据库被锁定）时，
+        我们会释放 Python 锁，随机休眠 20-150 毫秒，然后进行重试 — 从而打破
+        SQLite 内置的确定性退避（backoff）机制所导致的“护航效应”（convoy pattern）。
 
-        Returns whatever *fn* returns.
+        返回 *fn* 返回的任何内容。
         """
         last_err: Optional[Exception] = None
         for attempt in range(self._WRITE_MAX_RETRIES):
@@ -3800,13 +3798,12 @@ class SessionDB:
         return self._execute_write(_do)
 
     def _insert_message_rows(self, conn, session_id: str, messages: List[Dict[str, Any]]) -> tuple[int, int]:
-        """Insert *messages* as fresh active rows for *session_id*.
+        """为 *session_id* 插入 *messages* 作为新的活跃行。
 
-        Shared by :meth:`replace_messages` (delete-then-insert) and
-        :meth:`archive_and_compact` (soft-archive-then-insert). Runs inside the
-        caller's write transaction (takes the live ``conn``). Returns
-        ``(inserted_count, tool_call_count)``. Does NOT touch sessions.* counters
-        — the caller owns that, since the two flows reconcile counts differently.
+        由 :meth:`replace_messages`（先删后插）和 :meth:`archive_and_compact`
+        （先软归档后插）共享。在调用者的写入事务中运行（获取活跃的 ``conn``）。
+        返回 ``(inserted_count, tool_call_count)``。本方法【不】修改 sessions.* 计数器
+        — 调用者拥有该计数器的修改权，因为这两个流程对计数的对账方式不同。
         """
         now_ts = time.time()
         inserted = 0
@@ -3947,37 +3944,35 @@ class SessionDB:
     def archive_and_compact(
         self, session_id: str, compacted_messages: List[Dict[str, Any]]
     ) -> int:
-        """Non-destructive in-place compaction for a single durable session id.
+        """针对单个持久化会话 ID 的非破坏性原地压缩。
 
-        Soft-archives every currently-active message (``active = 0``) and
-        inserts *compacted_messages* as fresh active rows — atomically, in one
-        write transaction. The conversation keeps ONE session id for life
-        (#38763) WITHOUT destroying history:
+        以原子方式在单个写入事务中，将每个当前活跃的消息进行软归档（``active = 0``），
+        并插入 *compacted_messages* 作为新的活跃行。该对话在生命周期内保持【同一个】
+        会话 ID（#38763），且【不破坏】历史记录：
 
-        - The live-context load (:meth:`get_messages_as_conversation`,
-          :meth:`get_messages`) filters ``active = 1`` by default, so the model
-          reloads ONLY the compacted set.
-        - The archived pre-compaction turns stay on disk (active=0) and stay
-          DISCOVERABLE: they are marked compacted=1, and search_messages()
-          includes compacted=1 rows by default — so session_search still finds
-          them, unlike rewind/undo rows (active=0, compacted=0) which stay
-          hidden. They remain in the FTS index (the messages_fts* triggers
-          index on INSERT / drop on DELETE and don't key on active/compacted;
-          flipping to active=0 is a content-preserving UPDATE) and are
-          recoverable via get_messages(..., include_inactive=True).
+        - 活跃上下文的加载（如 :meth:`get_messages_as_conversation`、
+          :meth:`get_messages`）默认过滤 ``active = 1``，因此模型只会重新加载
+          压缩后的集合。
+        - 归档的压缩前轮次仍保留在磁盘上（active=0）且保持【可被发现】：它们被标记为
+          compacted=1，并且 search_messages() 默认包含 compacted=1 的行 —
+          因此会话搜索（session_search）仍然可以找到它们，这与回滚/撤销（rewind/undo）
+          行（active=0, compacted=0，这些行会保持隐藏）不同。它们仍保留在全文检索（FTS）
+          索引中（messages_fts* 触发器在 INSERT 时建立索引 / 在 DELETE 时删除索引，
+          且不依赖 active/compacted 状态；切换为 active=0 是一种保留内容的 UPDATE
+          操作），并且可以通过 get_messages(..., include_inactive=True) 进行恢复。
 
-        This is the durability-preserving alternative to :meth:`replace_messages`
-        for compaction. ``message_count`` is set to the ACTIVE (compacted) count,
-        matching what the live load returns. Returns the new active count.
+        这是针对压缩功能，在保留持久性方面替代 :meth:`replace_messages` 的方案。
+        ``message_count`` 被设置为【活跃的】（压缩后的）计数，与活跃上下文加载返回的
+        数量一致。返回新的活跃计数。
         """
 
         def _do(conn):
-            # Soft-archive the live turns: active=0 hides them from the live
-            # context load, compacted=1 marks them as "summarized away" (vs
-            # rewind/undo's active=0+compacted=0, which means "user took it
-            # back"). search_messages includes compacted=1 rows by default so
-            # the pre-compaction transcript stays discoverable; live-context
-            # loads (active=1 only) still exclude them.
+            # 软归档活跃轮次：active=0 在活跃上下文加载中隐藏它们，
+            # compacted=1 将它们标记为“已被摘要精简”（这与回滚/撤销的
+            # active=0 + compacted=0 不同，后者意味着“用户收回了该操作”）。
+            # search_messages 默认包含 compacted=1 的行，因此压缩前的
+            # 对话记录仍然可以被检索到；而活跃上下文加载（仅加载 active=1）
+            # 则依然会排除它们。
             conn.execute(
                 "UPDATE messages SET active = 0, compacted = 1 "
                 "WHERE session_id = ? AND active = 1",

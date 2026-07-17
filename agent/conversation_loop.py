@@ -1020,23 +1020,21 @@ def run_conversation(
                 approx_tokens=request_pressure_tokens,
                 task_id=effective_task_id,
             )
-            # Reset retry/empty-response state so the compacted request
-            # gets a fresh chance instead of inheriting stale recovery
-            # counters from the pre-compaction history.
+            # 重置重试/空响应状态，以便压缩后的请求
+            # 能够获得全新的机会，而不是继承压缩前
+            # 历史记录中陈旧的恢复计数器。
             agent._empty_content_retries = 0
             agent._thinking_prefill_retries = 0
             agent._last_content_with_tools = None
             agent._last_content_tools_all_housekeeping = False
             agent._mute_post_response = False
-            # Re-baseline the flush cursor for the compaction mode that just
-            # ran. Legacy session-rotation returns None (the child session has
-            # not seen the compacted transcript, so the next flush writes it
-            # whole); in-place compaction returns list(messages) because the
-            # compacted rows are already persisted under the same session id —
-            # leaving None there would re-append them, doubling the active
-            # context and retriggering compression. Mirrors the post-response
-            # and preflight compaction sites; see
-            # conversation_history_after_compression().
+            # 为刚刚运行的压缩模式重新基准化刷写游标。
+            # 传统会话轮转返回 None（子会话尚未看到压缩后的文字记录，因此下一次刷写会将其完整写入）；就地压缩返回 list(messages)，因为
+            # 压缩后的行已经持久化在相同的会话 ID 下 —
+            # 如果在此处留空 None 将会重新追加它们，从而使活跃
+            # 上下文翻倍并再次触发压缩。这镜像了响应后
+            # 和预检压缩的位置；参见
+            # conversation_history_after_compression()。
             conversation_history = conversation_history_after_compression(
                 agent, messages
             )

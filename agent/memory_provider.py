@@ -164,13 +164,13 @@ class MemoryProvider(ABC):
         """
 
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
-        """Called when a session ends (explicit exit or timeout).
+        """当会话结束时调用（显式退出或超时）。
 
-        Use for end-of-session fact extraction, summarization, etc.
-        messages is the full conversation history.
+        用于会话结束时的真实信息提取、摘要生成等。
+        messages 是完整的对话历史记录。
 
-        NOT called after every turn — only at actual session boundaries
-        (CLI exit, /reset, gateway session expiry).
+        并非在每轮对话后都调用 — 仅在真正的会话边界处调用
+        （如 CLI 退出、/reset、网关会话过期）。
         """
 
     def on_session_switch(

@@ -3340,21 +3340,21 @@ class AIAgent:
                 pass
 
     def commit_memory_session(self, messages: list = None) -> None:
-        """Trigger end-of-session extraction without tearing providers down.
-        Called when session_id rotates (e.g. /new, context compression);
-        providers keep their state and continue running under the old
-        session_id — they just flush pending extraction now."""
+        """在不拆除（清理）提供者的情况下触发会话结束的提取。
+        在 session_id 轮换时调用（例如：/new，上下文压缩）；
+        提供者将保持其状态并在旧的 session_id 下继续运行 —
+        它们现在只是刷新挂起的提取内容。"""
         if self._memory_manager:
             try:
                 self._memory_manager.on_session_end(messages or [])
             except Exception:
                 pass
-        # Notify context engine of session end too — same lifecycle moment as
-        # the memory manager's on_session_end. Without this, engines that
-        # accumulate per-session state (DAGs, summaries) leak that state from
-        # the rotated-out session into whatever comes next under the same
-        # compressor instance. Mirrors the call in shutdown_memory_provider().
-        # See issue #22394.
+        # 同时也通知上下文引擎会话已结束 — 这与内存管理器
+        # 的 on_session_end 处于相同的生命周期节点。如果不进行
+        # 此操作，累积了单会话状态（如 DAG、摘要）的引擎就会
+        # 将这些状态从已轮换出的会话中泄漏到相同压缩器实例下
+        # 接下来生成的任何内容中。这与 shutdown_memory_provider()
+        # 中的调用相呼应。参见 issue #22394。
         if hasattr(self, "context_compressor") and self.context_compressor:
             try:
                 self.context_compressor.on_session_end(

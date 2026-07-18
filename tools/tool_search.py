@@ -67,6 +67,14 @@ class ToolSearchConfig:
     threshold_pct: float  # 0..100 — only used when enabled == "auto"
     search_default_limit: int
     max_search_limit: int
+    # Catalog listing ("skills-style" progressive disclosure): when active,
+    # a grouped name + short-description manifest of every deferred tool is
+    # embedded in the tool_search bridge description, so capabilities stay
+    # DISCOVERABLE (like the skills listing in the system prompt) while full
+    # schemas stay deferred.  "auto" = include when it fits listing_max_tokens;
+    # "on" = always include; "off" = legacy bare-count behavior.
+    listing: str = "auto"  # "auto" | "on" | "off"
+    listing_max_tokens: int = 4000
 
     @classmethod
     def from_raw(cls, raw: Any) -> "ToolSearchConfig":
@@ -105,11 +113,24 @@ class ToolSearchConfig:
         search_default_limit = max(1, min(max_search_limit,
                                           _safe_int(raw.get("search_default_limit"), 5)))
 
+        listing_raw = str(raw.get("listing", "auto")).strip().lower()
+        if listing_raw in ("true", "1", "yes"):
+            listing = "on"
+        elif listing_raw in ("false", "0", "no"):
+            listing = "off"
+        elif listing_raw in ("auto", "on", "off"):
+            listing = listing_raw
+        else:
+            listing = "auto"
+        listing_max_tokens = max(200, min(20000, _safe_int(raw.get("listing_max_tokens"), 4000)))
+
         return cls(
             enabled=enabled,
             threshold_pct=threshold_pct,
             search_default_limit=search_default_limit,
             max_search_limit=max_search_limit,
+            listing=listing,
+            listing_max_tokens=listing_max_tokens,
         )
 
 
@@ -385,17 +406,13 @@ def search_catalog(catalog: List[CatalogEntry], query: str, limit: int = 5) -> L
     """
     if not catalog or limit <= 0:
         return []
-    # 只保留数字，字母
     query_tokens = _tokenize(query)
     if not query_tokens:
         return []
 
     # Precompute doc statistics.
-    # 文档长度数组
     doc_lengths = [len(e._tokens) for e in catalog]
-    # 平均长度
     avg_dl = sum(doc_lengths) / max(len(doc_lengths), 1)
-    # 字母频率表
     doc_freq: Dict[str, int] = {}
     for e in catalog:
         seen = set(e._tokens)
@@ -426,18 +443,116 @@ def search_catalog(catalog: List[CatalogEntry], query: str, limit: int = 5) -> L
 # ---------------------------------------------------------------------------
 
 
-def bridge_tool_schemas(deferred_count: int) -> List[Dict[str, Any]]:
-    """构建用于替换延迟工具的桥接工具模式（schema）。
+_SENTENCE_END_RE = re.compile(r"[.!?\n]")
 
-    这些模式刻意保持简短 — 这里增加的每一个字节，都是用户在
-    每一轮对话中都要付出的成本。描述经过了调优，确保模型应该
-    遵循的调用顺序毫无歧义。
+
+def _short_desc(description: str, max_chars: int = 60) -> str:
+    """First sentence of a tool description, clipped to ``max_chars``.
+
+    Mirrors the skills-listing convention: one terse line per capability.
+    Whitespace is collapsed; a hard clip never cuts mid-word unless the
+    first word itself exceeds the budget.
     """
-    # f"搜索按需加载的 {deferred_count} 个附加工具。"
-    # f"返回最多 `limit` 个匹配项的名称和描述。随后使用 "
-    # f"`{TOOL_DESCRIBE_NAME}` 加载工具的完整参数模式（schema），"
-    # f"然后使用 `{TOOL_CALL_NAME}` 调用它。系统提示词顶部列出的工具"
-    # "已经可用，无需再进行搜索。"
+    text = " ".join((description or "").split())
+    if not text:
+        return ""
+    m = _SENTENCE_END_RE.search(text)
+    if m:
+        text = text[:m.start() + (1 if text[m.start()] == "." else 0)]
+    if len(text) <= max_chars:
+        return text
+    clipped = text[:max_chars]
+    if " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0]
+    return clipped.rstrip(",;: ") + "…"
+
+
+def _listing_group_label(source_name: str) -> str:
+    """Human-facing group heading for a toolset, e.g. ``mcp-github`` -> ``github``."""
+    label = source_name or "other"
+    if label.startswith("mcp-"):
+        label = label[4:]
+    return label
+
+
+def build_catalog_listing(
+    deferrable: List[Dict[str, Any]],
+    *,
+    max_tokens: int = 4000,
+) -> Optional[str]:
+    """Render a skills-style manifest of the deferred catalog.
+
+    One line per tool — ``name: short description`` — grouped under a
+    heading per source (MCP server / plugin toolset), exactly like the
+    bundled-skills listing in the system prompt:
+
+        github tools: (44)
+        - create_issue: Open a new issue in a GitHub repository.
+        - merge_pull_request: Merge an open pull request.
+        ...
+
+    Ordering is deterministic (groups and tools sorted by name) so the
+    rendered block is byte-stable across assemblies of the same catalog —
+    this keeps the request prefix cacheable across turns.
+
+    Token-budget fallbacks (cheap chars/4 estimate, same rule as the
+    activation gate):
+      1. full listing (names + short descriptions)
+      2. names-only listing, still grouped
+      3. ``None`` — caller falls back to the legacy bare-count description
+    """
+    if not deferrable:
+        return None
+
+    groups: Dict[str, List[Tuple[str, str]]] = {}
+    for td in deferrable:
+        fn = td.get("function") or {}
+        name = fn.get("name", "")
+        if not name:
+            continue
+        source, source_name = _classify_source(name)
+        label = _listing_group_label(source_name if source != "other" else "other")
+        groups.setdefault(label, []).append((name, _short_desc(fn.get("description", ""))))
+
+    if not groups:
+        return None
+
+    def render(with_descriptions: bool) -> str:
+        lines: List[str] = ["Deferred tool catalog (call schemas via "
+                            f"`{TOOL_DESCRIBE_NAME}`, invoke via `{TOOL_CALL_NAME}`):"]
+        for label in sorted(groups):
+            tools = sorted(groups[label])
+            lines.append(f"{label} tools ({len(tools)}):")
+            if with_descriptions:
+                for name, desc in tools:
+                    lines.append(f"- {name}: {desc}" if desc else f"- {name}")
+            else:
+                lines.append(", ".join(name for name, _ in tools))
+        return "\n".join(lines)
+
+    for with_desc in (True, False):
+        text = render(with_desc)
+        if math.ceil(len(text) / CHARS_PER_TOKEN) <= max_tokens:
+            return text
+    return None
+
+
+def bridge_tool_schemas(
+    deferred_count: int,
+    listing: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Build the bridge tool schemas to inject in place of deferred tools.
+
+    The schemas are intentionally short — every byte added here is a byte
+    the user pays on every turn. Descriptions are tuned to be unambiguous
+    about the call sequence the model should follow.
+
+    When ``listing`` is provided (see :func:`build_catalog_listing`), it is
+    embedded in the ``tool_search`` description so every deferred capability
+    stays *visible* by name — the skills-listing pattern — closing the
+    "model doesn't know what it doesn't know" gap while full parameter
+    schemas remain deferred.
+    """
     desc_search = (
         f"Search {deferred_count} additional tools that are loaded on demand. "
         "Returns up to ``limit`` matches with name and description. Follow "
@@ -445,15 +560,17 @@ def bridge_tool_schemas(deferred_count: int) -> List[Dict[str, Any]]:
         f"then `{TOOL_CALL_NAME}` to invoke it. Tools listed at the top of this "
         "system prompt are already available and do not need to be searched."
     )
-    # f"加载由 `{TOOL_SEARCH_NAME}` 返回的某个工具的完整 JSON 模式（schema）。"
-    # f"如果工具的参数未知，则在 `{TOOL_CALL_NAME}` 之前必须先调用此项。"
+    if listing:
+        desc_search += (
+            "\n\nEvery deferred tool is listed below. If the capability you "
+            "need appears here, do NOT claim it is unavailable — load it with "
+            f"`{TOOL_DESCRIBE_NAME}` (skip `{TOOL_SEARCH_NAME}` when you "
+            "already see the exact name).\n\n" + listing
+        )
     desc_describe = (
         f"Load the full JSON schema for one tool returned by `{TOOL_SEARCH_NAME}`. "
         f"Required before `{TOOL_CALL_NAME}` if the tool's parameters are unknown."
     )
-    # f"使用给定的参数按名称调用延迟工具。参数结构"
-    # f"与工具的模式（schema）匹配（参见 `{TOOL_DESCRIBE_NAME}`）。策略、钩子（hooks）"
-    # f"和批准流程的运行方式与任何直接列出的工具完全相同。"
     desc_call = (
         "Invoke a deferred tool by name with the given arguments. Argument shape "
         f"matches the tool's schema (see `{TOOL_DESCRIBE_NAME}`). Policy, hooks, "
@@ -577,13 +694,17 @@ def assemble_tool_defs(
             threshold_tokens=int((context_length or 0) * (config.threshold_pct / 100.0)),
         )
 
-    bridge = bridge_tool_schemas(len(deferrable))
+    listing = None
+    if config.listing != "off":
+        listing = build_catalog_listing(deferrable, max_tokens=config.listing_max_tokens)
+    bridge = bridge_tool_schemas(len(deferrable), listing=listing)
     result = visible + bridge
     threshold_tokens = int((context_length or 0) * (config.threshold_pct / 100.0))
 
     logger.info(
-        "tool_search activated: %d core/visible tools kept, %d deferred (~%d tokens, threshold ~%d)",
+        "tool_search activated: %d core/visible tools kept, %d deferred (~%d tokens, threshold ~%d), catalog listing %s",
         len(visible), len(deferrable), deferrable_tokens, threshold_tokens,
+        "embedded" if listing else "omitted",
     )
 
     return AssemblyResult(
@@ -736,6 +857,7 @@ __all__ = [
     "estimate_tokens_from_schemas",
     "should_activate",
     "build_catalog",
+    "build_catalog_listing",
     "search_catalog",
     "bridge_tool_schemas",
     "assemble_tool_defs",

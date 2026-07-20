@@ -651,13 +651,13 @@ class ChatCompletionsTransport(ProviderTransport):
         return api_kwargs
 
     def normalize_response(self, response: Any, **kwargs) -> NormalizedResponse:
-        """Normalize OpenAI ChatCompletion to NormalizedResponse.
+        """将 OpenAI ChatCompletion 规范化为 NormalizedResponse。
 
-        For chat_completions, this is near-identity — the response is already
-        in OpenAI format.  extra_content on tool_calls (Gemini thought_signature)
-        is preserved via ToolCall.provider_data.  reasoning_details (OpenRouter
-        unified format) and reasoning_content (DeepSeek/Moonshot) are also
-        preserved for downstream replay.
+        对于 chat_completions 而言，这几乎是恒等变换 —— 因为响应本身就已经是
+        OpenAI 格式。工具调用（tool_calls）上的 extra_content（例如 Gemini 的
+        thought_signature）会通过 ToolCall.provider_data 被保留。此外，
+        reasoning_details（OpenRouter 统一格式）和 reasoning_content
+        （DeepSeek/Moonshot）也会被保留，以供下游回放（downstream replay）使用。
         """
         choice = response.choices[0]
         msg = choice.message
@@ -671,10 +671,10 @@ class ChatCompletionsTransport(ProviderTransport):
         if msg.tool_calls:
             tool_calls = []
             for tc in msg.tool_calls:
-                # Preserve provider-specific extras on the tool call.
-                # Gemini 3 thinking models attach extra_content with
-                # thought_signature — without replay on the next turn the API
-                # rejects the request with 400.
+                # 在工具调用上保留服务商特定的额外参数（extras）。
+                # Gemini 3 推理模型（thinking models）会附带包含
+                # thought_signature 的 extra_content —— 如果在下一轮次中
+                # 不进行回放（replay），API 将会返回 400 错误并拒绝该请求。
                 tc_provider_data: dict[str, Any] = {}
                 extra = getattr(tc, "extra_content", None)
                 if extra is None and hasattr(tc, "model_extra"):
@@ -704,10 +704,11 @@ class ChatCompletionsTransport(ProviderTransport):
                 total_tokens=getattr(u, "total_tokens", 0) or 0,
             )
 
-        # Preserve reasoning fields separately.  DeepSeek/Moonshot use
-        # ``reasoning_content``; others use ``reasoning``.  Downstream code
-        # (_extract_reasoning, thinking-prefill retry) reads both distinctly,
-        # so keep them apart in provider_data rather than merging.
+        # 分别保留推理字段。DeepSeek/Moonshot 使用的是
+        # ``reasoning_content``；其他服务商则使用 ``reasoning``。
+        # 下游代码（_extract_reasoning、思考预填重试）会分别读取
+        # 这两个字段，因此将它们各自独立地保留在 provider_data 中，
+        # 而不是将它们合并。
         reasoning = getattr(msg, "reasoning", None)
         reasoning_content = getattr(msg, "reasoning_content", None)
         if reasoning_content is None and hasattr(msg, "model_extra"):
@@ -722,17 +723,15 @@ class ChatCompletionsTransport(ProviderTransport):
         if rd:
             provider_data["reasoning_details"] = rd
 
-        # OpenAI structured-refusal field. When a model declines, the SDK
-        # populates ``message.refusal`` with the explanation and leaves
-        # ``content`` empty. OpenAI-compatible proxies that front Anthropic /
-        # Bedrock (e.g. Nous Portal) surface a Claude refusal this way — or via
-        # ``finish_reason="content_filter"`` — instead of the native
-        # ``stop_reason="refusal"``. Without capturing it the refusal looks
-        # like an empty response, so the agent loop retries a deterministic
-        # refusal three times and gives up with "no content after retries".
-        # Promote it to content + a ``content_filter`` finish reason so the
-        # loop's refusal handler surfaces it clearly and stops. ``refusal`` is
-        # ``None`` for normal responses, so this is a no-op in the common case.
+        # OpenAI 结构化拒绝（structured-refusal）字段。当模型拒绝回答时，SDK
+        # 会将解释内容填充到 ``message.refusal`` 中，并保持 ``content`` 为空。
+        # 作为 Anthropic / Bedrock 前置代理的 OpenAI 兼容代理（例如 Nous Portal）
+        # 会通过这种方式 —— 或者通过 ``finish_reason="content_filter"`` —— 来呈现
+        # Claude 的拒绝，而不是使用原生的 ``stop_reason="refusal"``。如果捕获不到它，
+        # 该拒绝看起来就像是一个空响应，导致智能体循环（agent loop）会将一个确定性的拒绝
+        # 重试三次，并最终以“重试后无内容”而放弃。将其提升（Promote）为 content 并加上
+        # 一个 ``content_filter`` 结束原因，以便循环的拒绝处理程序能清晰地呈现它并停止。
+        # 对于正常响应，``refusal`` 为 ``None``，因此在常见情况下这属于幂等操作。
         content = msg.content
         refusal = getattr(msg, "refusal", None)
         if refusal is None and hasattr(msg, "model_extra"):

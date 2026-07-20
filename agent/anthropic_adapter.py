@@ -1856,17 +1856,17 @@ def _content_parts_to_anthropic_blocks(parts: Any) -> List[Dict[str, Any]]:
 
 
 def _sanitize_replay_block(b: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Strip output-only fields from a stored Anthropic content block so it is
-    valid as REQUEST input on replay.
+    """从存储的 Anthropic 内容块中剥离仅用于输出的字段，使其在回放时能作为
+    有效的请求（REQUEST）输入。
 
-    The SDK response objects carry output-only attributes that the Messages
-    *input* schema forbids ("Extra inputs are not permitted"): text blocks get
-    ``parsed_output``/``citations`` (when null), tool_use blocks get ``caller``,
-    etc. ``normalize_response`` captured blocks verbatim via ``_to_plain_data``,
-    so these leak back as input on the next turn → HTTP 400.
+    SDK 响应对象携带了消息 *输入* 模式（schema）所禁止的仅用于输出的属性
+    （“不允许有额外的输入”）：文本块（text blocks）会带上 ``parsed_output``/``citations``
+    （为 null 时），工具调用块（tool_use blocks）会带上 ``caller`` 等。由于
+    ``normalize_response`` 通过 ``_to_plain_data`` 逐字捕获了内容块，因此这些字段
+    会在下一轮次作为输入泄露回去 → 导致 HTTP 400 错误。
 
-    Whitelist per type (NOT a blacklist) so future SDK output-only fields can't
-    reintroduce the bug. Returns a clean block, or None to drop it.
+    按类型使用白名单（而不是黑名单），以确保未来 SDK 新增的仅用于输出的字段不会
+    重新引发该 bug。返回一个干净的内容块，或者返回 None 以将其丢弃。
     """
     if not isinstance(b, dict):
         return None

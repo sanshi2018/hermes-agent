@@ -1035,18 +1035,17 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
 
 
 def build_assistant_message(agent, assistant_message, finish_reason: str) -> dict:
-    """Build a normalized assistant message dict from an API response message.
+    """根据 API 响应消息构建一个标准化的助手（assistant）消息字典。
 
-    Handles reasoning extraction, reasoning_details, and optional tool_calls
-    so both the tool-call path and the final-response path share one builder.
+    处理推理内容的提取、reasoning_details 以及可选的 tool_calls，
+    以便工具调用路径和最终响应路径可以共享同一个构建器。
     """
     assistant_tool_calls = getattr(assistant_message, "tool_calls", None)
     reasoning_text = agent._extract_reasoning(assistant_message)
     _from_structured = bool(reasoning_text)
 
-    # Fallback: extract inline <think> blocks from content when no structured
-    # reasoning fields are present (some models/providers embed thinking
-    # directly in the content rather than returning separate API fields).
+    # 备用方案：当不存在结构化推理字段时，从内容（content）中提取内联的 <think> 块
+    # （某些模型/服务商会将思考过程直接嵌入到内容中，而不是通过独立的 API 字段返回）。
     if not reasoning_text:
         content = assistant_message.content or ""
         think_blocks = re.findall(r'<think>(.*?)</think>', content, flags=re.DOTALL)
@@ -1058,48 +1057,45 @@ def build_assistant_message(agent, assistant_message, finish_reason: str) -> dic
         logging.debug(f"Captured reasoning ({len(reasoning_text)} chars): {reasoning_text}")
 
     if reasoning_text and agent.reasoning_callback:
-        # Skip callback when streaming is active — reasoning was already
-        # displayed during the stream via one of two paths:
-        #   (a) _fire_reasoning_delta (structured reasoning_content deltas)
-        #   (b) _stream_delta tag extraction (<think>/<REASONING_SCRATCHPAD>)
-        # When streaming is NOT active, always fire so non-streaming modes
-        # (gateway, batch, quiet) still get reasoning.
-        # Any reasoning that wasn't shown during streaming is caught by the
-        # CLI post-response display fallback (cli.py _reasoning_shown_this_turn).
+        # 当流式传输激活时跳过回调 —— 推理内容在流式传输期间
+        # 已经通过以下两条路径之一进行了展示：
+        #   (a) _fire_reasoning_delta（结构化的 reasoning_content 增量数据）
+        #   (b) _stream_delta 标签提取（<think>/<REASONING_SCRATCHPAD>）
+        # 当流式传输【未】激活时，始终触发回调，以便非流式模式
+        # （网关、批处理、静默模式）仍能获取到推理内容。
+        # 任何在流式传输期间未展示的推理内容，都会被 CLI
+        # 响应后展示的备用方案捕获（cli.py 中的 _reasoning_shown_this_turn）。
         if not agent.stream_delta_callback and not agent._stream_callback:
             try:
                 agent.reasoning_callback(reasoning_text)
             except Exception:
                 pass
 
-    # Sanitize surrogates from API response — some models (e.g. Kimi/GLM via Ollama)
-    # can return invalid surrogate code points that crash json.dumps() on persist.
+    # 清洗 API 响应中的代理对（surrogates）—— 某些模型（例如通过 Ollama 运行的 Kimi/GLM）
+    # 可能会返回无效的代理对码点，这会在持久化（执行 json.dumps()）时导致程序崩溃。
     _raw_content = assistant_message.content or ""
     _san_content = _sanitize_surrogates(_raw_content)
     if reasoning_text:
         reasoning_text = _sanitize_surrogates(reasoning_text)
 
-    # Strip inline reasoning tags (<think>…</think> etc.) from the stored
-    # assistant content.  Reasoning was already captured into
-    # ``reasoning_text`` above (either from structured fields or the
-    # inline-block fallback), so the raw tags in content are redundant.
-    # Leaving them in place caused reasoning to leak to messaging
-    # platforms (#8878, #9568), inflate context on subsequent turns
-    # (#9306 observed 16% content-size reduction on a real MiniMax
-    # session), and pollute generated session titles.  One strip at the
-    # storage boundary cleans content for every downstream consumer:
-    # API replay, session transcript, gateway delivery, CLI display,
-    # compression, title generation.
+    # 从存储的助手（assistant）内容中剥离内联推理标签（<think>…</think> 等）。
+    # 推理内容在上方已经捕获到了 ``reasoning_text`` 中（无论
+    # 是来自结构化字段还是内联块备用方案），因此内容中原始的标签是多余的。
+    # 保留它们会导致推理内容泄露到消息平台（#8878, #9568）、
+    # 导致后续轮次的上下文膨胀（在真实的 MiniMax 会话中，#9306 观察到
+    # 内容大小减少了 16%），并污染生成的会话标题。
+    # 在存储边界进行一次剥离，可以为每个下游消费者清洗内容：
+    # API 重放、会话副本、网关分发、CLI 展示、压缩、标题生成。
     if isinstance(_san_content, str) and _san_content:
         _san_content = agent._strip_think_blocks(_san_content).strip()
 
-    # Defence-in-depth: redact credentials (PATs, API keys, Bearer tokens)
-    # from assistant content BEFORE the message enters conversation history.
-    # If the model accidentally inlines a secret in its natural-language
-    # response, catch it here at the persistence boundary so it never
-    # reaches state.db, session_*.json, gateway delivery, or compression.
-    # Respects HERMES_REDACT_SECRETS via redact_sensitive_text — no-op
-    # when disabled. (#19798)
+    # 纵深防御：在消息进入对话历史记录【之前】，从助手（assistant）
+    # 内容中脱敏凭据（PAT、API 密钥、Bearer 令牌）。
+    # 如果模型不小心在自然语言响应中内联了密钥，在持久化边界
+    # 这里将其捕获，使其永远不会进入 state.db、session_*.json、
+    # 网关分发或压缩流程。
+    # 通过 redact_sensitive_text 遵循 HERMES_REDACT_SECRETS 配置——
+    # 禁用时为无操作（no-op）。(#19798)
     if isinstance(_san_content, str) and _san_content:
         from agent.redact import redact_sensitive_text
         _san_content = redact_sensitive_text(_san_content)
@@ -1119,41 +1115,39 @@ def build_assistant_message(agent, assistant_message, finish_reason: str) -> dic
     if raw_reasoning_content is not None:
         msg["reasoning_content"] = _sanitize_surrogates(raw_reasoning_content)
     elif assistant_tool_calls and agent._needs_thinking_reasoning_pad():
-        # DeepSeek v4 thinking mode and Kimi / Moonshot thinking mode
-        # both require reasoning_content on every assistant tool-call
-        # message. Without it, replaying the persisted message causes
-        # HTTP 400 ("The reasoning_content in the thinking mode must
-        # be passed back to the API"). Include streamed reasoning
-        # text when captured; otherwise pad with a single space —
-        # DeepSeek V4 Pro tightened validation and rejects empty
-        # string ("The reasoning content in the thinking mode must
-        # be passed back to the API"). A space satisfies non-empty
-        # checks everywhere without leaking fabricated reasoning.
-        # Refs #15250, #17400, #17341.
+        # DeepSeek v4 的思考模式以及 Kimi / Moonshot 的思考模式，
+        # 都要求在助手的每一次工具调用（tool-call）消息中包含 reasoning_content。
+        # 如果不包含该内容，重放已持久化的消息时会导致 HTTP 400 错误
+        # （"The reasoning_content in the thinking mode must be passed back to the API"）。
+        # 如果捕获到了流式传输的推理文本，则将其包含在内；否则用单个空格进行填充 ——
+        # DeepSeek V4 Pro 强化了验证逻辑并会拒绝空字符串
+        # （"The reasoning content in the thinking mode must be passed back to the API"）。
+        # 使用一个空格可以满足所有地方的“非空检查”，同时不会泄露凭空捏造的推理内容。
+        # 参考 #15250, #17400, #17341。
         msg["reasoning_content"] = reasoning_text or " "
 
-    # Additive fallback (refs #16844, #16884). Streaming-only providers
-    # (glm, MiniMax, gpt-5.x via aigw, Anthropic via openai-compat shims)
-    # accumulate reasoning through ``delta.reasoning_content`` chunks
-    # but never land it on the message object as a top-level attribute,
-    # so neither branch above fires and the chain-of-thought is stored
-    # only under the internal ``reasoning`` key. When the user later
-    # replays that history through a DeepSeek-v4 / Kimi thinking model,
-    # the missing ``reasoning_content`` causes HTTP 400 ("The
+    # 补充性备用方案（参考 #16844, #16884）。仅支持流式传输的服务商
+    # （glm、MiniMax、通过 aigw 的 gpt-5.x、通过 openai-compat 垫片层的 Anthropic）
+    # 会通过 ``delta.reasoning_content`` 数据块来累积推理内容，
+    # 但绝不会将其作为顶级属性沉淀到 message 对象上，
+    # 导致上方的任何一个分支都不会触发，使得思维链（CoT）仅被存储
+    # 在内部的 ``reasoning`` 键下。当用户稍后
+    # 通过 DeepSeek-v4 / Kimi 思考模型重放该历史记录时，
+    # 缺失的 ``reasoning_content`` 会引发 HTTP 400 错误（"The
     # reasoning_content in the thinking mode must be passed back to the
-    # API.").
+    # API."）。
     #
-    # Promote the already-sanitized streamed ``reasoning_text`` to
-    # ``reasoning_content`` at write time, but ONLY when no prior branch
-    # already set it AND we actually captured reasoning text. This
-    # preserves every existing behavior:
-    #   - SDK-exposed ``reasoning_content`` (OpenAI/Moonshot/DeepSeek SDK)
-    #     still wins.
-    #   - DeepSeek tool-call ""-pad (#15250) still fires.
-    #   - Non-thinking turns with no reasoning leave the field absent,
-    #     so ``_copy_reasoning_content_for_api``'s cross-provider leak
-    #     guard (#15748) and ``reasoning``→``reasoning_content``
-    #     promotion tiers still apply at replay time.
+    # 在写入时，将已经过清洗的流式 ``reasoning_text`` 提升为
+    # ``reasoning_content``，但【仅当】之前的分支都没有
+    # 设置它，且我们确实捕获到了推理文本时才执行此操作。这
+    # 保留了所有现有的行为：
+    #   - SDK 显式暴露的 ``reasoning_content``（OpenAI/Moonshot/DeepSeek SDK）
+    #     依然优先。
+    #   - DeepSeek 工具调用的 ""-空格填充（#15250）依然会触发。
+    #   - 没有推理内容的非思考轮次会使该字段保持缺失状态，
+    #     因此 ``_copy_reasoning_content_for_api`` 的跨服务商泄露
+    #     防护（#15748）以及 ``reasoning``→``reasoning_content``
+    #     的提升层级在重放时依然适用。
     if "reasoning_content" not in msg and reasoning_text:
         msg["reasoning_content"] = reasoning_text
 
@@ -1237,26 +1231,23 @@ def build_assistant_message(agent, assistant_message, finish_reason: str) -> dic
                     "arguments": tool_call.function.arguments
                 },
             }
-            # Tool-call arguments are intentionally NOT redacted here. This
-            # dict enters the in-memory conversation history that is replayed
-            # to the model on every subsequent turn AND persisted to state.db,
-            # which is itself replayed verbatim on session resume
-            # (get_messages_as_conversation). Masking a credential to `***`
-            # here poisons that replay: the model reads back its own
-            # `PGPASSWORD='***' psql ...` call and copies the placeholder into
-            # the next tool call, breaking every credential-dependent command
-            # on the second turn (#43083). The masking also provided no real
-            # protection — the same secret still leaks verbatim through tool
-            # OUTPUT (file contents, command output, diffs, the compaction
-            # block), none of which this pass ever touched. Keeping secrets
-            # out of the replayable store is a separate tokenization/vault
-            # concern, not something arg-redaction can deliver without
-            # breaking replay. Storage-time redaction remains governed by the
-            # `security.redact_secrets` toggle. (#19798 introduced this;
-            # #43083 removed it.)
-            # Preserve extra_content (e.g. Gemini thought_signature) so it
-            # is sent back on subsequent API calls.  Without this, Gemini 3
-            # thinking models reject the request with a 400 error.
+            # 工具调用的参数在这里故意【不】进行脱敏。该字典将
+            # 进入内存中的对话历史记录，并在之后的每一个轮次中被重放给
+            # 模型，同时它还会被持久化到 state.db 中，以便在会话恢复时
+            # 逐字重放 (get_messages_as_conversation)。在此处将凭据
+            # 屏蔽为 `***` 会破坏该重放过程：模型会读取回自己先前的
+            # `PGPASSWORD='***' psql ...` 调用，并将占位符复制到
+            # 下一个工具调用中，从而在第二轮时破坏所有依赖凭据的命令
+            # (#43083)。这种屏蔽也没有起到真正的保护作用 —— 同样的密钥
+            # 依然会通过工具的【输出】（文件内容、命令输出、diff、压缩块）
+            # 逐字泄露出去，而这一处理步骤根本无法触及这些输出。让密钥
+            # 远离可重放的存储是一个独立的标记化/保险库（tokenization/vault）
+            # 问题，而不是参数脱敏在不破坏重放的前提下所能解决的。
+            # 存储时的脱敏依然受 `security.redact_secrets` 开关控制。
+            # (#19798 引入了该行为；#43083 移除了它。)
+            # 保留 extra_content（例如 Gemini 的 thought_signature），
+            # 以便在后续的 API 调用中将其发送回去。如果没有这个，Gemini 3
+            # 思考模型会拒绝该请求并返回 400 错误。
             extra = getattr(tool_call, "extra_content", None)
             if extra is not None:
                 if hasattr(extra, "model_dump"):
@@ -1328,33 +1319,33 @@ def _fallback_entry_unavailable_without_network(agent, fb: dict) -> Optional[str
 
 
 def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool:
-    """Switch to the next fallback model/provider in the chain.
+    """切换到链中的下一个备用模型/服务商。
 
-    Called when the current model is failing after retries.  Swaps the
-    OpenAI client, model slug, and provider in-place so the retry loop
-    can continue with the new backend.  Advances through the chain on
-    each call; returns False when exhausted.
+    在当前模型重试失败后调用。就地替换 OpenAI 客户端、
+    模型标识（slug）和服务商，以便重试循环
+    可以使用新的后端继续运行。每次调用都会在链中
+    向前推进；当所有备用项耗尽时返回 False。
 
-    Uses the centralized provider router (resolve_provider_client) for
-    auth resolution and client construction — no duplicated provider→key
-    mappings.
+    使用集中式服务商路由（resolve_provider_client）进行
+    身份验证解析和客户端构建——不存在重复的服务商→密钥
+    映射关系。
     """
     if reason in {FailoverReason.rate_limit, FailoverReason.billing, FailoverReason.upstream_rate_limit}:
-        # Only start cooldown when leaving the primary provider.  If we're
-        # already on a fallback and chain-switching, the primary wasn't the
-        # source of the 429 so the cooldown should not be reset/extended.
+        # 仅在离开主服务商时启动冷却时间。如果我们
+        # 已经处于备用服务商并正在进行链路切换，那么主服务商并不是
+        # 触发 429 错误的源头，因此不应重置/延长冷却时间。
         fallback_already_active = bool(getattr(agent, "_fallback_activated", False))
         current_provider = (getattr(agent, "provider", "") or "").strip().lower()
         primary_provider = ((agent._primary_runtime or {}).get("provider") or "").strip().lower()
         if (not fallback_already_active) or (primary_provider and current_provider == primary_provider):
             agent._rate_limited_until = time.monotonic() + 60
     if agent._fallback_index >= len(agent._fallback_chain):
-        # Chain exhausted.  If we actually walked a non-empty chain and the
-        # failure was NOT a rate-limit/billing event (those already armed
-        # their own 60s cooldown above), arm a short cooldown so the next
-        # turn's restore_primary_runtime stays gated instead of resetting
-        # _fallback_index=0 and re-marshaling the whole context across every
-        # provider again.  Guards the cross-turn replay storm in #24996.
+        # 链已耗尽。如果我们确实遍历了一个非空的链路，且
+        # 失败原因【不是】限流/计费事件（那些在上面已经触发了
+        # 它们自己的 60 秒冷却），则启动一个短期的冷却，以便下一
+        # 轮次的 restore_primary_runtime 能够保持受控状态，而不是重置
+        # _fallback_index=0 并在所有服务商之间重新编排整个上下文。
+        # 这防御了 #24996 中提到的跨轮次重放风暴。
         if (
             len(agent._fallback_chain) > 0
             and reason not in {FailoverReason.rate_limit, FailoverReason.billing, FailoverReason.upstream_rate_limit}
@@ -1947,46 +1938,45 @@ def cleanup_task_resources(agent, task_id: str) -> None:
 
 
 def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=None):
-    """Streaming variant of _interruptible_api_call for real-time token delivery.
+    """用于实时 Token 交付的 _interruptible_api_call 的流式变体。
 
-    Handles all three api_modes:
-    - chat_completions: stream=True on OpenAI-compatible endpoints
-    - anthropic_messages: client.messages.stream() via Anthropic SDK
-    - codex_responses: delegates to _run_codex_stream (already streaming)
+    处理所有三种 API 模式（api_modes）：
+    - chat_completions：在兼容 OpenAI 的端点上设置 stream=True
+    - anthropic_messages：通过 Anthropic SDK 调用 client.messages.stream()
+    - codex_responses：委托给 _run_codex_stream（该函数已是流式传输）
 
-    Fires stream_delta_callback and _stream_callback for each text token.
-    Tool-call turns suppress the callback — only text-only final responses
-    stream to the consumer.  Returns a SimpleNamespace that mimics the
-    non-streaming response shape so the rest of the agent loop is unchanged.
+    为每个文本 Token 触发 stream_delta_callback 和 _stream_callback。
+    工具调用轮次（Tool-call turns）会抑制该回调 —— 只有纯文本的最终响应才会
+    流式传输给消费者。返回一个模拟非流式响应结构的 SimpleNamespace，
+    以便智能体循环（agent loop）的其余部分保持不变。
 
-    Falls back to _interruptible_api_call on provider errors indicating
-    streaming is not supported.
+    当服务商错误指示不支持流式传输时，会降级回 _interruptible_api_call。
     """
     if agent._interrupt_requested:
         raise InterruptedError("Agent interrupted before streaming API call")
 
-    # Cron and other non-interactive, nested-pool contexts deadlock on the
-    # spawned worker thread (#62151). They also have no stream consumer, so the
-    # deltas this path produces go nowhere. Delegate to the non-streaming entry
-    # (which runs inline via should_use_direct_api_call) exactly like the codex
-    # branch below — routing through the _interruptible_api_call method keeps the
-    # outer loop's per-request retry/refresh seam intact.
+    # 定时任务（Cron）及其他非交互式的、嵌套池（nested-pool）上下文会
+    # 在派生的工作线程上发生死锁（#62151）。它们也没有流式数据消费者，
+    # 因此该路径产生的差量（deltas）无处可去。直接委托给非流式入口
+    # （该入口通过 should_use_direct_api_call 在线内运行），这与下方的
+    # codex 分支完全一致 —— 通过 _interruptible_api_call 方法进行路由
+    # 可以保持外层循环中单次请求级别的重试/刷新衔接点完好无损。
     if should_use_direct_api_call(agent):
         return agent._interruptible_api_call(api_kwargs)
 
     if agent.api_mode == "codex_responses":
-        # Codex streams internally via _run_codex_stream. The main dispatch
-        # in _interruptible_api_call already calls it; we just need to
-        # ensure on_first_delta reaches it. Store it on the instance
-        # temporarily so _run_codex_stream can pick it up.
+        # Codex 内部通过 _run_codex_stream 进行流式传输。
+        # _interruptible_api_call 中的主调度已经调用了它；我们只需要
+        # 确保 on_first_delta 能够传递到它。将其临时存储在实例上，
+        # 以便 _run_codex_stream 能够获取它。
         agent._codex_on_first_delta = on_first_delta
         try:
             return agent._interruptible_api_call(api_kwargs)
         finally:
             agent._codex_on_first_delta = None
 
-    # Bedrock Converse uses boto3's converse_stream() with real-time delta
-    # callbacks — same UX as Anthropic and chat_completions streaming.
+    # Bedrock Converse 使用 boto3 的 converse_stream() 并配合实时差量（delta）
+    # 回调 —— 其用户体验（UX）与 Anthropic 以及 chat_completions 流式传输完全相同。
     if agent.api_mode == "bedrock_converse":
         result = {"response": None, "error": None}
         first_delta_fired = {"done": False}

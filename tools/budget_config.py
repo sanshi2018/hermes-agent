@@ -82,18 +82,18 @@ _MIN_TURN_BUDGET_CHARS: int = 16_000
 
 
 def budget_for_context_window(context_length: int | None) -> BudgetConfig:
-    """Return a BudgetConfig scaled to the active model's context window.
+    """返回一个根据当前活跃模型的上下文窗口进行缩放的 BudgetConfig。
 
-    The fixed defaults (100K result / 200K turn chars) are correct for large
-    (200K+ token) models but blind to small ones: on a 65K-token model a single
-    tool result persisted at the 100K-char threshold, or a 200K-char turn
-    budget (~50K tokens), can by itself approach or exceed the whole window and
-    force an oversized request (#23767).
+    固定的默认值（单次结果 100K 字符 / 单轮 200K 字符）对于大模型
+    （200K+ token）是正确的，但对于小模型来说并不可行：在 65K-token 的模型上，
+    单次持久化的工具结果若达到 100K 字符阈值，或者单轮消耗 200K 字符的
+    预算（约 50K token），其本身就可能接近或超出整个窗口，
+    从而导致请求超限（#23767）。
 
-    Scaling keeps large models byte-identical to today (the proportional value
-    is clamped to the existing defaults as a CAP) while shrinking the budget for
-    small models proportionally to their window, floored so a usable preview
-    always survives.
+    这种缩放机制能让大模型在字节层面上与目前完全一致（因为比例值
+    会被限制在现有的默认值内作为上限），同时将小模型的
+    预算与其窗口按比例缩小，并设置一个下限，以确保总能保留
+    一个可用的预览。
     """
     if not context_length or context_length <= 0:
         return DEFAULT_BUDGET

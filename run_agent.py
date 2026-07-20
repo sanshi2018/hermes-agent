@@ -213,31 +213,30 @@ from agent.tool_dispatch_helpers import (
 from utils import atomic_json_write, base_url_host_matches, base_url_hostname, env_float, is_truthy_value, model_forces_max_completion_tokens
 
 
-# Internal flags that mark a message as ephemeral empty-response/prefill
-# recovery scaffolding: the synthetic assistant "(empty)" turn and user nudge
-# injected after an empty response, the terminal "(empty)" sentinel, and the
-# thinking-only prefill placeholder. These exist only to drive the next API
-# retry; the in-memory loop pops them before appending the real response.
-# Persistence must mirror that, otherwise an append-only flush can commit them
-# to the session store and a resumed session replays synthetic "(empty)"/nudge
-# turns as if they were genuine context.
+# 标记消息为临时空响应/预填恢复支架（scaffolding）的内部标志：
+# 在空响应后注入的合成助手 "(empty)" 轮次和用户微调（nudge）、
+# 终端 "(empty)" 哨兵，以及仅包含思考的预填占位符。
+# 这些消息的存在仅是为了驱动下一次 API 重试；内存中的循环会在
+# 追加真实响应之前将它们弹出（pop）。
+# 持久化操作必须与此镜像同步，否则仅追加（append-only）的刷新可能会将它们
+# 提交到会话存储中，导致恢复后的会话在重放时把合成的 "(empty)"/微调
+# 轮次当作真实的上下文来处理。
 _EPHEMERAL_SCAFFOLDING_FLAGS = (
     "_empty_recovery_synthetic",
     "_empty_terminal_sentinel",
     "_thinking_prefill",
-    # verify-on-stop and pre_verify nudges append a synthetic assistant
-    # "done" plus a synthetic user nudge to keep the agent going one more
-    # turn before it can claim completion. Those messages exist only to
-    # drive the verification loop; persisting them poisons the resumed
-    # transcript and breaks prompt-prefix cache reuse on later turns. (#55733)
+    # verify-on-stop（停止前验证）和 pre_verify（预验证）微调会追加一个合成的助手
+    # "done" 以及一个合成的用户微调，以让智能体在声称完成之前再多运行一个
+    # 轮次。这些消息的存在仅是为了驱动验证循环；持久化它们会污染恢复后的
+    # 副本，并破坏后续轮次中提示词前缀缓存（prompt-prefix cache）的复用。(#55733)
     "_verification_stop_synthetic",
     "_pre_verify_synthetic",
 )
 
 
 def _is_ephemeral_scaffolding(msg: Any) -> bool:
-    """Return True when ``msg`` is internal recovery scaffolding that must never
-    be persisted to the durable transcript (SQLite session store or JSON log)."""
+    """当 ``msg`` 是内部恢复支架（scaffolding）时返回 True，
+    此类消息绝不能持久化到持久副本（SQLite 会话存储或 JSON 日志）中。"""
     return isinstance(msg, dict) and any(
         msg.get(flag) for flag in _EPHEMERAL_SCAFFOLDING_FLAGS
     )
@@ -245,18 +244,17 @@ def _is_ephemeral_scaffolding(msg: Any) -> bool:
 
 _MAX_TOOL_WORKERS = 8
 
-# Intrinsic marker stamped on a message dict once it has been written to the
-# SQLite session store.  Used by ``_flush_messages_to_session_db`` to decide
-# what is already durable.  An object-identity (``id(msg)``) dedup set cannot be
-# trusted across turns: once a flushed message dict is dropped from the live
-# list (e.g. by scaffolding rewind or in-place compaction) and garbage-
-# collected, CPython is free to hand its address to a brand-new assistant/tool
-# message, whose ``id()`` then collides with the stale entry and the real turn
-# is silently never persisted.  A marker bound to the dict itself cannot be
-# aliased that way.  The ``_`` prefix is mandatory: the wire sanitizers
-# (agent/transports/chat_completions.py, agent/chat_completion_helpers.py) strip
-# every top-level ``_``-prefixed key before the request leaves the process, so
-# this never reaches a strict OpenAI-compatible gateway.
+# 一旦消息字典被写入 SQLite 会话存储中，就会盖上一个固有的标记。
+# 由 ``_flush_messages_to_session_db`` 用于判断哪些内容已进入持久化。
+# 跨轮次使用基于对象身份（``id(msg)``）的去重集合是不可信的：
+# 一旦一个已被刷新的消息字典从活跃列表中被丢弃（例如由于支架重绕或
+# 就地压缩）并被垃圾回收，CPython 就可以自由地将其内存地址分配给
+# 一个全新的助手/工具消息，导致其 ``id()`` 与过期的条目发生冲突，
+# 从而使真实的轮次在无声无息中永远无法被持久化。而绑定到字典本身的
+# 标记则不会被这种方式别名化。``_`` 前缀是强制性的：在线路清洗器
+#（agent/transports/chat_completions.py, agent/chat_completion_helpers.py）中，
+# 会在请求离开进程之前剥离所有顶层的以 ``_`` 开头的键，
+# 因此这永远不会流向严格兼容 OpenAI 的网关。
 _DB_PERSISTED_MARKER = "_db_persisted"
 
 
@@ -1753,42 +1751,42 @@ class AIAgent:
         return repair_message_sequence(self, messages)
 
     def _flush_messages_to_session_db(self, messages: List[Dict], conversation_history: List[Dict] = None):
-        """Persist any un-flushed messages to the SQLite session store.
+        """将所有未刷新的消息持久化到 SQLite 会话存储中。
 
-        Deduplicates via an intrinsic ``_DB_PERSISTED_MARKER`` stamped on each
-        written message dict, so repeated calls (from multiple exit paths) only
-        write truly new messages — preventing the duplicate-write bug (#860)
-        without relying on positional slices that can drift after
-        message-sequence repair, and without a retained ``id(msg)`` set that
-        CPython could alias onto a freed-then-reused address (#50372). The
-        ``_flushed_db_message_ids`` attribute is now only a one-shot seed
-        (translated to markers, then cleared each flush), not a persisted set.
+        通过在每个已写入的消息字典上盖上一个固有的 ``_DB_PERSISTED_MARKER``
+        标记来进行去重，因此重复调用（来自多个退出路径）只会
+        写入真正意义上的新消息——这既防止了重复写入错误 (#860)，
+        又无需依赖在消息序列修复后可能会发生漂移的位置切片，
+        同时也无需保留一个 ``id(msg)`` 集合（因为 CPython 可能会将该 id
+        别名化到一个已被释放并重新使用的内存地址上 [#50372]）。
+        现在的 ``_flushed_db_message_ids`` 属性仅作为一个一次性的种子
+        （转换为标记后在每次刷新时清空），而不是一个持久化的集合。
 
-        Note: the marker is stamped on the live/shared conversation dict, which
-        correctly makes re-persistence idempotent across turns. No code path
-        edits a persisted message's content/role in place expecting a re-write
-        (in-place compaction resets the seed and re-diffs by identity).
+        注意：该标记是直接盖在活跃的/共享的对话字典上的，
+        这能够正确地确保跨轮次的重新持久化是幂等的。没有任何代码路径
+        会就地修改已持久化消息的内容/角色并指望其重写
+        （就地压缩会重置种子，并根据身份标识重新进行 diff 对比）。
         """
-        # Persistence-isolated agents (e.g. the background skill/memory review
-        # fork) must NEVER write into the canonical session store. The fork
-        # shares the parent's session_id for prompt-cache warmth, so any write
-        # here would land its harness turn ("Review the conversation above and
-        # update the skill library…") inside the user's real session history,
-        # where the next live turn re-reads it as an instruction and the agent
-        # "becomes" the curator. Hard-stop before any DB touch.
+        # 具备持久化隔离特性的智能体（例如后台的技能/内存审查
+        # 分支）绝不能写入到正统的会话存储中。该分支
+        # 共享了父进程的 session_id 以维持提示词缓存（prompt-cache）的活跃度，
+        # 因此这里的任何写入操作都会将其自身的框架轮次内容（"审查上述对话并
+        # 更新技能库……"）遗留到用户真实的会话历史记录中，
+        # 导致下一个活跃轮次会将其重新读取为一条指令，从而使智能体
+        # “变成”了审查者。在触碰数据库之前必须进行硬终止（Hard-stop）。
         if getattr(self, "_persist_disabled", False):
             return
         if not self._session_db:
             return
-        # Persist user-message override (#48677 chokepoint): historically this
-        # mutated the live `messages` list in place, which — on the early
-        # crash-resilience persist that runs BEFORE the API call is built —
-        # stripped observed group-chat context off the live user message and
-        # silently dropped it. Instead, resolve the override here and apply it
-        # ONLY to the value written to the DB (see the write loop below); the
-        # live dict is never mutated, so every caller (early persist, mid-loop
-        # flush, /resume, /branch) is protected uniformly. Timestamp override is
-        # metadata and is likewise applied only to the written row.
+        # 持久化用户消息覆盖（#48677 关键汇聚点）：历史上，这会
+        # 就地修改活跃的 `messages` 列表，这导致在构建 API 调用【之前】
+        # 运行的早期崩溃恢复（crash-resilience）持久化过程中，
+        # 从活跃的用户消息中剥离了已观测到的群聊上下文，并将其
+        # 默默丢弃。相反，我们在这里解析覆盖逻辑，并将其【仅】应用
+        # 到写入数据库的值中（参见下方的写入循环）；活跃的字典
+        # 绝不会被修改，因此每个调用方（早期持久化、循环中途的
+        # 刷新、/resume、/branch）都得到了统一的保护。时间戳覆盖属于
+        # 元数据，同样仅应用于写入的行。
         _ov_idx = getattr(self, "_persist_user_message_idx", None)
         _ov_content = getattr(self, "_persist_user_message_override", None)
         _ov_timestamp = getattr(self, "_persist_user_message_timestamp", None)
@@ -1796,29 +1794,28 @@ class AIAgent:
             # Retry row creation if the earlier attempt failed transiently.
             if not self._session_db_created:
                 self._ensure_db_session()
-            # Positional flushing used to slice at
-            # max(len(conversation_history), _last_flushed_db_idx). That
-            # assumes the live `messages` list is the original history plus a
-            # new tail. repair_message_sequence can shrink/merge the history
-            # copy before the final flush, making len(conversation_history)
-            # larger than len(messages); the slice is then empty and delivered
-            # assistant responses never reach state.db (#46053).
+            # 基于位置的刷新（Positional flushing）过去会在
+            # max(len(conversation_history), _last_flushed_db_idx) 处进行切片。
+            # 这假设了活跃的 `messages` 列表是原始历史记录加上一个
+            # 新的尾部。然而，repair_message_sequence 可能会在最终刷新前
+            # 缩小/合并历史记录副本，使得 len(conversation_history)
+            # 大于 len(messages)；此时切片变为空，导致已交付的
+            # 助手（assistant）响应永远无法进入 state.db (#46053)。
             #
-            # Track persistence with an intrinsic per-message marker rather than
-            # id(msg). `messages` is a shallow copy of `conversation_history`, so
-            # history dicts are skipped by identity, and new dicts appended
-            # during this turn are written once even if repair compacts the list
-            # around them. Unlike an id()-keyed set, a marker bound to the dict
-            # cannot be aliased onto a freed-then-reused address, so a real turn
-            # can never be silently skipped (see _DB_PERSISTED_MARKER).
+            # 现在的做法是使用一个固有的单条消息标记（per-message marker）来追踪持久化，
+            # 而不是使用 id(msg)。由于 `messages` 是 `conversation_history` 的浅拷贝，
+            # 因此历史字典会通过身份标识被跳过，而在本轮次中追加的
+            # 新字典即使在被修复逻辑压缩了周围列表的情况下，也只会被写入一次。
+            # 与以 id() 作为键的集合不同，绑定到字典的标记
+            # 不会被别名化到一个已被释放并重新使用的内存地址上，
+            # 因此真实的轮次绝不会被默默跳过（参见 _DB_PERSISTED_MARKER）。
             #
-            # `self._flushed_db_message_ids` is still honoured as a *one-shot*
-            # seed: external callers (gateway shutdown, tests) populate it with
-            # {id(m) for m in already_persisted} immediately before the flush,
-            # while those objects are alive — so the ids are valid at that
-            # instant. We translate the seed into durable markers and then clear
-            # the set, so stale ids can never accumulate across turns and alias a
-            # future message.
+            # `self._flushed_db_message_ids` 依然作为“一次性”种子被支持：
+            # 外部调用方（网关关闭、测试）在刷新前紧接着用
+            # {id(m) for m in already_persisted} 将其填充，
+            # 此时这些对象还处于存活状态——因此这些 id 在那个瞬间是有效的。
+            # 我们将该种子转换为持久的标记，然后清空该集合，
+            # 这样过期的 id 就绝不会跨轮次累积并别名化到未来的消息上。
             current_session_id = getattr(self, "session_id", None)
             flushed_session_id = getattr(self, "_flushed_db_message_session_id", None)
             if flushed_session_id != current_session_id or self._last_flushed_db_idx == 0:
@@ -1836,40 +1833,39 @@ class AIAgent:
             for _msg_idx, msg in enumerate(messages):
                 if not isinstance(msg, dict):
                     continue
-                # Never write ephemeral recovery scaffolding to the session
-                # store. The flush is append-only (it only advances
-                # _last_flushed_db_idx via identity tracking), so a synthetic
-                # message committed by a mid-turn persist cannot be un-written
-                # when the end-of-turn drop removes it from the in-memory list —
-                # the resumed transcript would then replay synthetic
-                # "(empty)"/nudge/thinking-prefill turns as if they were genuine
-                # context. Skip regardless of position: an answered nudge leaves
-                # the synthetic pair buried mid-list, not just at the tail.
+                # 绝不要将临时的恢复支架（scaffolding）写入到会话
+                # 存储中。刷新的操作是仅追加的（它仅通过身份追踪来推进
+                # _last_flushed_db_idx），因此由轮次中途持久化所提交的合成
+                # 消息，在轮次结束的丢弃操作将其从内存列表中移除时，是无法被“撤销写入”的 ——
+                # 这会导致恢复后的副本在重放时，把合成的
+                # "(empty)"/微调（nudge）/思考预填轮次当作真实的
+                # 上下文来处理。无论处于什么位置都要跳过：一个已响应的微调
+                # 会让这对话合成对埋在列表的中间，而不只是在尾部。
                 if _is_ephemeral_scaffolding(msg):
                     continue
                 if msg.get(_DB_PERSISTED_MARKER):
                     continue
-                # Already-durable messages: either carried over from the loaded
-                # history copy, or seeded by a caller. Stamp them so future
-                # flushes skip them without consulting any id() set again.
+                # 已经是持久化的消息：要么是从加载的历史记录副本中继承过来的，
+                # 要么是由调用方播种的。对它们进行标记，以便未来的
+                # 刷新可以直接跳过它们，而无需再次查找任何 id() 集合。
                 if id(msg) in history_ids or id(msg) in seed_ids:
                     msg[_DB_PERSISTED_MARKER] = True
                     continue
                 role = msg.get("role", "unknown")
                 content = msg.get("content")
                 _row_timestamp = msg.get("timestamp")
-                # Apply the persist override to THIS row's written values only
-                # (never to the live dict). Match the original guard: text-only
-                # content is replaced; multimodal (list) content is left intact
-                # so image/audio blocks aren't clobbered by the text override.
+                # 仅将持久化覆盖（persist override）应用到当前行写入的值
+                # （绝不应用于活跃的字典）。匹配原始的保护逻辑：仅包含文本的
+                # 内容会被替换；多模态（列表）内容保持不变，
+                # 这样图像/音频块就不会被文本覆盖所破坏。
                 if _ov_idx == _msg_idx and msg.get("role") == "user":
                     if _ov_content is not None and not isinstance(content, list):
                         content = _ov_content
                     if _ov_timestamp is not None:
                         _row_timestamp = _ov_timestamp
-                # Persist multimodal tool results as their text summary only —
-                # base64 images would bloat the session DB and aren't useful
-                # for cross-session replay.
+                # 仅将多模态工具结果持久化为其文本摘要 ——
+                # base64 图像会使会话数据库急剧膨胀，且对于
+                # 跨会话重放而言毫无用处。
                 if _is_multimodal_tool_result(content):
                     content = _multimodal_text_summary(content)
                 elif isinstance(content, list):
@@ -4610,12 +4606,11 @@ class AIAgent:
     # ── Unified streaming API call ─────────────────────────────────────────
 
     def _reset_stream_delivery_tracking(self) -> None:
-        """Reset tracking for text delivered during the current model response."""
-        # Flush any benign partial-tag tail held by the think scrubber
-        # first (#17924): an innocent '<' at the end of the stream that
-        # turned out not to be a tag prefix should reach the UI.  Then
-        # flush the context scrubber.  Order matters — the think
-        # scrubber's output feeds into the context scrubber's state.
+        """重置当前模型响应期间已传递文本的追踪状态。"""
+        # 首先刷新深度思考清洗器（think scrubber）中保留的任何良性部分标签尾部
+        # （#17924）：流末尾一个无辜的 '<'，如果最终证实它不是标签前缀，
+        # 则应该传递给 UI。然后刷新上下文清洗器（context scrubber）。
+        # 顺序很重要 —— 深度思考清洗器的输出会注入到上下文清洗器的状态中。
         think_scrubber = getattr(self, "_stream_think_scrubber", None)
         if think_scrubber is not None:
             think_tail = think_scrubber.flush()
@@ -4997,10 +4992,10 @@ class AIAgent:
         return "[A multimodal message was converted to text for Anthropic compatibility.]"
 
     def _get_transport(self, api_mode: str = None):
-        """Return the cached transport for the given (or current) api_mode.
+        """返回给定（或当前）api_mode 的缓存传输通道（transport）。
 
-        Lazy-initializes on first call per api_mode. Returns None if no
-        transport is registered for the mode.
+        在每个 api_mode 的首次调用时进行懒加载初始化（Lazy-initializes）。
+        如果该模式没有注册任何传输通道，则返回 None。
         """
         mode = api_mode or self.api_mode
         cache = getattr(self, "_transport_cache", None)
@@ -5664,11 +5659,11 @@ class AIAgent:
         return toolguard_synthetic_result(decision)
 
     def _execute_tool_calls(self, assistant_message, messages: list, effective_task_id: str, api_call_count: int = 0) -> None:
-        """Execute tool calls from the assistant message and append results to messages.
+        """执行助手消息中的工具调用，并将结果追加到消息列表中。
 
-        Dispatches to concurrent execution only for batches that look
-        independent: read-only tools may always share the parallel path, while
-        file reads/writes may do so only when their target paths do not overlap.
+        仅当批处理中的工具看起来相互独立时，才会调度到并发执行：
+        只读工具总是可以共享并行路径，而文件读/写操作
+        只有在它们的目标路径互不重叠时才可以并行处理。
         """
         tool_calls = assistant_message.tool_calls
 

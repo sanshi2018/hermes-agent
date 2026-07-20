@@ -52,13 +52,13 @@ logger = logging.getLogger(__name__)
 
 
 def _budget_for_agent(agent) -> BudgetConfig:
-    """Resolve a tool-result BudgetConfig scaled to the agent's context window.
+    """解析一个根据智能体上下文窗口进行缩放的工具结果 BudgetConfig。
 
-    Large-context models keep the historical 100K/200K char defaults; small
-    models (e.g. a 65K-token local model switched into mid-session) get a budget
-    proportional to their window so a single large tool result can't push the
-    request past the model's limit (#23767). Falls back to the default budget
-    when the context length isn't resolvable.
+    大上下文模型保留了历史默认的 100K/200K 字符限制；小
+    模型（例如在会话中途切换进来的 65K-token 本地模型）会获得一个与其
+    窗口成比例的预算，这样单个巨大的工具结果就不会把
+    请求推向超出模型限制的边缘（#23767）。当上下文长度
+    无法解析时，将降级回默认预算。
     """
     try:
         ctx = getattr(getattr(agent, "context_compressor", None), "context_length", None)
@@ -1020,13 +1020,13 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
 
 
 def execute_tool_calls_sequential(agent, assistant_message, messages: list, effective_task_id: str, api_call_count: int = 0) -> None:
-    """Execute tool calls sequentially (original behavior). Used for single calls or interactive tools."""
-    # Resolve the context-scaled tool-output budget once per turn.
+    """按顺序执行工具调用（原始行为）。用于单次调用或交互式工具。"""
+    # 每一轮次解析一次根据上下文缩放的工具输出预算。
     _tool_budget = _budget_for_agent(agent)
     for i, tool_call in enumerate(assistant_message.tool_calls, 1):
-        # SAFETY: check interrupt BEFORE starting each tool.
-        # If the user sent "stop" during a previous tool's execution,
-        # do NOT start any more tools -- skip them all immediately.
+        # 安全保障：在启动每个工具【之前】检查中断信号。
+        # 如果用户在上一个工具执行期间发送了 "stop"（停止），
+        # 请【不要】启动任何更多工具 —— 立即跳过所有剩余工具。
         if agent._interrupt_requested:
             remaining_calls = assistant_message.tool_calls[i-1:]
             if remaining_calls:
@@ -1067,9 +1067,9 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             agent._apply_pending_steer_to_tool_results(messages, 1)
             continue
 
-        # Tool Search unwrap — see execute_tool_calls_concurrent for full
-        # rationale, including the scope gate (the unwrap dispatches the
-        # underlying tool directly, so session toolset scope is enforced here).
+        # 工具搜索解包（unwrap）—— 完整原理请参见 execute_tool_calls_concurrent，
+        # 包括作用域网关（由于解包会直接调度底层的
+        # 工具，因此会话工具集的作用域在此处进行强制约束）。
         _ts_scope_block: Optional[str] = None
         try:
             from tools import tool_search as _ts

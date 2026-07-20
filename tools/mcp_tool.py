@@ -3429,12 +3429,12 @@ def _handle_session_expired_and_retry(
 # ``is_mcp_tool_parallel_safe()`` for the parallel-execution check in run_agent.
 _parallel_safe_servers: set = set()
 
-# Exact MCP tool-name provenance. MCP tool names are formatted as
-# ``mcp_{sanitized_server}_{sanitized_tool}``, which is ambiguous when server
-# names contain underscores (``mcp_a_b_tool`` could be server ``a`` + tool
-# ``b_tool`` or server ``a_b`` + tool ``tool``). Keep the server component
-# captured at registration time so parallel safety never relies on prefix
-# guessing.
+# 准确的 MCP 工具名出处。MCP 工具名称的格式为
+# ``mcp_{sanitized_server}_{sanitized_tool}``，当服务器
+# 名称包含下划线时，这会产生歧义（``mcp_a_b_tool`` 既可能是服务器 ``a`` + 工具
+# ``b_tool``，也可能是服务器 ``a_b`` + 工具 ``tool``）。保留在
+# 注册时捕获的服务器组件，以便并行安全性绝不依赖于前缀
+# 猜测。
 _mcp_tool_server_names: Dict[str, str] = {}
 
 # Dedicated event loop running in a background daemon thread.
@@ -5043,15 +5043,15 @@ def discover_mcp_tools() -> List[str]:
 
 
 def is_mcp_tool_parallel_safe(tool_name: str) -> bool:
-    """Check if an MCP tool belongs to a server that supports parallel tool calls.
+    """检查一个 MCP 工具是否属于支持并行工具调用的服务器。
 
-    MCP tool names follow the pattern ``mcp__{server}__{tool}``, but that
-    string shape is ambiguous when server names contain underscores. Use the
-    exact server provenance captured at registration time rather than prefix
-    matching, then check whether that server's config includes
-    ``supports_parallel_tool_calls: true``.
+    MCP 工具的名称遵循 ``mcp__{server}__{tool}`` 的模式，但当
+    服务器名称中包含下划线时，这种字符串形式会产生歧义。应当使用在
+    注册时捕获的准确服务器出处，而不是使用前缀匹配，
+    然后再检查该服务器的配置中是否包含了
+    ``supports_parallel_tool_calls: true``。
 
-    Returns False for non-MCP tools or tools from servers without the flag.
+    对于非 MCP 工具，或来自未启用该标志的服务器的工具，均返回 False。
     """
     if not tool_name.startswith(MCP_TOOL_NAME_PREFIX):
         return False

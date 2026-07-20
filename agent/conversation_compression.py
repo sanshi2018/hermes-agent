@@ -366,22 +366,22 @@ def replay_compression_warning(agent: Any) -> None:
 
 
 def conversation_history_after_compression(agent: Any, messages: list) -> Optional[list]:
-    """Return the correct flush baseline after a compression boundary.
+    """返回压缩边界（compression boundary）后正确的刷新基准线（flush baseline）。
 
-    Legacy compression rotates to a fresh child session. That child has not
-    seen the compacted transcript through the normal same-turn flush path yet,
-    so callers must clear ``conversation_history`` to ``None`` and let the next
-    persistence call write the whole compacted list.
+    传统压缩方式（Legacy compression）会轮转到一个全新的子会话（child session）。
+    由于该子会话尚未通过正常的“同轮刷新路径”（same-turn flush path）看到已压缩的对话
+    记录（transcript），因此调用方必须将 ``conversation_history`` 清空为 ``None``，
+    并让下一次持久化（persistence）调用写入整个已压缩的列表。
 
-    In-place compaction is different: ``archive_and_compact()`` has already
-    soft-archived the previous active rows and inserted ``messages`` as the new
-    active live transcript under the same session id. If the same agent turn
-    continues with ``conversation_history=None``, the identity-based flush path
-    treats those already-persisted compacted dicts as new and appends them a
-    second time, doubling the active context and retriggering compression.
+    原地压缩（In-place compaction）则不同：``archive_and_compact()`` 已经对之前
+    的活跃行进行了软归档（soft-archived），并在同一个会话 ID 下插入了 ``messages`` 
+    作为新的活跃实时对话记录。如果同一个智能体轮次（agent turn）在 
+    ``conversation_history=None`` 的情况下继续，基于标识的刷新路径（identity-based 
+    flush path）会将这些已经持久化的压缩字典视为新内容并进行二次追加，从而导致活跃
+    上下文翻倍并再次触发压缩。
 
-    A shallow copy is intentional: it captures the current compacted dict
-    identities as history while allowing later same-turn appends to remain new.
+    这里故意使用浅拷贝（shallow copy）：它将当前已压缩的字典标识捕获为历史记录，
+    同时允许后续的同轮追加保持为新内容。
     """
     if bool(getattr(agent, "_last_compaction_in_place", False)):
         return list(messages)
@@ -845,10 +845,10 @@ def compress_context(
                         except (ValueError, Exception) as e:
                             logger.debug("Could not propagate title on compression: %s", e)
 
-                # Shared post-write steps (both modes target agent.session_id, which
-                # in-place keeps and rotation has already reassigned to the new id):
-                # refresh the stored system prompt and reset the flush cursor so the
-                # next turn re-bases its append diff.
+                # 共享的写后步骤（两种模式都以 agent.session_id 为目标，
+                # 原地压缩会保留该 ID，而会话轮转则已经将其重新分配给了新的 ID）：
+                # 刷新存储的系统提示词并重置刷新游标（flush cursor），
+                # 以便下一轮次重新构建其追加差量（append diff）的基准。
                 agent._session_db.update_system_prompt(agent.session_id, new_system_prompt)
                 agent._last_flushed_db_idx = 0
             except Exception as e:

@@ -90,10 +90,10 @@ def _is_destructive_command(cmd: str) -> bool:
 
 
 def _is_mcp_tool_parallel_safe(tool_name: str) -> bool:
-    """Check if an MCP tool comes from a server with parallel tool calls enabled.
+    """检查一个 MCP 工具是否来自启用了并行工具调用的服务器。
 
-    Lazy-imports from ``tools.mcp_tool`` to avoid circular dependencies.
-    Returns False if the MCP module is not available.
+    从 ``tools.mcp_tool`` 进行延迟导入（Lazy-import），以避免循环依赖。
+    如果 MCP 模块不可用，则返回 False。
     """
     try:
         from tools.mcp_tool import is_mcp_tool_parallel_safe
@@ -141,7 +141,7 @@ def _should_parallelize_tool_batch(tool_calls) -> bool:
             continue
 
         if tool_name not in _PARALLEL_SAFE_TOOLS:
-            # Check if it's an MCP tool from a server that opted into parallel calls.
+            # 检查这是否是一个来自已选择加入并行调用的服务器的 MCP 工具。
             if not _is_mcp_tool_parallel_safe(tool_name):
                 return False
 
@@ -191,11 +191,11 @@ def _is_multimodal_tool_result(value: Any) -> bool:
 
 
 def _multimodal_text_summary(value: Any) -> str:
-    """Extract a plain text view of a multimodal tool result.
+    """提取多模态工具结果的纯文本视图。
 
-    Used wherever downstream code needs a string — logging, previews,
-    persistence size heuristics, fall-back content for providers that
-    don't support multipart tool messages.
+    用于下游代码需要字符串的任何地方 —— 日志记录、预览、
+    持久化大小的启发式计算，以及为不支持
+    多部分（multipart）工具消息的服务商提供备用内容。
     """
     if _is_multimodal_tool_result(value):
         if value.get("text_summary"):

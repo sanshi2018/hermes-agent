@@ -1890,24 +1890,23 @@ class PluginManager:
     # -----------------------------------------------------------------------
 
     def invoke_hook(self, hook_name: str, **kwargs: Any) -> List[Any]:
-        """Call all registered callbacks for *hook_name*.
+        """调用针对 *hook_name* 注册的所有回调函数。
 
-        Each callback is wrapped in its own try/except so a misbehaving
-        plugin cannot break the core agent loop.
+        每个回调都包裹在各自的 try/except 块中，因此行为异常的
+        插件不会破坏核心智能体循环（core agent loop）。
 
-        Returns a list of non-``None`` return values from callbacks.
+        返回由回调函数返回的非 ``None`` 值所组成的列表。
 
-        For ``pre_llm_call``, callbacks may return a dict describing
-        context to inject into the current turn's user message::
+        对于 ``pre_llm_call``，回调可以返回一个字典，用于描述
+        要注入到当前轮次用户消息中的上下文：
 
-            {"context": "recalled text..."}
-            "recalled text..."          # plain string, equivalent
+            {"context": "被召回的文本..."}
+            "被召回的文本..."          # 纯字符串，等效效果
 
-        Context is ALWAYS injected into the user message, never the
-        system prompt.  This preserves the prompt cache prefix — the
-        system prompt stays identical across turns so cached tokens
-        are reused.  All injected context is ephemeral — never
-        persisted to session DB.
+        上下文总是被注入到用户消息中，绝不会注入到系统提示词（system prompt）中。
+        这样可以保留提示词缓存前缀（prompt cache prefix）—— 系统提示词在
+        不同轮次之间保持完全相同，从而可以复用已缓存的 Token。所有注入的
+        上下文都是瞬态的（ephemeral）—— 绝不会持久化到会话数据库中。
         """
         kwargs.setdefault("telemetry_schema_version", OBSERVER_SCHEMA_VERSION)
         callbacks = self._hooks.get(hook_name, [])
@@ -1935,11 +1934,11 @@ class PluginManager:
         return bool(self._middleware.get(kind))
 
     def invoke_middleware(self, kind: str, **kwargs: Any) -> List[Any]:
-        """Call registered middleware callbacks for *kind*.
+        """调用针对 *kind* 注册的中间件回调。
 
-        Each callback is isolated so one plugin cannot break the base runtime
-        path. Middleware that wants to change behavior must return the shape
-        documented by the caller-specific contract.
+        每个回调都是相互隔离的，因此单个插件不会破坏基础运行时
+        路径。想要改变行为的中间件必须返回调用方特定契约（contract）
+        所说明的数据结构。
         """
         callbacks = self._middleware.get(kind, [])
         results: List[Any] = []

@@ -78,10 +78,10 @@ class AnthropicTransport(ProviderTransport):
         )
 
     def normalize_response(self, response: Any, **kwargs) -> NormalizedResponse:
-        """Normalize Anthropic response to NormalizedResponse.
+        """将 Anthropic 响应规范化为 NormalizedResponse。
 
-        Parses content blocks (text, thinking, tool_use), maps stop_reason
-        to OpenAI finish_reason, and collects reasoning_details in provider_data.
+        解析内容块（text、thinking、tool_use），将 stop_reason
+        映射为 OpenAI 的 finish_reason，并在 provider_data 中收集 reasoning_details。
         """
         import json
         from agent.anthropic_adapter import _to_plain_data, _sanitize_replay_block
@@ -94,26 +94,30 @@ class AnthropicTransport(ProviderTransport):
         reasoning_parts = []
         reasoning_details = []
         tool_calls = []
-        # Verbatim, order-preserving copy of every content block in the turn.
-        # Anthropic signs each thinking block against the turn content that
-        # PRECEDES it at its position; when a turn interleaves thinking and
-        # tool_use (adaptive/interleaved thinking, Claude 4.6+), the parallel
-        # reasoning_details + tool_calls lists below lose that cross-type
-        # ordering. Replaying the latest assistant message in the wrong order
-        # invalidates the signatures -> HTTP 400 "thinking ... blocks in the
-        # latest assistant message cannot be modified". Preserve the exact
-        # block sequence here so the adapter can replay it unchanged. See
-        # tests/agent/test_anthropic_thinking_block_order.py.
+        # 逐字记录、保留顺序的每轮对话中所有内容块的副本。
+        # Anthropic 会根据在其位置*之前*的每轮对话内容对每个思考块（thinking block）进行签名；
+        # 当一轮对话交织了思考和工具调用时（自适应/交织思考，Claude 4.6+），下面并行的
+        # reasoning_details + tool_calls 列表会丢失这种跨类型的顺序。以错误的顺序回放
+        # 最新助手消息（assistant message）会导致签名失效 -> 触发 HTTP 400 “最新助手
+        # 消息中的 thinking ... 块不能被修改”。在此处保留准确的块序列，以便适配器能够
+        # 原封不动地进行回放。参见 tests/agent/test_anthropic_thinking_block_order.py。
+        # --------
+        # Claude模型（特别是4.6
+        # 及以上版本）在回复时，会把“思考过程”和“调用工具”的操作穿插在一起，并且系统会根据这些内容的先后顺序给思考过程“加密盖章”（签名）。
+        # 如果我们图省事，把思考过程和工具调用拆开存到两个不同的列表里，就会打乱它们原本的排版顺序。
+        # 顺序一旦乱了，下次我们再把这段历史对话发给官方服务器时，
+        # 服务器会发现“印章”和内容顺序对不上，判定我们篡改了数据，然后直接报错拦截（报HTTP400错误）。
+        # 所以，为了防止报错，代码里必须原汁原味、一字不落、按绝对的先后顺序把内容存下来，保证下次能按原样发回去。
         ordered_blocks = []
 
         for block in response.content:
             block_dict = _to_plain_data(block)
             clean_block = None
             if isinstance(block_dict, dict):
-                # Sanitize at capture so output-only SDK fields (parsed_output,
-                # caller, citations=None, …) never persist to state.db and leak
-                # back as request input on replay → HTTP 400 "Extra inputs are
-                # not permitted". Defence-in-depth with the replay-side sanitize.
+                # 在捕获时进行脱敏处理，确保仅作为输出的 SDK 字段（如 parsed_output、
+                # caller、citations=None 等）永远不会被持久化到 state.db 中，并在回放时
+                # 泄露回传为请求输入 → 从而导致 HTTP 400 "Extra inputs are not permitted"
+                # （不允许有额外的输入）。这与回放端的脱敏处理共同构成了深度防御。
                 clean_block = _sanitize_replay_block(block_dict)
                 if clean_block is not None:
                     ordered_blocks.append(clean_block)
@@ -132,17 +136,17 @@ class AnthropicTransport(ProviderTransport):
             elif block.type == "tool_use":
                 name = block.name
                 if strip_tool_prefix and name.startswith(_MCP_PREFIX):
-                    # On the OAuth wire every tool carries a double-underscore
-                    # ``mcp__`` prefix (added in build_anthropic_kwargs to avoid
-                    # Anthropic's single-underscore third-party classifier).
-                    # Reverse it back to the name the registry/dispatcher knows.
-                    # Two original forms map onto the same ``mcp__`` wire name:
-                    #   ``mcp__read_file``       <- bare native tool ``read_file``
-                    #   ``mcp__linear_get_issue`` <- MCP server tool
+                    # 在 OAuth 传输线上，每个工具都带有双下划线 ``mcp__`` 前缀
+                    # （该前缀在 build_anthropic_kwargs 中被添加，以避开
+                    # Anthropic 的单下划线第三方分类器）。
+                    # 将其逆向恢复为注册表/调度器所知晓的工具名称。
+                    # 有两种原始形式会被映射到同一个 ``mcp__`` 传输线名称上：
+                    #   ``mcp__read_file``       <- 纯原生工具 ``read_file``
+                    #   ``mcp__linear_get_issue`` <- MCP 服务器工具
                     #                                ``mcp_linear_get_issue``
-                    # Resolve by registry lookup, preferring whichever original
-                    # is actually registered; never rewrite a name the LLM used
-                    # that already resolves natively. GH-25255.
+                    # 通过注册表查找来解决冲突，优先选择实际已注册的那个原始名称；
+                    # 绝不要重写大语言模型（LLM）使用的、且本身已经能够原生解析的名称。
+                    # 参见 GH-25255。
                     from tools.registry import registry as _tool_registry
                     if not _tool_registry.get_entry(name):
                         bare = name[len(_MCP_PREFIX):]            # read_file

@@ -1334,19 +1334,18 @@ _TRANSIENT_TRANSPORT_ERRORS = frozenset({
 
 
 def extract_reasoning(agent, assistant_message) -> Optional[str]:
-    """
-    Extract reasoning/thinking content from an assistant message.
-    
-    OpenRouter and various providers can return reasoning in multiple formats:
-    1. message.reasoning - Direct reasoning field (DeepSeek, Qwen, etc.)
-    2. message.reasoning_content - Alternative field (Moonshot AI, Novita, etc.)
-    3. message.reasoning_details - Array of {type, summary, ...} objects (OpenRouter unified)
-    
-    Args:
-        assistant_message: The assistant message object from the API response
-        
-    Returns:
-        Combined reasoning text, or None if no reasoning found
+    """从助手的消息中提取推理/思考内容。
+
+    OpenRouter 以及各种服务商可能会以多种格式返回推理内容：
+    1. message.reasoning - 直接推理字段（DeepSeek、Qwen 等）
+    2. message.reasoning_content - 替代字段（Moonshot AI、Novita 等）
+    3. message.reasoning_details - 由 {type, summary, ...} 对象组成的数组（OpenRouter 统一格式）
+
+    参数:
+        assistant_message: 来自 API 响应的助手消息对象
+
+    返回:
+        合并后的推理文本，若未找到推理内容则返回 None
     """
     reasoning_parts = []
     
@@ -1423,11 +1422,10 @@ def dump_api_request_debug(
     error: Optional[Exception] = None,
 ) -> Optional[Path]:
     """
-    Dump a debug-friendly HTTP request record for the active inference API.
+    为当前激活的推理 API 导出（Dump）一份便于调试的 HTTP 请求记录。
 
-    Captures the request body from api_kwargs (excluding transport-only keys
-    like timeout). Intended for debugging provider-side 4xx failures where
-    retries are not useful.
+    从 api_kwargs 中捕获请求体（排除类似 timeout 等仅用于传输的键）。
+    旨在用于调试服务商端那些重试也无济于事的 4xx 错误。
     """
     try:
         body = copy.deepcopy(api_kwargs)
@@ -2359,25 +2357,24 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
 
 
 def repair_tool_call(agent, tool_name: str) -> str | None:
-    """Attempt to repair a mismatched tool name before aborting.
+    """在放弃之前，尝试修复不匹配的工具名称。
 
-    Models sometimes emit variants of a tool name that differ only
-    in casing, separators, or class-like suffixes. Normalize
-    aggressively before falling back to fuzzy match:
+    模型有时会输出与工具名称仅在大小写、分隔符或类风格
+    后缀上有所不同的变体。在回退到模糊匹配之前进行
+    激进的标准化：
 
-    1. Lowercase direct match.
-    2. Lowercase + hyphens/spaces -> underscores.
-    3. CamelCase -> snake_case (TodoTool -> todo_tool).
-    4. Strip trailing ``_tool`` / ``-tool`` / ``tool`` suffix that
-       Claude-style models sometimes tack on (TodoTool_tool ->
-       TodoTool -> Todo -> todo). Applied twice so double-tacked
-       suffixes like ``TodoTool_tool`` reduce all the way.
-    5. Fuzzy match (difflib, cutoff=0.7).
+    1. 转小写直接匹配。
+    2. 转小写 + 将连字符/空格转换为下划线。
+    3. 驼峰命名（CamelCase） -> 蛇形命名（snake_case）(TodoTool -> todo_tool)。
+    4. 剥离 Claude 风格模型有时会附加的末尾 ``_tool`` / ``-tool`` / ``tool``
+       后缀 (TodoTool_tool -> TodoTool -> Todo -> todo)。此操作应用两次，
+       以便像 ``TodoTool_tool`` 这样双重附加的后缀可以彻底简化。
+    5. 模糊匹配 (difflib, 相似度阈值 cutoff=0.7)。
 
-    See #14784 for the original reports (TodoTool_tool, Patch_tool,
-    BrowserClick_tool were all returning "Unknown tool" before).
+    参见 #14784 了解原始报告（在此之前，TodoTool_tool, Patch_tool,
+    BrowserClick_tool 都会返回 "Unknown tool" 错误）。
 
-    Returns the repaired name if found in valid_tool_names, else None.
+    如果在 valid_tool_names 中找到，则返回修复后的名称，否则返回 None。
     """
     import re
     from difflib import get_close_matches
@@ -2385,20 +2382,20 @@ def repair_tool_call(agent, tool_name: str) -> str | None:
     if not tool_name:
         return None
 
-    # VolcEngine api/plan workaround (issue #33007): the endpoint's
-    # protocol-translation layer occasionally leaks raw XML attribute
-    # fragments into tool_use.name, e.g.
+    # VolcEngine api/plan 变通解决方案 (issue #33007)：该端点的
+    # 协议转换层偶尔会将原始 XML 属性片段泄露到 tool_use.name 中，
+    # 例如：
     #   `terminal" parameter="command" string="true`
     #   `execute_code" parameter="code" string="true`
     #   `session_search" parameter="session_id" string="true`
-    # We trim at the first unambiguous XML/quote character so the rest
-    # of the repair pipeline (lowercase / snake_case / fuzzy match)
-    # can resolve the cleaned name to a real tool.
+    # 我们在第一个明确的 XML/引号字符处进行截断，以便后续
+    # 的修复流水线（小写化 / 蛇形命名 / 模糊匹配）能够
+    # 将清洗后的名称解析为真实的工具。
     #
-    # Crucially we DO NOT split on whitespace: legitimate inputs like
-    # "write file" must keep flowing through ``_norm`` -> ``write_file``
-    # (covered by test_space_to_underscore in
-    # tests/run_agent/test_repair_tool_call_name.py).
+    # 至关重要的一点是，我们【绝对不能】按空格进行切分：像 "write file"
+    # 这样合法的输入必须保持继续流经 ``_norm`` -> ``write_file``
+    # （该逻辑由 tests/run_agent/test_repair_tool_call_name.py 中的
+    # test_space_to_underscore 测试所覆盖）。
     for _xml_sep in ('"', "'", "<", ">"):
         _idx = tool_name.find(_xml_sep)
         if _idx > 0:
@@ -2875,33 +2872,28 @@ def copy_reasoning_content_for_api(agent, source_msg: dict, api_msg: dict) -> No
 
 
 def reapply_reasoning_echo_for_provider(agent, api_messages: list) -> int:
-    """Re-pad (or strip) assistant turns' reasoning_content for the active provider.
+    """针对当前激活的服务商，重新填充（或清除）助手轮次（assistant turns）的 reasoning_content。
 
-    ``api_messages`` is built once, before the retry loop, while the *primary*
-    provider is active.  A mid-conversation fallback can then switch providers,
-    so the reasoning fields baked into ``api_messages`` are shaped for the
-    *prior* provider and must be reconciled against the *current* one:
+    ``api_messages`` 是在此重试循环之前、*主*服务商激活时构建一次的。
+    对话中途的降级容灾（fallback）随后可能会切换服务商，因此固化在
+    ``api_messages`` 中的推理字段是针对*前一个*服务商定制的，必须与*当前*服务商进行协调调和：
 
-    * Switching TO a require-side provider (DeepSeek / Kimi / MiMo thinking
-      mode): assistant turns built when the prior provider did NOT need the
-      echo-back go out without ``reasoning_content`` and the new provider
-      rejects them with HTTP 400 ("The reasoning_content in the thinking mode
-      must be passed back").  Re-apply the pad.
+    * 切换到“有强制要求”的服务商（如 DeepSeek / Kimi / MiMo 的思考模式）：
+      在前一个服务商不需要回显（echo-back）时构建的助手轮次，在发送时会缺少
+      ``reasoning_content``，而新服务商会以 HTTP 400 拒绝它们（“思考模式下的
+      reasoning_content 必须传回”）。此时需要重新应用填充。
 
-    * Switching TO a strict provider that rejects the field (Mistral,
-      Cerebras, Groq, SambaNova, …): assistant turns built under a reasoning
-      primary carry a ``reasoning_content`` pad (often a single space ``" "``),
-      and the strict provider rejects it with HTTP 400/422 ("Extra inputs are
-      not permitted").  Strip the field.  This is the exact cross-provider
-      fallback bug from #45655 — a DeepSeek primary pads history with ``" "``,
-      the request falls back to Mistral, and Mistral 422s on the stale pad.
+    * 切换到“严格拒绝该字段”的服务商（如 Mistral、Cerebras、Groq、SambaNova 等）：
+      在支持推理的主服务商下构建的助手轮次会携带 ``reasoning_content`` 填充（通常是
+      一个空格 ``" "``），而严格的服务商会以 HTTP 400/422 拒绝它（“不允许有额外的输入”）。
+      此时需要清除该字段。这正是 #45655 中出现的跨服务商降级 Bug —— DeepSeek 作为
+      主服务商时用 ``" "`` 填充了历史记录，请求降级到 Mistral 后，Mistral 因这个过时的
+      填充返回了 422 错误。
 
-    Calling this immediately before building the request kwargs reconciles the
-    fields against the *current* provider.  It is idempotent and safe to call
-    every iteration; it covers every fallback path.
+    在构建请求关键字参数（kwargs）之前立即调用此函数，可以使这些字段与*当前*服务商保持一致。
+    该操作是幂等的，在每次循环迭代时调用都很安全；它涵盖了所有的降级路径。
 
-    Returns the number of assistant turns whose reasoning_content was added or
-    removed.
+    返回被添加或移除 reasoning_content 的助手轮次的总数。
     """
     needs_pad = agent._needs_thinking_reasoning_pad()
     changed = 0

@@ -3706,19 +3706,17 @@ class SessionDB:
         effect_disposition: Optional[str] = None,
         timestamp: Any = None,
     ) -> int:
-        """
-        Append a message to a session. Returns the message row ID.
+        """向会话中追加一条消息。返回该消息行的 ID。
 
-        Also increments the session's message_count (and tool_call_count
-        if role is 'tool' or tool_calls is present).
+        同时递增会话的 message_count（如果角色是 'tool' 或
+        存在 tool_calls，还会递增 tool_call_count）。
 
-        ``platform_message_id`` is the external messaging platform's own
-        message ID (e.g. Telegram update_id, Yuanbao msg_id).  It is
-        independent of the SQLite autoincrement primary key and is used by
-        platform-specific flows like yuanbao's recall guard to redact a
-        message by its platform-side identifier.
+        ``platform_message_id`` 是外部消息传递平台自身的
+        消息 ID（例如 Telegram 的 update_id，元宝的 msg_id）。它
+        独立于 SQLite 的自增主键，供特定平台的工作流使用
+        （例如元宝的撤回保护），以便通过消息在平台侧的标识符来对消息进行脱敏。
         """
-        # Serialize structured fields to JSON before entering the write txn
+        # 在进入写入事务之前，将结构化字段序列化为 JSON
         reasoning_details_json = (
             json.dumps(reasoning_details)
             if reasoning_details else None

@@ -7,22 +7,30 @@
 本模块围绕以下设计约束构建
 （完整原理解释请参阅 ``openclaw-tool-search-report``）：
 
-* 定义在 ``toolsets._HERMES_CORE_TOOLS`` 中的核心工具*绝对不会*被延迟加载。
-  始终加载即意味着始终加载，绝无例外。
-* 阈值门控会在每次装配时运行：当可延迟加载的工具
-  占用的模型上下文窗口比例低于 ``threshold_pct``（默认为 10%）时，
-  工具搜索将作为空操作（no-op）跳过，工具数组保持不变并直接传递。
-* 目录（catalog）在多轮对话以及工具数组装配之间是无状态的。
-  它每次都会基于当前的工具定义列表重新构建。
-  这是吸取了 OpenClaw 定时任务（cron）回归问题（openclaw/openclaw#84141）的教训：
-  与实时工具注册表不同步的会话键控（session-keyed）目录，
-  会导致工具静默失效脱落。
-* 桥接工具与直接调用完全一样，均通过 ``model_tools.handle_function_call`` 进行路由，
-  因此安全防护（guardrails）、插件前置/后置钩子（hooks）、审批流程
-  以及工具结果截断等机制，都会以完全一致的方式被触发。
-* 显示和轨迹解包（trajectory unwrap）均在此处实现，
-  以确保用户（CLI 活动推送、网关、保存的轨迹）
-  看到的始终是底层实际调用的工具，而非桥接工具。
+* Core tools defined in ``toolsets._HERMES_CORE_TOOLS`` are *never* deferred.
+  Always-load means always-load. No exceptions.
+* Tiered disclosure (July 2026 plan): the moment ANY deferrable (MCP/plugin)
+  tools are present, they hide behind the bridge. What scales with catalog
+  size is the *listing*, not the activation decision:
+    - Tier 0 — no MCP/plugin tools: pure passthrough, everything eager.
+    - Tier 1 — deferred tools whose catalog listing fits the listing budget
+      (``min(threshold_pct`` of context, ``listing_max_tokens)``): bridge +
+      skills-style listing (name + short description per tool), degrading to
+      a names-only listing when the full form is over budget.
+    - Tier 2 — listing over budget even names-only (e.g. Cloudflare's flat
+      API surface, ~3,300 tools whose names alone are ~32K tokens): bare
+      bridge; tools are discoverable only through ``tool_search``.
+* The catalog is stateless across turns and tools-array assemblies. It is
+  rebuilt from the current tool-defs list every time. This is the lesson
+  from OpenClaw's cron regression (openclaw/openclaw#84141): a session-keyed
+  catalog that drifts out of sync with the live tool registry produces
+  silent tool dropouts.
+* Bridge tools route through ``model_tools.handle_function_call`` exactly
+  like a direct call, so guardrails, plugin pre/post hooks, approval flows,
+  and tool-result truncation all fire identically.
+* Display and trajectory unwrap is implemented here so the user (CLI activity
+  feed, gateway, saved trajectories) always sees the underlying tool, not
+  the bridge.
 """
 
 from __future__ import annotations
@@ -64,17 +72,25 @@ class ToolSearchConfig:
     """Resolved, validated tool-search configuration for a single assembly."""
 
     enabled: str  # "auto" | "on" | "off"
-    threshold_pct: float  # 0..100 — only used when enabled == "auto"
+    # Listing budget as a percentage of the model's context window. Under
+    # tiered disclosure this no longer gates *activation* (any deferrable
+    # tool activates the bridge) — it bounds how much context the embedded
+    # catalog listing may consume before disclosure degrades:
+    # full listing -> names-only -> bare bridge (tier 2).
+    threshold_pct: float  # 0..100
     search_default_limit: int
     max_search_limit: int
     # Catalog listing ("skills-style" progressive disclosure): when active,
     # a grouped name + short-description manifest of every deferred tool is
     # embedded in the tool_search bridge description, so capabilities stay
     # DISCOVERABLE (like the skills listing in the system prompt) while full
-    # schemas stay deferred.  "auto" = include when it fits listing_max_tokens;
-    # "on" = always include; "off" = legacy bare-count behavior.
+    # schemas stay deferred.  "auto" = include when it fits the listing
+    # budget (falls back to names-only, then to none = bare bridge);
+    # "on" = same rendering, explicit intent; "off" = always bare bridge.
     listing: str = "auto"  # "auto" | "on" | "off"
-    listing_max_tokens: int = 4000
+    # Absolute cap on the embedded listing, regardless of context size.
+    # Effective budget = min(listing_max_tokens, threshold_pct% of context).
+    listing_max_tokens: int = 20000
 
     @classmethod
     def from_raw(cls, raw: Any) -> "ToolSearchConfig":
@@ -122,7 +138,7 @@ class ToolSearchConfig:
             listing = listing_raw
         else:
             listing = "auto"
-        listing_max_tokens = max(200, min(20000, _safe_int(raw.get("listing_max_tokens"), 4000)))
+        listing_max_tokens = max(200, min(60000, _safe_int(raw.get("listing_max_tokens"), 20000)))
 
         return cls(
             enabled=enabled,
@@ -259,25 +275,37 @@ def should_activate(
 ) -> bool:
     """决定当前装配（assembly）是否应当启用工具搜索功能。
 
-    ``"off"`` 会无条件跳过工具搜索。
-    ``"on"`` 会无条件启用工具搜索
-    （只要存在至少一个可延迟加载的工具 —— 毕竟替换一个空操作是没有意义的）。
-    ``"auto"`` 则会在可延迟加载的工具 Schema 所占用的上下文比例
-    达到或超过 ``threshold_pct`` 时自动启用。
+    ``"off"`` skips unconditionally. ``"on"`` and ``"auto"`` activate whenever
+    at least one deferrable tool exists (there's no point swapping a no-op).
+
+    Tiered-disclosure semantics (July 2026): the presence of ANY MCP/plugin
+    tool activates the bridge — schemas always defer. What the threshold now
+    controls is the *listing budget* (see :func:`listing_token_budget`), not
+    activation. ``context_length`` is retained in the signature for
+    backward compatibility with existing callers.
     """
     if config.enabled == "off":
         return False
     if deferrable_tokens <= 0:
         return False
-    if config.enabled == "on":
-        return True
-    # auto
-    if not context_length or context_length <= 0:
-        # Without a known context size, fall back to a fixed 20K-token cutoff
-        # — the cliff above which Anthropic and OpenAI both saw quality drops.
-        return deferrable_tokens >= 20_000
-    threshold_tokens = int(context_length * (config.threshold_pct / 100.0))
-    return deferrable_tokens >= threshold_tokens
+    return True
+
+
+def listing_token_budget(
+    config: ToolSearchConfig,
+    context_length: Optional[int],
+) -> int:
+    """Effective token budget for the embedded catalog listing.
+
+    ``min(listing_max_tokens, threshold_pct% of context)``. Without a known
+    context size, the percentage leg falls back to the fixed 20K cutoff the
+    activation gate historically used (10% of a typical 200K window).
+    """
+    if context_length and context_length > 0:
+        pct_leg = int(context_length * (config.threshold_pct / 100.0))
+    else:
+        pct_leg = 20_000
+    return max(0, min(config.listing_max_tokens, pct_leg))
 
 
 # ---------------------------------------------------------------------------
@@ -478,7 +506,7 @@ def _listing_group_label(source_name: str) -> str:
 def build_catalog_listing(
     deferrable: List[Dict[str, Any]],
     *,
-    max_tokens: int = 4000,
+    max_tokens: int = 20000,
 ) -> Optional[str]:
     """Render a skills-style manifest of the deferred catalog.
 
@@ -501,8 +529,23 @@ def build_catalog_listing(
       2. names-only listing, still grouped
       3. ``None`` — caller falls back to the legacy bare-count description
     """
+    text, _form = build_catalog_listing_with_form(deferrable, max_tokens=max_tokens)
+    return text
+
+
+def build_catalog_listing_with_form(
+    deferrable: List[Dict[str, Any]],
+    *,
+    max_tokens: int = 20000,
+) -> Tuple[Optional[str], str]:
+    """Like :func:`build_catalog_listing` but also reports the form used.
+
+    Returns ``(text, form)`` where ``form`` is ``"full"`` (names + short
+    descriptions), ``"names"`` (names-only fallback), or ``"none"`` (over
+    budget in every form — tier-2 bare bridge).
+    """
     if not deferrable:
-        return None
+        return None, "none"
 
     groups: Dict[str, List[Tuple[str, str]]] = {}
     for td in deferrable:
@@ -515,7 +558,7 @@ def build_catalog_listing(
         groups.setdefault(label, []).append((name, _short_desc(fn.get("description", ""))))
 
     if not groups:
-        return None
+        return None, "none"
 
     def render(with_descriptions: bool) -> str:
         lines: List[str] = ["Deferred tool catalog (call schemas via "
@@ -530,11 +573,11 @@ def build_catalog_listing(
                 lines.append(", ".join(name for name, _ in tools))
         return "\n".join(lines)
 
-    for with_desc in (True, False):
+    for with_desc, form in ((True, "full"), (False, "names")):
         text = render(with_desc)
         if math.ceil(len(text) / CHARS_PER_TOKEN) <= max_tokens:
-            return text
-    return None
+            return text, form
+    return None, "none"
 
 
 def bridge_tool_schemas(
@@ -654,6 +697,12 @@ class AssemblyResult:
     deferred_count: int = 0
     deferred_tokens: int = 0
     threshold_tokens: int = 0
+    # Disclosure tier actually applied:
+    #   0 = passthrough (no deferrable tools, or tool_search off)
+    #   1 = bridge + catalog listing (full or names-only)
+    #   2 = bare bridge — catalog too large for any listing form
+    tier: int = 0
+    listing_form: str = "none"  # "full" | "names" | "none"
 
 
 def assemble_tool_defs(
@@ -692,19 +741,24 @@ def assemble_tool_defs(
             deferred_count=len(deferrable),
             deferred_tokens=deferrable_tokens,
             threshold_tokens=int((context_length or 0) * (config.threshold_pct / 100.0)),
+            tier=0,
         )
 
     listing = None
+    listing_form = "none"
+    listing_budget = listing_token_budget(config, context_length)
     if config.listing != "off":
-        listing = build_catalog_listing(deferrable, max_tokens=config.listing_max_tokens)
+        listing, listing_form = build_catalog_listing_with_form(
+            deferrable, max_tokens=listing_budget)
     bridge = bridge_tool_schemas(len(deferrable), listing=listing)
     result = visible + bridge
-    threshold_tokens = int((context_length or 0) * (config.threshold_pct / 100.0))
+    tier = 1 if listing else 2
 
     logger.info(
-        "tool_search activated: %d core/visible tools kept, %d deferred (~%d tokens, threshold ~%d), catalog listing %s",
-        len(visible), len(deferrable), deferrable_tokens, threshold_tokens,
-        "embedded" if listing else "omitted",
+        "tool_search activated (tier %d): %d core/visible tools kept, %d deferred "
+        "(~%d tokens), listing %s (budget ~%d tokens)",
+        tier, len(visible), len(deferrable), deferrable_tokens,
+        listing_form, listing_budget,
     )
 
     return AssemblyResult(
@@ -712,7 +766,9 @@ def assemble_tool_defs(
         activated=True,
         deferred_count=len(deferrable),
         deferred_tokens=deferrable_tokens,
-        threshold_tokens=threshold_tokens,
+        threshold_tokens=listing_budget,
+        tier=tier,
+        listing_form=listing_form,
     )
 
 
@@ -858,6 +914,8 @@ __all__ = [
     "should_activate",
     "build_catalog",
     "build_catalog_listing",
+    "build_catalog_listing_with_form",
+    "listing_token_budget",
     "search_catalog",
     "bridge_tool_schemas",
     "assemble_tool_defs",

@@ -15,12 +15,12 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <option name="DEBUG_JUST_MY_CODE" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
-    <option name="RUN_TOOL" value="true" />
-    <option name="SCRIPT_NAME" value="hermes" />
+    <option name="RUN_TOOL" value="false" />
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/hermes" />
     <option name="PARAMETERS" value="--tui" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="true" />
-    <option name="MODULE_MODE" value="true" />
+    <option name="MODULE_MODE" value="false" />
     <option name="REDIRECT_INPUT" value="false" />
     <option name="INPUT_FILE" value="" />
     <method v="2" />

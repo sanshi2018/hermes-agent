@@ -15,11 +15,19 @@
 两者都：
 - 使用项目解释器 `.venv/Scripts/python.exe`（SDK 名称 `uv (hermes-agent)`，与
   `.idea/hermes-agent.iml` 中登记的一致）
-- 以 `RUN_TOOL` 方式直接调用已安装的控制台脚本 `hermes`（即 `.venv/Scripts/hermes.exe`
-  对应的入口 `hermes_cli.main:main`），而不是用某个 `.py` 文件路径
+- **Script path** 直接指向项目根目录下的 `hermes` 启动脚本（`$PROJECT_DIR$/hermes`，
+  内容就是 `from hermes_cli.main import main; main()`），等价于在终端执行
+  `python hermes --cli` / `python hermes --tui`
 - 勾选了 **Emulate terminal in output console**（`EMULATE_TERMINAL=true`）——这一项是
   关键：Hermes 的 TUI 基于 curses / 全屏终端渲染、CLI 也依赖多行编辑和 ANSI
   控制序列，不开这个选项在 PyCharm 的普通 Run 面板里会显示乱码或无法交互。
+
+> **踩过的坑**：最初版本用的是「Module name」模式（`SCRIPT_NAME=hermes`,
+> `MODULE_MODE=true`），结果报错 `No module named hermes`。原因是 `hermes` 只是
+> `pyproject.toml` 里注册的**控制台脚本名**（安装后生成 `.venv/Scripts/hermes.exe`），
+> 并不是一个可以 `python -m hermes` 导入的真实模块——真正的包名是 `hermes_cli`。
+> 已改成直接跑 `hermes` 这个脚本文件（Script path 模式），实测 `python hermes --help`
+> 可以正常输出帮助信息。
 
 ## 如何在 PyCharm 里看到并运行
 
@@ -43,13 +51,9 @@
 
 1. `Run → Edit Configurations… → +（左上角加号） → Python`
 2. **Name**：`Hermes (CLI)`（或 `Hermes (TUI)`）
-3. 把 **Script path** 切换成 **Module name**，不要用脚本路径；这里不用 Module，
-   而是要选 **Run 是「工具」模式**——即在最新版 PyCharm 里，把「Script path」下拉切换
-   为 **"Custom" / 直接填工具名**：
-   - 若界面上是 "Script path" 单选，改成勾选旁边的可执行工具选项，填 `hermes`
-   - 如果找不到该切换项，最简单等价方式：**Script path** 选中项目根目录下的
-     `hermes` 文件（无扩展名的 Python 脚本，`#!/usr/bin/env python3` 开头，内容是
-     `from hermes_cli.main import main; main()`），一样能跑。
+3. **Script path**（保持默认这个单选，不要切换成 Module name）：选项目根目录下的
+   `hermes` 文件（无扩展名的 Python 脚本，内容是
+   `from hermes_cli.main import main; main()`）
 4. **Parameters**：CLI 填 `--cli`；TUI 填 `--tui`
 5. **Python interpreter**：选择项目自带的 `.venv`（`uv (hermes-agent)`）
 6. **Working directory**：项目根目录 `C:\Users\Administrator\PycharmProjects\example\hermes-agent`

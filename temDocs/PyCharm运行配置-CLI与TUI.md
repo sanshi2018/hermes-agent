@@ -1,4 +1,4 @@
-# 在 PyCharm 中以终端方式运行 Hermes Agent（CLI / TUI）
+# 在 PyCharm 中以终端方式运行 Hermes Agent（CLI / TUI / API Server）
 
 ## 结论先行
 
@@ -11,8 +11,10 @@
 
 - `Hermes_CLI.xml` → 名称 **Hermes (CLI)**，等价于在终端执行 `hermes --cli`
 - `Hermes_TUI.xml` → 名称 **Hermes (TUI)**，等价于在终端执行 `hermes --tui`
+- `Hermes_API_Server.xml` → 名称 **Hermes (API Server)**，等价于在终端执行
+  `hermes gateway run`（并预先设好 `API_SERVER_ENABLED=true`）
 
-两者都：
+前两者都：
 - 使用项目解释器 `.venv/Scripts/python.exe`（SDK 名称 `uv (hermes-agent)`，与
   `.idea/hermes-agent.iml` 中登记的一致）
 - **Script path** 直接指向项目根目录下的 `hermes` 启动脚本（`$PROJECT_DIR$/hermes`，
@@ -29,6 +31,33 @@
 > 已改成直接跑 `hermes` 这个脚本文件（Script path 模式），实测 `python hermes --help`
 > 可以正常输出帮助信息。
 
+## API Server 配置说明
+
+Hermes 文档里的 "[API Server](https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server)"
+指的是把 hermes-agent 暴露成 **OpenAI 兼容的 HTTP 接口**（`/v1/chat/completions`、
+`/v1/models`），让 Open WebUI / LobeChat / LibreChat 等任意 OpenAI 客户端都能接进来。
+它不是一个独立脚本，而是 `hermes gateway` 里内置的一个平台适配器
+（`gateway/platforms/api_server.py`），靠环境变量开关：
+
+- `API_SERVER_ENABLED=true` —— 打开这个适配器
+- `API_SERVER_KEY=...` —— 客户端调用时要带的 Bearer Token
+- 默认监听 `http://127.0.0.1:8642`
+
+`Hermes_API_Server.xml` 里已经把这两个环境变量直接写进了 Run Configuration 的
+**Environment variables**（`API_SERVER_KEY` 用的是文档示例里的
+`change-me-local-dev`，正式使用请自己改成别的值），命令是 `gateway run`（显式前台
+运行子命令，等价于 `hermes gateway run`）。这个配置**没有**勾选 Emulate terminal——
+网关是纯日志输出的长驻服务，用 PyCharm 普通 Console 反而更好用（可以搜索日志、点击
+异常堆栈跳转到代码），不需要伪终端。
+
+跑之前确认一下 `~/.hermes/.env` 或 `~/.hermes/config.yaml` 里已经配好了模型 Provider
+（没配过的话先跑一次 **Hermes (CLI)** 走 `hermes setup`），否则网关能起来但对话会因为
+没有可用模型而报错。
+
+> 如果你说的"API 服务"其实是指 `hermes dashboard`（桌面 GUI 用的 FastAPI/uvicorn 后端，
+> `hermes_cli/web_server.py`）或者 `hermes proxy`（本地 OpenAI 兼容代理，转发到已登录的
+> OAuth Provider）而不是这个 OpenAI 兼容网关，告诉我一声，我再照同样的方式加一份配置。
+
 ## 如何在 PyCharm 里看到并运行
 
 因为我只能操作文件系统、无法直接点击 PyCharm 的图形界面，请按下面步骤在 IDE 里确认：
@@ -37,7 +66,8 @@
 2. 如果 PyCharm 已经在开着这个工程，配置文件是在外部写入的，PyCharm 一般会自动感知
    `.idea/runConfigurations/` 的变化；如果右上角运行配置下拉框里没有出现，执行一次
    **File → Reload All from Disk**（或者关闭工程重新打开）即可刷新。
-3. 右上角运行配置下拉框中应能看到 **Hermes (CLI)** 和 **Hermes (TUI)** 两个选项。
+3. 右上角运行配置下拉框中应能看到 **Hermes (CLI)**、**Hermes (TUI)**、
+   **Hermes (API Server)** 三个选项。
 4. 选中后点绿色三角形运行（或 Shift+F10 / Ctrl+Shift+F10）。
    - 运行面板会以「模拟终端」的方式启动，可以直接输入文字、使用方向键、Ctrl+C 中断，
      和在系统终端里跑 `hermes` / `hermes --tui` 效果一致。
@@ -67,6 +97,7 @@
 | --- | --- |
 | Hermes (CLI) | `hermes --cli`（或直接 `hermes`，默认走经典 REPL） |
 | Hermes (TUI) | `hermes --tui` |
+| Hermes (API Server) | `API_SERVER_ENABLED=true API_SERVER_KEY=change-me-local-dev hermes gateway run` |
 
 其他常用命令（也可以照同样方式复制一份 Run Configuration，把 Parameters 换掉）：
 

@@ -2296,7 +2296,7 @@ def run_conversation(
                     final_response = f"{INTERRUPT_WAITING_FOR_MODEL_PREFIX}{api_elapsed:.1f}s elapsed)."
                 agent._persist_session(messages, conversation_history)
                 break
-
+            # TODO 大兜底
             except Exception as api_error:
                 # Stop spinner silently — retry status is buffered and
                 # only flushed when every retry+fallback is exhausted.
@@ -4299,16 +4299,15 @@ def run_conversation(
                 else:
                     agent._vprint(f"{agent.log_prefix}🤖 Assistant: {assistant_message.content[:100]}{'...' if len(assistant_message.content) > 100 else ''}")
 
-            # Notify progress callback of model's thinking (used by subagent
-            # delegation to relay the child's reasoning to the parent display).
+            # 向进度回调通知模型的思考过程（在子 Agent委托中使用，以将子级的推理过程转发到父级的显示界面）。
             if (assistant_message.content and agent.tool_progress_callback):
                 _think_text = assistant_message.content.strip()
                 # Strip reasoning XML tags that shouldn't leak to parent display
                 _think_text = re.sub(
                     r'</?(?:REASONING_SCRATCHPAD|think|reasoning)>', '', _think_text
                 ).strip()
-                # For subagents: relay first line to parent display (existing behaviour).
-                # For all agents with a structured callback: emit reasoning.available event.
+                # 对于子 Agent：将第一行转发至父级显示界面（保持原有行为）。
+                # 对于所有配置了结构化回调的 Agent：触发 reasoning.available 事件。
                 first_line = _think_text.split('\n')[0][:80] if _think_text else ""
                 if first_line and getattr(agent, '_delegate_depth', 0) > 0:
                     try:
@@ -4320,9 +4319,9 @@ def run_conversation(
                         agent.tool_progress_callback("reasoning.available", "_thinking", _think_text[:500], None)
                     except Exception:
                         pass
-            
-            # Check for incomplete <REASONING_SCRATCHPAD> (opened but never closed)
-            # This means the model ran out of output tokens mid-reasoning — retry up to 2 times
+
+            # 检查是否存在未完成的 <REASONING_SCRATCHPAD>（已打开但从未关闭）
+            # 这意味着模型在推理过程中用尽了输出 token —— 最多重试 2 次
             if has_incomplete_scratchpad(assistant_message.content or ""):
                 agent._incomplete_scratchpad_retries += 1
                 
@@ -4421,9 +4420,9 @@ def run_conversation(
                 if agent.verbose_logging:
                     for tc in assistant_message.tool_calls:
                         logging.debug(f"Tool call: {tc.function.name} with args: {tc.function.arguments[:200]}...")
-                
-                # Validate tool call names - detect model hallucinations
-                # Repair mismatched tool names before validating
+
+                # 校验工具调用名称 - 检验模型幻觉
+                # 在校验前修复不匹配的工具名称
                 for tc in assistant_message.tool_calls:
                     if tc.function.name not in agent.valid_tool_names:
                         repaired = agent._repair_tool_call(tc.function.name)
@@ -4632,9 +4631,9 @@ def run_conversation(
                         clean = agent._strip_think_blocks(turn_content).strip()
                         if clean:
                             agent._vprint(f"  ┊ 💬 {clean}")
-                
-                # Pop thinking-only prefill message(s) before appending
-                # (tool-call path — same rationale as the final-response path).
+
+                # 在追加之前弹出仅包含思考过程预填（thinking-only prefill）的消息
+                # （工具调用路径 — 其逻辑与最终响应路径相同）。
                 _had_prefill = False
                 while (
                     messages
@@ -5250,17 +5249,19 @@ def run_conversation(
             except (OSError, ValueError):
                 logger.error(error_msg)
 
-            # Emit the full traceback at ERROR level so it lands in both
-            # agent.log AND errors.log.  Previously this was logged at DEBUG,
-            # which meant intermittent outer-loop failures were unreproducible
-            # — users would see a one-line summary on screen with no way to
-            # recover the call site.  logger.exception() includes the
-            # traceback automatically and emits at ERROR.
+            # 在 ERROR 级别输满完整的堆栈追踪信息（traceback），以便它同时记录到
+            # agent.log 和 errors.log 中。此前这里是在 DEBUG 级别记录日志的，
+            # 这意味着偶发的外层循环失败无法复现
+            # —— 用户会在屏幕上看到单行的摘要，却无法
+            # 恢复调用位置。logger.exception() 会自动包含
+            # 堆栈追踪信息，并在 ERROR 级别触发输出。
             logger.exception("Outer loop error in API call #%d", api_call_count)
-            
-            # If an assistant message with tool_calls was already appended,
-            # the API expects a role="tool" result for every tool_call_id.
-            # Fill in error results for any that weren't answered yet.
+
+            # 如果此前已经追加了带有 tool_calls 的 assistant 消息，
+            # API 期望每个 tool_call_id 都能收到一个 role="tool" 的结果。
+            # 为所有尚未得到响应的调用填补错误结果。
+            #-----
+            # 看看那些工具调用没有结果
             for idx in range(len(messages) - 1, -1, -1):
                 msg = messages[idx]
                 if not isinstance(msg, dict):
@@ -5284,14 +5285,14 @@ def run_conversation(
                             }
                             messages.append(err_msg)
                 break
-            
-            # Non-tool errors don't need a synthetic message injected.
-            # The error is already printed to the user (line above), and
-            # the retry loop continues.  Injecting a fake user/assistant
-            # message pollutes history, burns tokens, and risks violating
-            # role-alternation invariants.
 
-            # If we're near the limit, break to avoid infinite loops
+            # 非工具引发的错误不需要注入合成消息。
+            # 错误信息已经打印给用户（见上一行），且
+            # 重试循环将继续进行。注入伪造的用户/助手
+            # 消息会污染历史记录、消耗 token，并存在打破
+            # 角色轮流（role-alternation）不变性的风险。
+
+            # 如果我们接近限制，则跳出循环以避免死循环
             if api_call_count >= agent.max_iterations - 1:
                 _turn_exit_reason = f"error_near_max_iterations({error_msg[:80]})"
                 final_response = f"I apologize, but I encountered repeated errors: {error_msg}"

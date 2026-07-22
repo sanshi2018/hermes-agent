@@ -229,25 +229,24 @@ _auto_heartbeat_last_attempt: float = 0.0
 
 
 def heartbeat_current_worker_from_env() -> bool:
-    """Best-effort: extend the kanban claim + bump board heartbeat for the
-    current dispatcher-spawned worker, using identity from env vars.
+    """尽力而为（Best-effort）：为当前由调度程序派生的工作线程
+    延长看板占用（claim）并更新看板心跳，使用环境变量中的身份信息。
 
-    Returns True if a write was attempted (whether or not it succeeded);
-    False if the call was skipped (not a kanban worker, rate-limited, or
-    swallowed exception). The boolean is informational — callers should
-    not branch on it.
+    如果尝试进行了写入（无论成功与否）则返回 True；
+    如果跳过了调用（不是看板工作线程、触发频率限制或隐蔽抛出了异常）则返回 False。
+    该布尔值仅供参考 — 调用方不应对其进行分支判断。
 
-    Identity comes from:
-      * ``HERMES_KANBAN_TASK`` — task id (required; absence means no-op)
-      * ``HERMES_KANBAN_RUN_ID`` — pins the run row so we don't heartbeat
-        a stale run that may have already been reclaimed
-      * ``HERMES_KANBAN_CLAIM_LOCK`` — claim lock for ``heartbeat_claim``;
-        falls back to the default ``_claimer_id()`` for locally-driven
-        workers that never went through the dispatcher path
+    身份信息来自：
+      * ``HERMES_KANBAN_TASK`` — 任务 ID（必需；缺失则不作任何操作）
+      * ``HERMES_KANBAN_RUN_ID`` — 锁定运行行，因此我们不会为可能已被回收的
+        过期运行更新心跳
+      * ``HERMES_KANBAN_CLAIM_LOCK`` — 用于 ``heartbeat_claim`` 的占用锁；
+        对于从未经过调度程序路径的本地驱动工作线程，将降级使用
+        默认的 ``_claimer_id()``
 
-    Rate-limited via the module-level ``_auto_heartbeat_last_attempt``
-    timestamp (monotonic clock); not thread-safe in the strict sense, but
-    the worst case is one extra DB write per race, which is harmless.
+    通过模块级的 ``_auto_heartbeat_last_attempt`` 时间戳（单调时钟）进行频率限制；
+    严格意义上讲并非线程安全，但最坏的情况也只是在竞争时多进行一次数据库写入，
+    这是无害的。
     """
     global _auto_heartbeat_last_attempt
     tid = os.environ.get("HERMES_KANBAN_TASK")

@@ -215,19 +215,18 @@ def _emit_cancelled_terminal_post_tool_call(
 
 
 def _tool_search_scoped_names(agent) -> frozenset:
-    """Return the deferrable tool names the session may invoke via tool_call.
+    """返回会话可以通过 tool_call 调用的延迟执行工具（deferrable tool）名称。
 
-    The Tool Search unwrap dispatches the underlying tool directly, bypassing
-    the bridge branch (and its scope check) in
-    ``model_tools.handle_function_call``. To keep a restricted-toolset session
-    (subagent, kanban worker, curated gateway session) from reaching tools it
-    was never granted, the unwrap validates the underlying name against this
-    set: the deferrable subset of the session's own enabled/disabled toolset
-    scope.
+    Tool Search 的解包过程会直接分发底层的工具，绕过了
+    ``model_tools.handle_function_call`` 中的桥接分支
+    （及其作用域检查）。为了防止受限工具集会话
+    （子 Agent、看板 worker、精选网关会话）触及未获授权的工具，
+    该解包操作会根据此集合校验底层工具的名称：即会话自身启用/禁用工具集
+    作用域的延迟执行子集。
 
-    Result is cached on the agent and refreshed when the tool registry's
-    generation changes (e.g. an MCP server reconnects), so the common case is
-    a dict lookup, not a full tool-defs rebuild on every tool call.
+    结果会被缓存到 Agent 上，并在工具注册表（tool registry）的
+    代际（generation）发生变更时（例如 MCP 服务器重新连接）进行刷新，因此在常见情况下
+    只需进行字典查找，而无需在每次工具调用时都完全重建工具定义。
     """
     try:
         import model_tools
@@ -323,16 +322,16 @@ def _run_agent_tool_execution_middleware(
 
 
 def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effective_task_id: str, api_call_count: int = 0) -> None:
-    """Execute multiple tool calls concurrently using a thread pool.
+    """使用线程池并发执行多个工具调用。
 
-    Results are collected in the original tool-call order and appended to
-    messages so the API sees them in the expected sequence.
+    结果将按照原始工具调用的顺序收集，并附加到
+    消息中，以便 API 能够按预期的顺序接收它们。
     """
     tool_calls = assistant_message.tool_calls
     num_tools = len(tool_calls)
 
-    # Resolve the context-scaled tool-output budget once per turn (cheap, but
-    # avoids rebuilding it per result inside the loop below).
+    # 每轮只解析一次根据上下文缩放的工具输出预算（开销很小，但
+    # 避免了在下面的循环中为每个结果重新构建它）。
     _tool_budget = _budget_for_agent(agent)
 
     # ── Pre-flight: interrupt check ──────────────────────────────────
@@ -380,22 +379,22 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
         elif function_name == "skill_manage":
             agent._iters_since_skill = 0
 
-        # ── Tool Search unwrap ────────────────────────────────────────
-        # When the model invokes the tool_call bridge, peel it open so
-        # every downstream check (checkpointing, guardrails, plugin
-        # pre-tool-call hooks, the display/activity feed, the post-call
-        # callback) sees the underlying tool — not the bridge. This is
-        # the OpenClaw lesson: hooks must observe the real tool name.
+        # ── 工具搜索解包 ────────────────────────────────────────
+        # 当模型调用 tool_call 桥接器时，将其剥离开来，以便
+        # 每个下游检查（检查点、安全护栏、插件
+        # 工具调用前钩子、显示/活动流、调用后
+        # 回调）都能看到底层的工具 —— 而不是桥接器。这就是
+        # OpenClaw 的经验教训：钩子必须观察到真实的工具名称。
         #
-        # The original tool_call entry on ``tool_call.function`` is left
-        # untouched so the conversation transcript and the matching
-        # tool_call_id are preserved exactly as the model emitted them.
+        # ``tool_call.function`` 上的原始 tool_call 条目保持
+        # 不变，以便对话记录和匹配的
+        # tool_call_id 完全按照模型发出的样子得以保留。
         #
-        # Scope gate: the unwrap dispatches the underlying tool directly
-        # (bypassing the bridge branch in handle_function_call and its
-        # scope check), so we enforce session toolset scope HERE. A tool
-        # the session was not granted is rejected before any checkpoint,
-        # hook, or dispatch fires.
+        # 作用域门控：解包直接分发底层工具
+        # （绕过了 handle_function_call 中的桥接分支及其
+        # 作用域检查），因此我们在**此处**强制执行会话工具集作用域。未授予
+        # 会话的工具会在任何检查点、
+        # 钩子或分发触发之前被拒绝。
         _ts_scope_block = None
         try:
             from tools import tool_search as _ts
@@ -423,9 +422,9 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
             tool_call_id=getattr(tool_call, "id", "") or "",
         )
 
-        # ── Block evaluation (BEFORE checkpoint preflight) ───────────
-        # We must know whether the tool will execute before touching
-        # checkpoint state (dedup slot, real snapshots).
+        # ── 块评估（在检查点预检之前） ───────────
+        # 在触及检查点状态（去重槽、真实快照）之前，
+        # 我们必须知道该工具是否会执行。
         block_result = None
         blocked_by_guardrail = False
         if _ts_scope_block is not None:
@@ -565,34 +564,34 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
     agent._touch_activity(f"executing {num_tools} tools concurrently: {tool_names_str}")
 
     def _run_tool(index, tool_call, function_name, function_args, middleware_trace):
-        """Worker function executed in a thread."""
-        # Register this worker tid so the agent can fan out an interrupt
-        # to it — see AIAgent.interrupt().  Must happen first thing, and
-        # must be paired with discard + clear in the finally block.
+        """在线程中执行的工作函数。"""
+        # 注册此工作线程的 tid，以便 agent 可以向其广播中断
+        # 信号 — 请参阅 AIAgent.interrupt()。这必须作为第一件事执行，并且
+        # 必须与 finally 块中的 discard 和 clear 配对。
         _worker_tid = threading.current_thread().ident
         with agent._tool_worker_threads_lock:
             agent._tool_worker_threads.add(_worker_tid)
-        # Race: if the agent was interrupted between fan-out (which
-        # snapshotted an empty/earlier set) and our registration, apply
-        # the interrupt to our own tid now so is_interrupted() inside
-        # the tool returns True on the next poll.
+        # 竞态条件：如果 agent 在广播（已生成空集合或较早集合的快照）
+        # 与我们注册之间的窗口期被中断了，现在将中断信号应用到
+        # 我们自己的 tid 上，以便工具内部的 is_interrupted()
+        # 在下一次轮询时返回 True。
         if agent._interrupt_requested:
             try:
                 _ra()._set_interrupt(True, _worker_tid)
             except Exception:
                 pass
-        # Set the activity callback on THIS worker thread so
-        # _wait_for_process (terminal commands) can fire heartbeats.
-        # The callback is thread-local; the main thread's callback
-        # is invisible to worker threads.
+        # 在此工作线程上设置活动回调，以便
+        # _wait_for_process（终端命令）可以触发心跳。
+        # 该回调是线程局部的；主线程的回调
+        # 对工作线程不可见。
         try:
             from tools.environments.base import set_activity_callback
             set_activity_callback(agent._touch_activity)
         except Exception:
             pass
-        # Approval/sudo callbacks (thread-local) and the agent turn's
-        # ContextVars are propagated by propagate_context_to_thread() at the
-        # submit site below (GHSA-qg5c-hvr5-hjgr, #13617).
+        # 审批/sudo 回调（线程局部）以及 agent 轮次的
+        # ContextVars 会通过下方提交位置处的 propagate_context_to_thread()
+        # 进行传播（GHSA-qg5c-hvr5-hjgr, #13617）。
         start = time.time()
         try:
             try:
@@ -635,12 +634,12 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                 logger.info("tool %s completed (%.2fs, %d chars)", function_name, duration, len(result))
             results[index] = (function_name, function_args, result, duration, is_error, False, middleware_trace)
         finally:
-            # Tear down worker-tid tracking.  Clear any interrupt bit we may
-            # have set so the next task scheduled onto this recycled tid
-            # starts with a clean slate.  This MUST be in a finally block
-            # because BaseException subclasses (CancelledError, KeyboardInterrupt)
-            # bypass ``except Exception`` and would otherwise leak the tid
-            # into _interrupted_threads, poisoning the recycled thread.
+            # 清理 worker-tid 跟踪。清除我们可能已设置的
+            # 任何中断标志，以便调度到该复用 tid 的下一个任务
+            # 能在一个全新的状态下开始。这必须放在 finally 块中，
+            # 因为 BaseException 的子类（CancelledError、KeyboardInterrupt）
+            # 会绕过 ``except Exception``，否则会导致 tid 泄露
+            # 到 _interrupted_threads 中，从而污染这个被复用的线程。
             with agent._tool_worker_threads_lock:
                 agent._tool_worker_threads.discard(_worker_tid)
             try:
@@ -668,11 +667,11 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
         deadline = time.monotonic() + timeout_s if timeout_s is not None else None
         if runnable_calls:
             max_workers = min(len(runnable_calls), _MAX_TOOL_WORKERS)
-            # Daemon workers: an interrupted/timed-out batch is abandoned with
-            # shutdown(wait=False), but stdlib ThreadPoolExecutor workers are
-            # non-daemon and registered in concurrent.futures' atexit hook,
-            # which joins them unconditionally — so one wedged tool thread
-            # would block interpreter exit forever (multi-minute CLI exits).
+            # 守护工作线程：被中断或超时的批处理任务可通过
+            # shutdown(wait=False) 被放弃，但标准库 ThreadPoolExecutor
+            # 的工作线程是非守护的，并注册在了 concurrent.futures 的 atexit 钩子中，
+            # 该钩子会无条件地阻塞等待（join）它们 —— 因此一个卡住的工具线程
+            # 将会永远阻塞解释器的退出（导致长达数分钟的 CLI 退出过程）。
             from tools.daemon_pool import DaemonThreadPoolExecutor
             executor = DaemonThreadPoolExecutor(max_workers=max_workers)
             abandon_executor = False
@@ -714,11 +713,11 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                     futures.append(f)
                     future_to_index[f] = i
 
-                # Wait for all to complete with periodic heartbeats so the
-                # gateway's inactivity monitor doesn't kill us during long
-                # concurrent tool batches. Also check for user interrupts
-                # so we don't block indefinitely when the user sends /stop
-                # or a new message during concurrent tool execution.
+                # 等待所有任务完成并发送周期性心跳，以免
+                # 网关的非活动状态监视器在长时间的
+                # 并发工具批处理期间终止我们。同时检查用户中断，
+                # 这样在并发工具执行期间，当用户发送 /stop 或
+                # 新消息时，我们就不会无限期地阻塞。
                 _conc_start = time.time()
                 _interrupt_logged = False
                 while True:
@@ -770,11 +769,11 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                                 pass
                         break
 
-                    # Check for interrupt — the per-thread interrupt signal
-                    # already causes individual tools (terminal, execute_code)
-                    # to abort, but tools without interrupt checks (web_search,
-                    # read_file) will run to completion. Cancel any futures
-                    # that haven't started yet so we don't block on them.
+                    # 检查中断 — 单个线程的中断信号
+                    # 已经会导致各个工具（终端、执行代码）
+                    # 中止，但没有中断检查的工具（网络搜索、
+                    # 读取文件）仍会运行至完成。取消所有
+                    # 尚未开始的 Future 任务，以便我们不会在其上被阻塞。
                     if agent._interrupt_requested:
                         abandon_executor = True
                         if not _interrupt_logged:
@@ -804,11 +803,11 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                             f"{len(not_done)} remaining: {', '.join(_still_running[:3])})"
                         )
             finally:
-                # On abandon (interrupt or deadline) we intentionally do NOT
-                # join hung workers: wait=False returns immediately and
-                # cancel_futures drops queued-but-unstarted work. A wedged tool
-                # thread is left running detached — the deliberate tradeoff vs.
-                # deadlocking the whole batch. Normal completion joins (wait=True).
+                # 在放弃执行（中断或超时）时，我们特意不
+                # 等待（join）卡死的work线程：wait=False 会立即返回，
+                # cancel_futures 则会丢弃已排队但未开始的任务。卡住的工具
+                # 线程会被留下来在后台分离运行 —— 这是相对于
+                # 导致整个批处理死锁所做出的权衡决策。正常完成时则会等待（wait=True）。
                 executor.shutdown(
                     wait=not abandon_executor,
                     cancel_futures=abandon_executor,
@@ -824,10 +823,10 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
     for i, (tc, name, args, middleware_trace, block_result, blocked_by_guardrail) in enumerate(parsed_calls):
         r = results[i]
         blocked = False
-        # A worker can finish and write results[i] in the window between the
-        # deadline snapshot (timed_out_indices, taken from not_done) and this
-        # loop. Prefer that real result over a fabricated timeout message — the
-        # tool genuinely succeeded, just slightly late.
+        # 工作线程可能在超时时间快照（timed_out_indices，提取自 not_done）
+        # 与此循环之间的窗口期内完成并写入 results[i]。
+        # 相比于伪造的超时消息，更倾向于使用该真实结果 ——
+        # 工具确实成功执行了，只是稍微晚了一点。
         effect_disposition = None
         if i in timed_out_indices and r is None:
             suffix = f"{timeout_s:.1f}s" if timeout_s is not None else "the configured timeout"
@@ -895,9 +894,9 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                 result_preview = _err_text[:200] if len(_err_text) > 200 else _err_text
                 logger.warning("Tool %s returned error (%.2fs): %s", function_name, tool_duration, result_preview)
 
-            # Track file-mutation outcome for the turn-end verifier.
-            # `blocked` calls never actually ran — don't let a guardrail
-            # block count as either a failure or a success.
+            # 追踪本次对话轮次的终点验证器的文件修改结果。
+            # `blocked`（已被拦截）的调用实际上从未运行 —— 不要将安全护栏的
+            # 拦截算作失败或成功。
             if not blocked:
                 try:
                     agent._record_file_mutation_result(
@@ -960,14 +959,14 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
             else:
                 function_result += subdir_hints
 
-        # Unwrap _multimodal dicts to an OpenAI-style content list so any
-        # vision-capable provider receives [{type:text},{type:image_url}]
-        # rather than a raw Python dict.  The Anthropic adapter already
-        # accepts content lists; vision-capable OpenAI-compatible servers
-        # (mlx-vlm, GPT-4o, …) accept image_url in tool messages natively.
-        # Text-only servers get a string-safe fallback here so a rejected
-        # image tool result never poisons canonical session history.
-        # String results pass through unchanged.
+        # 将 _multimodal 字典解包为 OpenAI 风格的 content 列表，以便任何
+        # 支持视觉的提供商接收 [{type:text},{type:image_url}]，
+        # 而不是原始的 Python 字典。Anthropic 适配器已经
+        # 接受 content 列表；支持视觉的 OpenAI 兼容服务器
+        # （mlx-vlm、GPT-4o 等）原生支持在工具消息中使用 image_url。
+        # 纯文本服务器在此处获得字符串安全的降级方案，从而避免被拒的
+        # 图像工具结果污染规范的会话历史记录。
+        # 字符串结果将保持不变并直接传递。
         _tool_content = agent._tool_result_content_for_active_model(name, function_result)
         tool_message = make_tool_result_message(
             name,
@@ -1149,9 +1148,8 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             agent._current_tool = function_name
             agent._touch_activity(f"executing tool: {function_name}")
 
-        # Set activity callback for long-running tool execution (terminal
-        # commands, etc.) so the gateway's inactivity monitor doesn't kill
-        # the agent while a command is running.
+        # 为长时间运行的工具执行（终端命令等）设置活动回调，
+        # 这样网关的闲置监视器就不会在命令运行期间杀死智能体。
         if not _execution_blocked:
             try:
                 from tools.environments.base import set_activity_callback
@@ -1557,15 +1555,14 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             result_preview = function_result
             _result_len = len(str(function_result))
 
-        # Log tool errors to the persistent error log so [error] tags
-        # in the UI always have a corresponding detailed entry on disk.
+        # 将工具错误记录到持久化错误日志中，以便 UI 中的 [error] 标签
+        # 在磁盘上始终有对应的详细条目。
         _is_error_result, _ = _detect_tool_failure(function_name, function_result)
-        # The agent-runtime tools above (todo, session_search, memory,
-        # context-engine, memory-manager, clarify, delegate_task) are
-        # dispatched inline — they never reach handle_function_call, so the
-        # executor is the one that has to fire post_tool_call. For
-        # registry-dispatched tools the else-branch above invoked
-        # handle_function_call, which already fires the hook.
+        # 上方的 agent-runtime 工具（todo、session_search、memory、context-engine、memory-manager、clarify、delegate_task）是
+        # 是内联调度的 — 它们永远不会到达 handle_function_call，因此必须由
+        # 执行器（executor）来触发 post_tool_call。对于
+        # 注册表调度的工具，上方的前置分支会调用
+        # handle_function_call，该函数已经会触发此钩子。
         from agent.agent_runtime_helpers import agent_runtime_owns_post_tool_hook
         _executor_must_emit_post_hook = (
             not _execution_blocked
@@ -1597,10 +1594,9 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
         else:
             logger.info("tool %s completed (%.2fs, %d chars)", function_name, tool_duration, _result_len)
 
-        # Track file-mutation outcome for the turn-end verifier.  See
-        # the concurrent path for the rationale; both paths must feed
-        # the same state so the footer reflects every tool call in the
-        # turn, not just the parallel ones.
+        # 跟踪轮次结束校验器（turn-end verifier）的文件修改（file-mutation）结果。
+        # 原理说明见并发路径；两条路径都必须填充相同的状态，
+        # 以便页脚能够反映该轮次中的每一次工具调用，而不仅仅是并行调用的那些。
         if not _execution_blocked:
             try:
                 agent._record_file_mutation_result(
@@ -1642,7 +1638,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             config=_tool_budget,
         ) if not _is_multimodal_tool_result(function_result) else function_result
 
-        # Discover subdirectory context files from tool arguments
+        # 从工具参数中搜索/发现子目录上下文文件
         subdir_hints = agent._subdirectory_hints.check_tool_call(function_name, function_args)
         if subdir_hints:
             if _is_multimodal_tool_result(function_result):
@@ -1650,8 +1646,8 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             else:
                 function_result += subdir_hints
 
-        # Unwrap _multimodal dicts to an OpenAI-style content list
-        # (see parallel path for rationale). String results pass through.
+        # 将 _multimodal 字典拆包为 OpenAI 风格的内容列表
+        # （原理参见并行路径）。字符串结果直接穿透通过。
         _tool_content = agent._tool_result_content_for_active_model(function_name, function_result)
         tool_message = make_tool_result_message(function_name, _tool_content, tool_call.id)
         messages.append(tool_message)
@@ -1678,10 +1674,10 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             stage=f"tool result {function_name}",
         )
 
-        # ── Per-tool /steer drain ───────────────────────────────────
-        # Drain pending steer BETWEEN individual tool calls so the
-        # injection lands as soon as a tool finishes — not after the
-        # entire batch.  The model sees it on the next API iteration.
+        # ── 每个工具执行后的 /steer 排空 ───────────────────────────
+        # 在各个工具调用之间排空挂起的 steer 消息，以便
+        # 注入内容能在工具一完成时立刻生效 — 而不是等到
+        # 整个批次全部结束。模型会在下一次 API 迭代中看到它。
         agent._apply_pending_steer_to_tool_results(messages, 1)
 
         if not agent.quiet_mode and getattr(agent, "tool_progress_mode", "all") != "off":

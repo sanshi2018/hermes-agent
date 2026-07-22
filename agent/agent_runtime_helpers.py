@@ -2149,11 +2149,11 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
                  pre_tool_block_checked: bool = False,
                  skip_tool_request_middleware: bool = False,
                  tool_request_middleware_trace: Optional[List[Dict[str, Any]]] = None) -> str:
-    """Invoke a single tool and return the result string. No display logic.
+    """调用单个工具并返回结果字符串。不包含任何显示逻辑。
 
-    Handles both agent-level tools (todo, memory, etc.) and registry-dispatched
-    tools. Used by the concurrent execution path; the sequential path retains
-    its own inline invocation for backward-compatible display handling.
+    同时处理 Agent 层级的工具（如 todo、memory 等）以及注册表分发的
+    工具。由并发执行路径使用；顺序路径保留
+    其现有的内联调用，以实现向下兼容的显示处理。
     """
     if not isinstance(function_args, dict):
         function_args = {}
@@ -3112,18 +3112,18 @@ def extract_api_error_context(error: Exception) -> Dict[str, Any]:
 
 
 def apply_pending_steer_to_tool_results(agent, messages: list, num_tool_msgs: int) -> None:
-    """Append any pending /steer text to the last tool result in this turn.
+    """将任何待处理的 /steer 文本追加到本轮次的最后一个工具结果中。
 
-    Called at the end of a tool-call batch, before the next API call.
-    The steer is appended to the last ``role:"tool"`` message's content
-    with a clear marker so the model understands it came from the user
-    and NOT from the tool itself. Role alternation is preserved —
-    nothing new is inserted, we only modify existing content.
+    在工具调用批次结束时、下一次 API 调用之前被调用。
+    Steer 文本会被追加到最后一个 ``role:"tool"`` 消息的内容中，
+    并带有清晰的标记，以便模型明白它来自用户，
+    而不是来自工具本身。角色交替关系（Role alternation）得以保留 —
+    不会插入任何新消息，我们仅修改现有内容。
 
-    Args:
-        messages: The running messages list.
-        num_tool_msgs: Number of tool results appended in this batch;
-            used to locate the tail slice safely.
+    参数：
+        messages：正在运行的消息列表。
+        num_tool_msgs：本批次中追加的工具结果数量；
+            用于安全地定位尾部切片（tail slice）。
     """
     if num_tool_msgs <= 0 or not messages:
         return

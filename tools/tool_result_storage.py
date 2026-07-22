@@ -149,22 +149,22 @@ def maybe_persist_tool_result(
     config: BudgetConfig = DEFAULT_BUDGET,
     threshold: int | float | None = None,
 ) -> str:
-    """Layer 2: persist oversized result into the sandbox, return preview + path.
+    """第 2 层：将过大的结果持久化保存至沙盒中，并返回预览与路径。
 
-    Writes via env.execute() so the file is accessible from any backend
-    (local, Docker, SSH, Modal, Daytona). Falls back to inline truncation
-    if write fails or no env is available.
+    通过 env.execute() 进行写入，以便可以从任何后端（本地、Docker、
+    SSH、Modal、Daytona）访问该文件。如果写入失败或没有可用的 env，
+    则降级采用内联截断。
 
-    Args:
-        content: Raw tool result string.
-        tool_name: Name of the tool (used for threshold lookup).
-        tool_use_id: Unique ID for this tool call (used as filename).
-        env: The active BaseEnvironment instance, or None.
-        config: BudgetConfig controlling thresholds and preview size.
-        threshold: Explicit override; takes precedence over config resolution.
+    参数：
+        content: 原始工具结果字符串。
+        tool_name: 工具名称（用于阈值查找）。
+        tool_use_id: 此工具调用的唯一 ID（用作文件名）。
+        env: 当前活动的 BaseEnvironment 实例，或 None。
+        config: 控制阈值和预览大小的 BudgetConfig。
+        threshold: 显式覆盖值；优先级高于 config 的解析结果。
 
-    Returns:
-        Original content if small, or <persisted-output> replacement.
+    返回：
+        若内容较小则返回原始 content，否则返回 <persisted-output> 替换文本。
     """
     effective_threshold = threshold if threshold is not None else config.resolve_threshold(tool_name)
 
@@ -205,13 +205,12 @@ def enforce_turn_budget(
     env=None,
     config: BudgetConfig = DEFAULT_BUDGET,
 ) -> list[dict]:
-    """Layer 3: enforce aggregate budget across all tool results in a turn.
+    """第 3 层：在单个轮次的所有工具结果中强制执行总预算限制。
 
-    If total chars exceed budget, persist the largest non-persisted results
-    first (via sandbox write) until under budget. Already-persisted results
-    are skipped.
+    如果总字符数超过预算，优先持久化保存未持久化的最大结果
+    （通过沙盒写入），直到低于预算。已持久化的结果将被跳过。
 
-    Mutates the list in-place and returns it.
+    就地（in-place）修改列表并将其返回。
     """
     candidates = []
     total_size = 0

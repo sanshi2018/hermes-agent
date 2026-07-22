@@ -37,9 +37,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 logger = logging.getLogger("tools.tool_search")
 
 
-# Bridge tool names. These names are reserved and may not collide with a
-# user/plugin/MCP tool — registration of any tool with these names is
-# rejected by the registry's existing override-protection logic.
+# 桥接工具名称。这些名称已被保留，不得与用户/插件/MCP 工具冲突
+# — 注册任何带有这些名称的工具都会被注册表的现有覆盖保护逻辑拒绝。
 TOOL_SEARCH_NAME = "tool_search"
 TOOL_DESCRIBE_NAME = "tool_describe"
 TOOL_CALL_NAME = "tool_call"
@@ -161,12 +160,12 @@ def _core_tool_names() -> frozenset[str]:
 
 
 def is_deferrable_tool_name(name: str) -> bool:
-    """Return True if a tool with this name is *eligible* for deferral.
+    """若指定名称的工具 *具备* 延迟加载资格，则返回 True。
 
-    A tool is deferrable iff it is registered with an MCP toolset prefix
-    OR it is not in ``_HERMES_CORE_TOOLS``. Core tools are never deferred
-    even when their toolset is technically plugin-provided (this protects
-    against accidental shadowing).
+    当且仅当工具注册时带有 MCP 工具前缀，或者其不属于
+    ``_HERMES_CORE_TOOLS`` 时，该工具才是可延迟加载的。
+    核心工具即便在技术上是由插件提供的工具集所包含，也绝不会被延迟加载
+    （这可以防止意外的名称遮蔽）。
     """
     if name in BRIDGE_TOOL_NAMES:
         return False
@@ -187,11 +186,11 @@ def is_deferrable_tool_name(name: str) -> bool:
 
 
 def classify_tools(tool_defs: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Split a tool-defs list into (visible, deferrable).
+    """将工具定义列表拆分为 (visible, deferrable)。
 
-    ``visible`` retains every tool that must stay in the model-facing array:
-    every core tool, plus any tool we can't classify. ``deferrable`` is the
-    candidate set for catalog entry.
+    ``visible`` 保留所有必须保留在面向模型数组中的工具：
+    所有核心工具，以及任何无法分类的工具。``deferrable`` 是
+    目录条目的候选集。
     """
     visible: List[Dict[str, Any]] = []
     deferrable: List[Dict[str, Any]] = []
@@ -287,12 +286,12 @@ def _tokenize(text: str) -> List[str]:
 
 
 def _entry_search_text(td: Dict[str, Any]) -> str:
-    """Build the search-text blob for a deferrable tool.
+    """构建可延迟工具的搜索文本块（search-text blob）。
 
-    Includes the tool name (with underscores broken into words so BM25 can
-    match against query terms), the description, and the names of the
-    top-level parameters. Schema bodies are deliberately excluded —
-    indexing them adds noise without improving recall in our measurement.
+    包含工具名称（将下划线拆分为单词，以便 BM25 可以与
+    查询词进行匹配）、描述以及顶层参数的名称。
+    刻意排除了模式（Schema）主体 — 在我们的测试中，对其建立索引
+    只会增加噪声，而不会提高召回率。
     """
     fn = td.get("function") or {}
     name = fn.get("name", "")
@@ -319,10 +318,10 @@ def _classify_source(name: str) -> Tuple[str, str]:
 
 
 def build_catalog(tool_defs: List[Dict[str, Any]]) -> List[CatalogEntry]:
-    """Build the deferred-tool catalog from a tool-defs list.
+    """从工具定义列表中构建延迟工具目录。
 
-    Caller is expected to pass only the deferrable subset (``classify_tools``
-    returns it as the second element).
+    期望调用方仅传入可延迟的子集（``classify_tools``
+    将其作为第二个元素返回）。
     """
     catalog: List[CatalogEntry] = []
     for td in tool_defs:
@@ -348,11 +347,11 @@ def _bm25_score(query_tokens: List[str], doc_tokens: List[str],
                 doc_lengths: List[int], avg_dl: float,
                 doc_freq: Dict[str, int], n_docs: int,
                 k1: float = 1.5, b: float = 0.75) -> float:
-    """Standard BM25 score for one query against one document.
+    """单个查询针对单个文档的标准 BM25 得分。
 
-    Inlined small implementation rather than adding a dependency. Performance
-    is fine — the catalog is bounded by N (tools) typically < 500, and we
-    score against the in-memory tokens list.
+    内联了小型的实现方式，而不是额外添加依赖项。性能
+    表现良好 — 目录受限于 N（工具数量），通常 < 500，且我们
+    是在针对内存中的 Token 列表进行打分。
     """
     if not doc_tokens:
         return 0.0
@@ -376,23 +375,25 @@ def _bm25_score(query_tokens: List[str], doc_tokens: List[str],
 
 
 def search_catalog(catalog: List[CatalogEntry], query: str, limit: int = 5) -> List[CatalogEntry]:
-    """Return the top-``limit`` catalog entries for ``query`` by BM25.
+    """按 BM25 返回针对 ``query`` 的前 ``limit`` 个目录条目。
 
-    Falls back to a stable name-substring match when BM25 yields no hits
-    above zero. That ensures a query like ``"github"`` against a catalog
-    where every tool is named ``github_*`` still returns results — BM25
-    can underperform when query and document share only one token that
-    appears in every document (zero IDF).
+    当 BM25 没有产生大于 0 的命中结果时，降级使用稳定的名称子字符串匹配。
+    这可以确保像 ``"github"`` 这样的查询在面对每个工具都命名为 ``github_*``的目录时仍能返回结果 —
+    当查询和文档仅共享一个出现在每个文档中的标记（zero IDF，零逆文档频率）时，BM25 的效果可能会较差。
     """
     if not catalog or limit <= 0:
         return []
+    # 只保留数字，字母
     query_tokens = _tokenize(query)
     if not query_tokens:
         return []
 
     # Precompute doc statistics.
+    # 文档长度数组
     doc_lengths = [len(e._tokens) for e in catalog]
+    # 平均长度
     avg_dl = sum(doc_lengths) / max(len(doc_lengths), 1)
+    # 字母频率表
     doc_freq: Dict[str, int] = {}
     for e in catalog:
         seen = set(e._tokens)
@@ -424,12 +425,17 @@ def search_catalog(catalog: List[CatalogEntry], query: str, limit: int = 5) -> L
 
 
 def bridge_tool_schemas(deferred_count: int) -> List[Dict[str, Any]]:
-    """Build the bridge tool schemas to inject in place of deferred tools.
+    """构建用于替换延迟工具的桥接工具模式（schema）。
 
-    The schemas are intentionally short — every byte added here is a byte
-    the user pays on every turn. Descriptions are tuned to be unambiguous
-    about the call sequence the model should follow.
+    这些模式刻意保持简短 — 这里增加的每一个字节，都是用户在
+    每一轮对话中都要付出的成本。描述经过了调优，确保模型应该
+    遵循的调用顺序毫无歧义。
     """
+    # f"搜索按需加载的 {deferred_count} 个附加工具。"
+    # f"返回最多 `limit` 个匹配项的名称和描述。随后使用 "
+    # f"`{TOOL_DESCRIBE_NAME}` 加载工具的完整参数模式（schema），"
+    # f"然后使用 `{TOOL_CALL_NAME}` 调用它。系统提示词顶部列出的工具"
+    # "已经可用，无需再进行搜索。"
     desc_search = (
         f"Search {deferred_count} additional tools that are loaded on demand. "
         "Returns up to ``limit`` matches with name and description. Follow "
@@ -437,10 +443,15 @@ def bridge_tool_schemas(deferred_count: int) -> List[Dict[str, Any]]:
         f"then `{TOOL_CALL_NAME}` to invoke it. Tools listed at the top of this "
         "system prompt are already available and do not need to be searched."
     )
+    # f"加载由 `{TOOL_SEARCH_NAME}` 返回的某个工具的完整 JSON 模式（schema）。"
+    # f"如果工具的参数未知，则在 `{TOOL_CALL_NAME}` 之前必须先调用此项。"
     desc_describe = (
         f"Load the full JSON schema for one tool returned by `{TOOL_SEARCH_NAME}`. "
         f"Required before `{TOOL_CALL_NAME}` if the tool's parameters are unknown."
     )
+    # f"使用给定的参数按名称调用延迟工具。参数结构"
+    # f"与工具的模式（schema）匹配（参见 `{TOOL_DESCRIBE_NAME}`）。策略、钩子（hooks）"
+    # f"和批准流程的运行方式与任何直接列出的工具完全相同。"
     desc_call = (
         "Invoke a deferred tool by name with the given arguments. Argument shape "
         f"matches the tool's schema (see `{TOOL_DESCRIBE_NAME}`). Policy, hooks, "
@@ -532,16 +543,15 @@ def assemble_tool_defs(
     context_length: Optional[int] = None,
     config: Optional[ToolSearchConfig] = None,
 ) -> AssemblyResult:
-    """Return the tool-defs list the model should actually see.
+    """返回模型实际应该看到的工具定义列表。
 
-    When tool search is inactive (off, no deferrable tools, or below
-    threshold), this is a passthrough. When active, MCP and plugin tools
-    are stripped from the visible list and replaced with the three bridge
-    tools. Core tools are *never* deferred regardless of config.
+    当工具搜索处于不活跃状态（关闭、无延迟工具或低于阈值）时，
+    此函数直接透传。处于活跃状态时，MCP 和插件工具将从可见列表中剔除，
+    并替换为三个桥接工具。无论配置如何，核心工具*绝不*被延迟。
 
-    Idempotent: calling with bridge tools already in the input is a no-op
-    (they classify as non-core/non-deferrable but their names are reserved,
-    so they are filtered out of the deferrable set).
+    幂等性：使用输入中已包含桥接工具的列表调用时属于空操作
+    （它们被归类为非核心/不可延迟工具，但其名称已被保留，
+    因此它们会被从延迟工具集合中过滤掉）。
     """
     if config is None:
         config = load_config()
@@ -658,16 +668,14 @@ def dispatch_tool_describe(args: Dict[str, Any],
 
 
 def scoped_deferrable_names(tool_defs: List[Dict[str, Any]]) -> frozenset[str]:
-    """Return the set of deferrable tool names present in ``tool_defs``.
+    """返回 ``tool_defs`` 中存在的延迟加载（deferrable）工具名称集合。
 
-    ``tool_defs`` is expected to be the *pre-assembly* tool list for the
-    current session's toolset scope (i.e. what
-    ``get_tool_definitions(skip_tool_search_assembly=True)`` returns for the
-    session's enabled/disabled toolsets). The resulting set is the universe of
-    tools the session may legitimately reach through ``tool_call``. Used as a
-    scoping gate by both the ``model_tools`` bridge dispatch and the
-    ``tool_executor`` unwrap so a restricted-toolset session can never invoke
-    an out-of-scope tool via the bridge.
+    ``tool_defs`` 预期为当前会话工具集范围内的*组装前（pre-assembly）*
+    工具列表（即 ``get_tool_definitions(skip_tool_search_assembly=True)``
+    为该会话已启用/已禁用的工具集所返回的内容）。最终得到的集合是该会话
+    可以通过 ``tool_call`` 合理触达的工具全集。它被 ``model_tools``
+    桥接分发（bridge dispatch）和 ``tool_executor`` 解包（unwrap）共同用作
+    作用域把关，从而确保受限制工具集的会话永远无法通过桥接器调用超出作用域的工具。
     """
     names: set[str] = set()
     for td in tool_defs:
@@ -678,14 +686,14 @@ def scoped_deferrable_names(tool_defs: List[Dict[str, Any]]) -> frozenset[str]:
 
 
 def resolve_underlying_call(args: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any], Optional[str]]:
-    """Parse a ``tool_call`` invocation into (underlying_name, args, error_msg).
+    """将 ``tool_call`` 调用解析为 (underlying_name, args, error_msg)。
 
-    Used by:
-    * the dispatcher in ``model_tools.handle_function_call``,
-    * the display layer (so the activity feed shows the underlying tool),
-    * the trajectory recorder.
+    用于：
+    * ``model_tools.handle_function_call`` 中的分发器（dispatcher），
+    * 显示层（以便活动动态/活动流展示底层调用的工具），
+    * 轨迹记录器（trajectory recorder）。
 
-    On parse error, returns ``(None, {}, error_message)``.
+    发生解析错误时，返回 ``(None, {}, error_message)``。
     """
     name = str(args.get("name") or "").strip()
     if not name:

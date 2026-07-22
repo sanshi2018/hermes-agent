@@ -283,31 +283,30 @@ def get_tool_definitions(
     skip_tool_search_assembly: bool = False,
 ) -> List[Dict[str, Any]]:
     """
-    Get tool definitions for model API calls with toolset-based filtering.
+    获取用于模型 API 调用的工具定义，并基于工具集（toolset）进行过滤。
 
-    All tools must be part of a toolset to be accessible.
+    所有工具必须属于某个工具集才能被访问。
 
-    Args:
-        enabled_toolsets: Only include tools from these toolsets.
-        disabled_toolsets: Exclude tools from these toolsets (if enabled_toolsets is None).
-        quiet_mode: Suppress status prints.
-        skip_tool_search_assembly: When True, return the pre-assembly tool list
-            (raw schemas for every enabled tool). Used internally by the
-            tool_search / tool_describe bridge handlers so they can read the
-            real catalog, not the already-collapsed one. Public callers should
-            leave this False.
+    参数：
+        enabled_toolsets:仅包含来自这些工具集的工具。
+        disabled_toolsets: 排除来自这些工具集的工具（在 enabled_toolsets 为 None 时生效）。
+        quiet_mode: 静默模式，抑制状态打印。
+        skip_tool_search_assembly: 为 True 时，返回组装前的原始工具列表
+            （即每个已启用工具的原始 schema）。由
+            tool_search / tool_describe 桥接句柄在内部使用，以便它们可以读取
+            真实的目录，而不是已被折叠（collapsed）的目录。外部/公开调用者应
+            保持其为 False。
 
-    Returns:
-        Filtered list of OpenAI-format tool definitions.
+    返回：
+        过滤后的 OpenAI 格式工具定义列表。
     """
-    # Fast path: memoized result when the caller doesn't need stdout prints.
-    # The cache key captures every argument-level input; the registry
-    # generation captures registry mutations (MCP refresh, plugin load).
-    # check_fn results are TTL-cached one level down, inside
-    # registry.get_definitions. The config-mtime fingerprint below captures
-    # user-visible config edits that affect dynamic schemas (execute_code
-    # mode, discord action allowlist, etc.) without needing an explicit
-    # invalidate hook on every config-writer.
+    # 快速路径：当调用方不需要 stdout 打印时的备忘化（memoized）结果。
+    # 缓存键捕获了每个参数级别的输入；注册表的
+    # 代际（generation）捕获了注册表的变更（MCP 刷新、插件加载）。
+    # check_fn 的结果在下一层（即 registry.get_definitions 内部）按 TTL 进行缓存。
+    # 下方的 config-mtime 指纹捕获了
+    # 影响动态 schema 的用户可见配置修改（如 execute_code
+    # 模式、discord 动作白名单等），而无需在每个配置写入方上附加显式的无效化钩子（invalidate hook）。
     if quiet_mode:
         try:
             from hermes_cli.config import get_config_path
@@ -337,16 +336,16 @@ def get_tool_definitions(
     result = _compute_tool_definitions(enabled_toolsets, disabled_toolsets, quiet_mode,
                                        skip_tool_search_assembly=skip_tool_search_assembly)
     if quiet_mode:
-        # Cache the freshly-computed list, but hand callers a shallow copy so
-        # downstream mutations (e.g. run_agent appending memory/LCM tool
-        # schemas to self.tools) don't poison the cache. Without this, a
-        # long-lived Gateway process accumulates duplicate tool names across
-        # agent inits and providers that enforce unique tool names
-        # (DeepSeek, Xiaomi MiMo, Moonshot Kimi) reject the request with
-        # HTTP 400. Mirrors the cache-hit path above. (issue #17335)
-        # Bound the cache with LRU eviction so a long-lived Gateway process
-        # doesn't accumulate entries unboundedly across the many distinct
-        # toolset/config fingerprints it sees over its lifetime (#19251).
+        # 缓存最新计算出来的列表，但向调用方提供一份浅拷贝（shallow copy），以使
+        # 下游的修改（例如 run_agent 将 memory/LCM 工具的
+        # schema 追加到 self.tools）不会污染缓存。如果不这样做，
+        # 长期运行的 Gateway 进程会在多次 Agent 初始化过程中积累重复的工具名称，
+        # 导致对工具名称唯一性有强制要求的提供商
+        # （DeepSeek、小米 MiMo、月之暗面 Kimi）拒绝请求并返回
+        # HTTP 400。此处逻辑与上方的缓存命中（cache-hit）路径保持一致。(issue #17335)
+        # 通过 LRU 淘汰机制对缓存设定上限，防止长期运行的 Gateway 进程
+        # 在其生命周期内遇到众多不同的
+        # 工具集/配置指纹时，无节制地积累缓存条目 (#19251)。
         if len(_tool_defs_cache) >= _TOOL_DEFS_CACHE_MAX:
             _tool_defs_cache.pop(next(iter(_tool_defs_cache)))  # evict oldest
         _tool_defs_cache[cache_key] = result
@@ -360,8 +359,8 @@ def _compute_tool_definitions(
     quiet_mode: bool = False,
     skip_tool_search_assembly: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Uncached implementation of :func:`get_tool_definitions`."""
-    # Determine which tool names the caller wants
+    """:func:`get_tool_definitions` 的未缓存实现。"""
+    # 确定调用方需要的工具名称
     tools_to_include: set = set()
 
     if enabled_toolsets is not None:
@@ -392,21 +391,21 @@ def _compute_tool_definitions(
         for ts_name in get_all_toolsets():
             tools_to_include.update(resolve_toolset(ts_name))
 
-    # Always apply disabled toolsets as a subtraction step at the end.
-    # This ensures that even if a composite toolset (like hermes-cli)
-    # is enabled, any tools belonging to a disabled toolset are strictly
-    # stripped out. See issue #17309.
+    # 始终将禁用工具集（disabled toolsets）作为最后的扣除步骤来应用。
+    # 这确保了即使启用了复合工具集（例如 hermes-cli），
+    # 属于禁用工具集的任何工具也都会被严格剥离掉。
+    # 参见 issue #17309。
     if disabled_toolsets:
         for toolset_name in disabled_toolsets:
             if validate_toolset(toolset_name):
                 from toolsets import bundle_non_core_tools, get_toolset
                 if toolset_name.startswith("hermes-") or (get_toolset(toolset_name) or {}).get("posture"):
-                    # Platform bundles (hermes-*) include _HERMES_CORE_TOOLS, and
-                    # posture toolsets (`posture: True`, e.g. `coding`) re-list
-                    # those same core tools without owning them, so subtracting
-                    # the whole toolset would strip core tools shared by other
-                    # enabled toolsets and empty the tool list (#33924, #57315).
-                    # Subtract only the non-core delta; keep core.
+                    # 平台包（hermes-*）包含 _HERMES_CORE_TOOLS，且
+                    # 姿态工具集（`posture: True`，例如 `coding`）重新列出了
+                    # 这些相同的核心工具但并不拥有它们，因此直接减去
+                    # 整个工具集会剥离掉其他已启用工具集所共享的核心工具，
+                    # 从而导致工具列表变空（#33924、#57315）。
+                    # 仅减去非核心的增量部分（non-core delta）；保留核心工具。
                     to_remove = bundle_non_core_tools(toolset_name)
                     tools_to_include.difference_update(to_remove)
                     resolved = sorted(to_remove)
@@ -435,25 +434,25 @@ def _compute_tool_definitions(
             elif not quiet_mode:
                 print(f"⚠️  Unknown toolset: {toolset_name}")
 
-    # Plugin-registered tools are now resolved through the normal toolset
-    # path — validate_toolset() / resolve_toolset() / get_all_toolsets()
-    # all check the tool registry for plugin-provided toolsets.  No bypass
-    # needed; plugins respect enabled_toolsets / disabled_toolsets like any
-    # other toolset.
+    # 由插件注册的工具现在统一通过常规工具集
+    # 路径进行解析 —— validate_toolset() / resolve_toolset() / get_all_toolsets()
+    # 均会检查工具注册表中由插件提供的工具集。不再需要旁路（bypass）
+    # 处理；插件会与其他工具集一样，严格遵循
+    # enabled_toolsets / disabled_toolsets 的配置。
 
-    # Ask the registry for schemas (only returns tools whose check_fn passes)
+    # 向注册表请求 schema（仅返回通过 check_fn 检查的工具）
     filtered_tools = registry.get_definitions(tools_to_include, quiet=quiet_mode)
 
-    # The set of tool names that actually passed check_fn filtering.
-    # Use this (not tools_to_include) for any downstream schema that references
-    # other tools by name — otherwise the model sees tools mentioned in
-    # descriptions that don't actually exist, and hallucinates calls to them.
+    # 实际通过 check_fn 过滤的工具名称集合。
+    # 对于任何按名称引用其他工具的下游 schema，请使用此集合
+    # （而非 tools_to_include）—— 否则模型会在描述中看到
+    # 实际上并不存在的工具，并对其产生幻觉调用。
     available_tool_names = {t["function"]["name"] for t in filtered_tools}
 
-    # Rebuild execute_code schema to only list sandbox tools that are actually
-    # available.  Without this, the model sees "web_search is available in
-    # execute_code" even when the API key isn't configured or the toolset is
-    # disabled (#560-discord).
+    # 重构 execute_code schema，仅列出实际可用的
+    # 沙箱工具。如果不这样做，即使 API 密钥未配置或工具集已被
+    # 禁用，模型仍会看到“web_search 在 execute_code 中可用”
+    # (#560-discord)。
     if "execute_code" in available_tool_names:
         from tools.code_execution_tool import SANDBOX_ALLOWED_TOOLS, build_execute_code_schema, _get_execution_mode
         sandbox_enabled = SANDBOX_ALLOWED_TOOLS & available_tool_names
@@ -463,11 +462,11 @@ def _compute_tool_definitions(
                 filtered_tools[i] = {"type": "function", "function": dynamic_schema}
                 break
 
-    # Rebuild discord / discord_admin schemas based on the bot's privileged
-    # intents (detected from GET /applications/@me) and the user's action
-    # allowlist in config.  Hides actions the bot's intents don't support so
-    # the model never attempts them, and annotates fetch_messages when the
-    # MESSAGE_CONTENT intent is missing.
+    # 基于 Bot 的特权 Intent（通过 GET /applications/@me 检测）
+    # 和配置中用户的动作白名单（action allowlist），重构 discord / discord_admin
+    # 的 schema。隐藏 Bot Intent 不支持的动作，从而使模型
+    # 永远不会尝试它们；并在缺少 MESSAGE_CONTENT Intent 时
+    # 为 fetch_messages 添加标注。
     _discord_schema_fns = {
         "discord": "get_dynamic_schema_core",
         "discord_admin": "get_dynamic_schema_admin",
@@ -492,10 +491,10 @@ def _compute_tool_definitions(
                         filtered_tools[i] = {"type": "function", "function": dynamic}
                         break
 
-    # Strip web tool cross-references from browser_navigate description when
-    # web_search / web_extract are not available.  The static schema says
-    # "prefer web_search or web_extract" which causes the model to hallucinate
-    # those tools when they're missing.
+    # 当 web_search / web_extract 不可用时，从 browser_navigate
+    # 描述中移除对 Web 工具的交叉引用（cross-references）。静态
+    # schema 中写有“优先使用 web_search 或 web_extract”，这在这些工具
+    # 缺失时会导致模型对它们产生幻觉。
     if "browser_navigate" in available_tool_names:
         web_tools_available = {"web_search", "web_extract"} & available_tool_names
         if not web_tools_available:
@@ -522,28 +521,28 @@ def _compute_tool_definitions(
     global _last_resolved_tool_names
     _last_resolved_tool_names = [t["function"]["name"] for t in filtered_tools]
 
-    # Sanitize schemas for broad backend compatibility. llama.cpp's
-    # json-schema-to-grammar converter (used by its OAI server to build
-    # GBNF tool-call parsers) rejects some shapes that cloud providers
-    # silently accept — bare "type": "object" with no properties,
-    # string-valued schema nodes from malformed MCP servers, etc. This
-    # is a no-op for schemas that are already well-formed.
+    # 清理 schema 以实现广泛的后端兼容性。llama.cpp 的
+    # json-schema-to-grammar 转换器（其 OAI 服务用它来构建
+    # GBNF 工具调用解析器）会拒绝某些云服务商会隐式接受的
+    # 格式 —— 例如不带 properties 的裸 "type": "object"、
+    # 来自异常 MCP 服务器的字符串值 schema 节点等。对于
+    # 本身已经规范的 schema，此操作无任何副作用（no-op）。
     try:
         from tools.schema_sanitizer import sanitize_tool_schemas
         filtered_tools = sanitize_tool_schemas(filtered_tools)
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("Schema sanitization skipped: %s", e)
 
-    # ── Tool Search (progressive disclosure) ────────────────────────────
-    # Conditionally replace MCP + plugin (non-core) tools with three bridge
-    # tools (tool_search / tool_describe / tool_call) when the deferrable
-    # surface exceeds the configured threshold (default 10% of context
-    # window). Core Hermes tools (toolsets._HERMES_CORE_TOOLS) are NEVER
-    # deferred. See tools/tool_search.py for full design notes.
+    # ── 工具搜索（渐进式披露 / progressive disclosure） ────────────────────────────
+    # 当可延迟加载（deferrable）的工具规模超过配置的阈值（默认为上下文窗口的
+    # 10%）时，有条件地将 MCP + 插件（非核心）工具替换为三个桥接
+    # 工具（tool_search / tool_describe / tool_call）。Hermes 核心工具
+    # （toolsets._HERMES_CORE_TOOLS）绝不会被延迟加载。完整设计说明
+    # 请参见 tools/tool_search.py。
     #
-    # This is deliberately the last step before returning — sanitization
-    # has already normalized schemas, and the assembly is idempotent in
-    # case some caller invokes get_tool_definitions twice.
+    # 这特意安排在返回之前的最后一步 —— 模式清理（sanitization）
+    # 已经对 schema 进行了规范化处理，且该组装过程具备幂等性（idempotent），
+    # 以防某些调用方多次调用 get_tool_definitions。
     try:
         from tools.tool_search import assemble_tool_defs, load_config as _load_ts_config
         ts_cfg = _load_ts_config()
@@ -568,10 +567,10 @@ def _compute_tool_definitions(
 
 
 def _resolve_active_context_length() -> int:
-    """Look up the active model's context length for the tool-search gate.
+    """查找用于工具搜索门槛（tool-search gate）的当前模型上下文长度。
 
-    Returns 0 when the model can't be resolved — ``should_activate`` falls
-    back to a fixed token cutoff in that case.
+    当无法解析模型时返回 0 —— 在这种情况下，``should_activate``
+    会回退到一个固定的 Token 截断值。
     """
     try:
         from hermes_cli.config import load_config as _load
@@ -583,10 +582,10 @@ def _resolve_active_context_length() -> int:
         if not model_id:
             return 0
         from agent.model_metadata import get_model_context_length
-        # Honor explicit `model.context_length` in config.yaml — short-circuits
-        # the OpenRouter /models probe at get_model_context_length step 0, so
-        # non-OpenRouter providers don't pay the ~2-3s OpenRouter fetch at every
-        # CLI startup.  See issue #46620.
+        # 优先使用 config.yaml 中显式指定的 `model.context_length` —
+        # 在 get_model_context_length 的第 0 步直接短路跳过 OpenRouter /models 探针，
+        # 这样非 OpenRouter 提供商就不会在每次 CLI 启动时白白耗费
+        # 约 2-3 秒的 OpenRouter 获取时间。参见 issue #46620。
         raw_ctx = model_cfg.get("context_length")
         config_ctx = raw_ctx if isinstance(raw_ctx, int) and raw_ctx > 0 else None
         return int(get_model_context_length(model_id, config_context_length=config_ctx) or 0)
@@ -654,22 +653,21 @@ def _sanitize_tool_error(error_msg: str) -> str:
 # =========================================================================
 
 def coerce_tool_args(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-    """Coerce tool call arguments to match their JSON Schema types.
+    """强制转换工具调用参数以符合其 JSON 模式（schema）类型。
 
-    LLMs frequently return numbers as strings (``"42"`` instead of ``42``)
-    and booleans as strings (``"true"`` instead of ``true``).  This compares
-    each argument value against the tool's registered JSON Schema and attempts
-    safe coercion when the value is a string but the schema expects a different
-    type.  Original values are preserved when coercion fails.
+    大语言模型经常将数字作为字符串返回（如用 ``"42"`` 代替 ``42``），
+    将布尔值作为字符串返回（如用 ``"true"`` 代替 ``true``）。本函数会将
+    每个参数值与工具已注册的 JSON 模式进行比对，并在值为字符串但模式
+    期望其他类型时尝试进行安全类型转换。转换失败时保留原始值。
 
-    Handles ``"type": "integer"``, ``"type": "number"``, ``"type": "boolean"``,
-    and union types (``"type": ["integer", "string"]``).
+    支持处理 ``"type": "integer"``、``"type": "number"``、``"type": "boolean"``
+    以及联合类型（``"type": ["integer", "string"]``）。
 
-    Also wraps bare scalar values in a single-element list when the schema
-    declares ``"type": "array"``.  Open-weight models (DeepSeek, Qwen, GLM)
-    sometimes emit ``{"urls": "https://a.com"}`` when the tool expects
-    ``{"urls": ["https://a.com"]}``; wrapping here avoids a confusing tool
-    failure on what is otherwise a well-formed call.
+    此外，当模式声明为 ``"type": "array"`` 时，本函数还会将单独的标量值
+    包裹进单元素列表中。开源权重模型（DeepSeek、Qwen、GLM）
+    在工具期望 ``{"urls": ["https://a.com"]}`` 时，有时会输出
+    ``{"urls": "https://a.com"}``；在此处进行包裹处理可避免调用的格式
+    原本符合预期却引发令人困惑的工具失败问题。
     """
     if not args or not isinstance(args, dict):
         return args
@@ -688,13 +686,13 @@ def coerce_tool_args(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             continue
         expected = prop_schema.get("type")
 
-        # Wrap bare non-list values when the schema declares ``array``.
-        # Strings still go through _coerce_value first so JSON-encoded
-        # arrays (``'["a","b"]'``) get parsed and nullable ``"null"``
-        # becomes ``None`` rather than ``["null"]``.
-        # ``None`` itself is preserved — we don't know whether the model
-        # meant "omit" or "empty list", and tools with sensible defaults
-        # (e.g. read_file's normalize_read_pagination) already handle it.
+        # 当模式（schema）声明为 ``array`` 时包裹非列表的单独值。
+        # 字符串仍会先经过 _coerce_value 处理，这样 JSON 编码的
+        # 数组（``'["a","b"]'``）会被解析，且可空的 ``"null"``
+        # 会变成 ``None`` 而不是 ``["null"]``。
+        # ``None`` 本身会被保留 — 我们无法确定模型是想表达
+        # “省略”还是“空列表”，且具有合理默认值的工具
+        # （例如 read_file 的 normalize_read_pagination）自身已经处理了该情况。
         if expected == "array" and value is not None and not isinstance(value, (list, tuple)):
             if isinstance(value, str):
                 coerced = _coerce_value(value, expected, schema=prop_schema)
@@ -727,12 +725,11 @@ def coerce_tool_args(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             continue
 
         if not isinstance(value, str):
-            # Recurse into already-native containers so JSON-encoded
-            # *elements* (array items) and *sub-fields* (nested object
-            # properties) get normalized too — e.g. ``todos: ['{"id":...}']``
-            # or ``tasks: [{"goal": "..."}]`` where an element was emitted as
-            # a JSON string. The top-level coercion above only repairs the
-            # outermost value.
+            # 递归进入已经是原生容器的结构中，以便对 JSON 编码的
+            # *元素*（数组项）和 *子字段*（嵌套对象属性）也进行规范化处理
+            # — 例如当某个元素被作为 JSON 字符串输出时的 ``todos: ['{"id":...}']``
+            # 或 ``tasks: [{"goal": "..."}]``。
+            # 上方的顶层强制转换仅修复最外层的值。
             if expected == "array" and isinstance(value, (list, tuple)):
                 args[key] = _normalize_json_strings_for_schema(value, prop_schema)
             elif expected == "object" and isinstance(value, dict):
@@ -773,25 +770,24 @@ def _schema_accepts_kind(schema: Any, kind: str) -> bool:
 
 
 def _normalize_json_strings_for_schema(value: Any, schema: Any) -> Any:
-    """Recursively parse JSON-encoded string values that a schema expects to
-    be arrays or objects, including nested array items and object properties.
+    """递归解析模式（schema）期望为数组或对象的 JSON 编码字符串值，
+    包括嵌套的数组项和对象属性。
 
-    Open-weight models (DeepSeek, Qwen, GLM, and others) sometimes emit a
-    structured field — or an *element* of a structured field — as a
-    JSON-encoded string instead of a native value. The top-level
-    :func:`coerce_tool_args` pass repairs the outermost value; this helper
-    walks the rest of the tree so cases like::
+    开源权重模型（DeepSeek、Qwen、GLM 等）有时会把结构化字段 —
+    或者结构化字段中的某个*元素* — 输出为 JSON 编码的字符串，
+    而不是原生值。顶层的 :func:`coerce_tool_args` 流程只修复了最外层的值；
+    本辅助函数则遍历树的其余部分，因此像::
 
         {"todos": ["{\\"id\\": \\"1\\", \\"content\\": \\"x\\"}"]}
 
-    (a list whose elements are JSON strings) and nested object sub-fields are
-    repaired too. Parsing is schema-guided: a string is only parsed when the
-    matching schema position actually expects an array or object, so
-    legitimate JSON-looking string fields (``type: string``) are preserved.
+    （其元素为 JSON 字符串的列表）以及嵌套对象的子字段等情况也能得到修复。
+    解析是由模式引导的：只有当对应的模式位置实际上期望数组或对象时，
+    字符串才会被解析，因此合法的、看起来像 JSON 的字符串字段（``type: string``）
+    会被保留。
 
-    Ported from cline/cline#11803, adapted to hermes-agent's coercion layer.
-    Returns the original value object when nothing changed (identity preserved
-    so callers can cheaply detect no-ops).
+    移植自 cline/cline#11803，并适配了 hermes-agent 的强制转换层。
+    当没有任何改变时返回原始值对象（保留标识一致性，
+    以便调用方可以低成本地检测出空操作）。
     """
     if not isinstance(schema, dict):
         return value
@@ -1039,40 +1035,40 @@ def handle_function_call(
     disabled_toolsets: Optional[List[str]] = None,
 ) -> str:
     """
-    Main function call dispatcher that routes calls to the tool registry.
+    将调用路由至工具注册表的主函数调用调度器。
 
-    Args:
-        function_name: Name of the function to call.
-        function_args: Arguments for the function.
-        task_id: Unique identifier for terminal/browser session isolation.
-        user_task: The user's original task (for browser_snapshot context).
-        enabled_tools: Tool names enabled for this session.  When provided,
-                       execute_code uses this list to determine which sandbox
-                       tools to generate.  Falls back to the process-global
-                       ``_last_resolved_tool_names`` for backward compat.
-        enabled_toolsets: The session's enabled toolsets.  Used to scope the
-                       Tool Search bridge catalog so ``tool_search`` /
-                       ``tool_describe`` / ``tool_call`` only see and invoke
-                       tools the session was actually granted.  ``None`` means
-                       "no restriction" (the caller scopes to every toolset),
-                       matching ``get_tool_definitions`` semantics.
-        disabled_toolsets: The session's disabled toolsets, applied as a
-                       subtraction when scoping the bridge catalog.
+    参数：
+        function_name: 要调用的函数名称。
+        function_args: 函数的参数。
+        task_id: 用于终端/浏览器会话隔离的唯一标识符。
+        user_task: 用户的原始任务（用于 browser_snapshot 上下文）。
+        enabled_tools: 为此会话启用的工具名称列表。当提供时，
+                       execute_code 会使用此列表来决定要生成哪些沙盒
+                       工具。为了向下兼容，可退回使用进程全局的
+                       ``_last_resolved_tool_names``。
+        enabled_toolsets: 会话启用的工具集。用于限定工具搜索（Tool Search）
+                       桥接目录的作用域，使得 ``tool_search`` /
+                       ``tool_describe`` / ``tool_call`` 仅能看到和调用
+                       该会话实际被授予的工具。``None`` 表示
+                       “无限制”（调用方限定为所有工具集），
+                       与 ``get_tool_definitions`` 的语义保持一致。
+        disabled_toolsets: 会话禁用的工具集，在限定桥接目录作用域时
+                       作为减项应用。
 
-    Returns:
-        Function result as a JSON string.
+    返回：
+        JSON 字符串格式的函数结果。
     """
-    # Coerce string arguments to their schema-declared types (e.g. "42"→42)
+    # 强制将字符串参数转换为其模式（schema）声明的类型（例如 "42"→42）
     function_args = coerce_tool_args(function_name, function_args)
     if not isinstance(function_args, dict):
         function_args = {}
     _tool_middleware_trace = list(tool_request_middleware_trace or [])
 
-    # ── Tool Search bridge dispatch ──────────────────────────────────
-    # tool_search and tool_describe are pure catalog reads — handle them
-    # inline. tool_call is unwrapped to the underlying tool so that every
-    # downstream hook (pre/post, edit approval, guardrails) sees the real
-    # tool name, not the bridge.
+    # ── 工具搜索（Tool Search）桥接调度 ──────────────────────────────
+    # tool_search 和 tool_describe 是纯粹的目录读取操作 — 在内联中
+    # 进行处理。tool_call 会解包为底层的实际工具，以便所有
+    # 下游钩子（pre/post、编辑批准、安全护栏）看到的都是真实的
+    # 工具名称，而非桥接工具。
     _ts_mod = None
     try:
         from tools import tool_search as _ts_mod  # noqa: F401
@@ -1081,19 +1077,15 @@ def handle_function_call(
 
     if _ts_mod is not None and _ts_mod.is_bridge_tool(function_name):
         try:
-            # Use skip_tool_search_assembly=True so we see the real catalog,
-            # not the already-collapsed bridge-only list (the bridge would
-            # otherwise be searching only itself).
+            # 使用 skip_tool_search_assembly=True，以便我们看到真实的目录，
+            # 而非已经被收拢且仅含桥接工具的列表（否则桥接工具将只能搜索其自身）。
             #
-            # Scope the catalog to the session's toolsets so the bridge can
-            # only surface and invoke tools the session was actually granted.
-            # Without this, a restricted-toolset session (subagent, kanban
-            # worker, curated gateway session) would see and be able to call
-            # the entire process registry via the bridge. Passing the same
-            # enabled/disabled toolsets the session was assembled with keeps
-            # the deferred catalog identical to the deferrable subset of the
-            # session's own tool list, and avoids polluting the process-global
-            # _last_resolved_tool_names with out-of-scope tools.
+            # 将目录作用域限定为会话的工具集，以便桥接工具只能露出并调用该会话实际被授予的工具。
+            # 如果不这样做，被限制工具集的会话（子 agent、看板工作线程、精选网关会话）将能通过桥接工具看到并调用
+            # 整个进程注册表中的所有工具。传入与组装该会话时完全相同的
+            # enabled/disabled 工具集，可使延迟目录与该会话自身工具列表的
+            # 可延迟子集保持一致，并能避免将作用域之外的工具
+            # 污染到进程全局的 _last_resolved_tool_names 中。
             current_defs = get_tool_definitions(
                 enabled_toolsets=enabled_toolsets,
                 disabled_toolsets=disabled_toolsets,

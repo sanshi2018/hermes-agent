@@ -388,12 +388,12 @@ def redact_browser_typed_text_for_display(value: Any, typed_text: Any) -> Any:
 
 
 def redact_tool_args_for_display(tool_name: str, args: dict | None) -> dict | None:
-    """Return a copy of tool args safe for logs/progress UI.
+    """返回一个可安全用于日志/进度 UI 的工具参数副本。
 
-    For ``browser_type`` the ``text`` argument is run through the same
-    secret-pattern redactor used for logs.  Recognizable credentials (API
-    keys, tokens) are masked before the value reaches tool progress
-    notifications; normal typed text is left intact for debuggability.
+    对于 ``browser_type``，其 ``text`` 参数会通过与日志相同的
+    密钥模式脱敏器（secret-pattern redactor）进行处理。可识别的凭据（API 密钥、
+    Token）会在该值进入工具进度通知之前被掩码屏蔽；
+    普通输入的文本则保持原样以供调试。
     """
     if not isinstance(args, dict):
         return args
@@ -1218,12 +1218,12 @@ def _trim_error(msg: str) -> str:
 
 
 def _detect_tool_failure(tool_name: str, result: str | None) -> tuple[bool, str]:
-    """Inspect a tool result string for signs of failure.
+    """检查工具结果字符串是否存在失败迹象。
 
-    Returns ``(is_failure, suffix)`` where *suffix* is a short informational
-    tag like ``" [exit 1]"`` for terminal failures, ``" [full]"`` for memory
-    overflow, or a trimmed error message (``" [File not found: foo.py]"``).
-    On success returns ``(False, "")``.
+    返回 ``(is_failure, suffix)``，其中 *suffix* 是一个简短的信息标识，
+    例如终端失败时的 ``" [exit 1]"``，内存溢出时的 ``" [full]"``，
+    或者裁剪后的错误信息（``" [File not found: foo.py]"``）。
+    成功时返回 ``(False, "")``。
     """
     if result is None:
         return False, ""

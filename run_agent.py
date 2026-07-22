@@ -795,16 +795,16 @@ class AIAgent:
         return switch_model(self, new_model, new_provider, api_key, base_url, api_mode)
 
     def _safe_print(self, *args, **kwargs):
-        """Print that silently handles broken pipes / closed stdout.
+        """静默处理断开的管道（broken pipe）或已关闭的标准输出（stdout）的打印函数。
 
-        In headless environments (systemd, Docker, nohup) stdout may become
-        unavailable mid-session.  A raw ``print()`` raises ``OSError`` which
-        can crash cron jobs and lose completed work.
+        在无头环境（systemd、Docker、nohup）中，标准输出可能会在
+        会话中途变得不可用。原始的 ``print()`` 会抛出 ``OSError``，
+        这可能会导致定时任务（cron jobs）崩溃并丢失已完成的工作。
 
-        Internally routes through ``self._print_fn`` (default: builtin
-        ``print``) so callers such as the CLI can inject a renderer that
-        handles ANSI escape sequences properly (e.g. prompt_toolkit's
-        ``print_formatted_text(ANSI(...))``) without touching this method.
+        内部通过 ``self._print_fn``（默认值：内置的
+        ``print``）进行路由，因此 CLI 等调用方可以注入能够
+        妥善处理 ANSI 转义序列的渲染器（例如 prompt_toolkit 的
+        ``print_formatted_text(ANSI(...))``），而无需修改此方法。
         """
         try:
             fn = self._print_fn or print
@@ -813,23 +813,23 @@ class AIAgent:
             pass
 
     def _vprint(self, *args, force: bool = False, **kwargs):
-        """Verbose print — suppressed when actively streaming tokens.
+        """详细打印信息 — 在主动流式传输 token 时会被抑制。
 
-        Pass ``force=True`` for error/warning messages that should always be
-        shown even during streaming playback (TTS or display).
+        对于即便在流式播放（TTS 或显示）期间也应当始终
+        显示的错误/警告消息，请传递 ``force=True``。
 
-        During tool execution (``_executing_tools`` is True), printing is
-        allowed even with stream consumers registered because no tokens
-        are being streamed at that point.
+        在工具执行期间（``_executing_tools`` 为 True），即便注册了
+        流式消费者也允许打印，因为此时并没有
+        token 在被流式传输。
 
-        After the main response has been delivered and the remaining tool
-        calls are post-response housekeeping (``_mute_post_response``),
-        all non-forced output is suppressed.
+        当主响应已交付且剩余的工具
+        调用属于响应后的收尾工作时（``_mute_post_response``），
+        所有非强制的输出都将被抑制。
 
-        ``suppress_status_output`` is a stricter CLI automation mode used by
-        parseable single-query flows such as ``hermes chat -q``. In that mode,
-        all status/diagnostic prints routed through ``_vprint`` are suppressed
-        so stdout stays machine-readable.
+        ``suppress_status_output`` 是一种更严格的 CLI 自动化模式，用于
+        诸如 ``hermes chat -q`` 等可解析的单次查询流程。在该模式下，
+        所有路由经过 ``_vprint`` 的状态/诊断打印都会被抑制，
+        以保持标准输出（stdout）处于机器可读的状态。
         """
         if getattr(self, "suppress_status_output", False):
             return
@@ -1450,17 +1450,17 @@ class AIAgent:
 
     def _has_content_after_think_block(self, content: str) -> bool:
         """
-        Check if content has actual text after any reasoning/thinking blocks.
+        检查内容在剔除所有推理/思考块（reasoning/thinking blocks）后是否包含实际文本。
 
-        This detects cases where the model only outputs reasoning but no actual
-        response, which indicates an incomplete generation that should be retried.
-        Must stay in sync with _strip_think_blocks() tag variants.
+        这用于检测模型仅输出了推理过程而没有输出实际
+        响应的情况，这表明生成不完整，应当进行重试。
+        必须与 _strip_think_blocks() 的标签变体保持同步。
 
-        Args:
-            content: The assistant message content to check
+        参数：
+            content: 要检查的助手（assistant）消息内容
 
-        Returns:
-            True if there's meaningful content after think blocks, False otherwise
+        返回：
+            若思考块之后存在有意义的内容则返回 True，否则返回 False
         """
         if not content:
             return False
@@ -2814,13 +2814,12 @@ class AIAgent:
         result: Any,
         is_error: bool,
     ) -> None:
-        """Record a ``write_file`` / ``patch`` outcome for the turn-end verifier.
+        """为轮次结束校验器（turn-end verifier）记录 ``write_file`` / ``patch`` 的结果。
 
-        On failure, store ``{path: {error_preview, tool}}`` entries.  On
-        success, remove any prior failure entries for the same paths (the
-        model recovered within the turn).  Silently no-ops if the per-turn
-        state dict hasn't been initialised yet (e.g. a tool dispatched
-        outside ``run_conversation``).
+        失败时，存储 ``{path: {error_preview, tool}}`` 条目。
+        成功时，移除相同路径之前的所有失败条目（模型在该轮次内已恢复/修复）。
+        如果每轮状态字典（per-turn state dict）尚未初始化（例如在 ``run_conversation``
+        之外调度的工具），则默默地不作任何操作（no-op）。
         """
         if tool_name not in _FILE_MUTATING_TOOLS:
             return
@@ -3073,13 +3072,12 @@ class AIAgent:
         return apply_pending_steer_to_tool_results(self, messages, num_tool_msgs)
 
     def _touch_activity(self, desc: str) -> None:
-        """Update the last-activity timestamp and description (thread-safe).
+        """更新最后活动时间戳和描述（线程安全）。
 
-        Also bridges to the kanban board's heartbeat fields when this
-        process is a dispatcher-spawned worker (HERMES_KANBAN_TASK set),
-        so the dispatcher watchdog doesn't reclaim an actively-running
-        worker as stale (#31752). Bridge is rate-limited (60s) and
-        best-effort — it never raises into the agent loop.
+        当此进程是调度程序（dispatcher）派生的工作线程（HERMES_KANBAN_TASK 已设置）时，
+        还会桥接到看板的心跳字段，从而使调度程序看门狗（watchdog）不会将正在积极运行的
+        工作线程误判为过期并进行回收 (#31752)。该桥接进行了频率限制（60秒）
+        且为尽力而为（best-effort）模式 — 绝不会向 Agent 循环抛出异常。
         """
         self._last_activity_ts = time.time()
         self._last_activity_desc = desc
@@ -3792,13 +3790,13 @@ class AIAgent:
 
     @staticmethod
     def _cap_delegate_task_calls(tool_calls: list) -> list:
-        """Truncate excess delegate_task calls to max_concurrent_children.
+        """截断超出 max_concurrent_children 数量的 delegate_task 调用。
 
-        The delegate_tool caps the task list inside a single call, but the
-        model can emit multiple separate delegate_task tool_calls in one
-        turn.  This truncates the excess, preserving all non-delegate calls.
+        delegate_tool 在单次调用内部限制了任务列表的数量，但
+        模型可能会在单次轮次（turn）中发出多个独立的 delegate_task 工具调用（tool_calls）。
+        本函数会截断多余的调用，同时保留所有非委托类（non-delegate）调用。
 
-        Returns the original list if no truncation was needed.
+        如果不需要截断，则返回原始列表。
         """
         from tools.delegate_tool import _get_max_concurrent_children
         max_children = _get_max_concurrent_children()
@@ -3823,10 +3821,10 @@ class AIAgent:
 
     @staticmethod
     def _deduplicate_tool_calls(tool_calls: list) -> list:
-        """Remove duplicate (tool_name, arguments) pairs within a single turn.
+        """移除单次轮次（turn）中重复的 (tool_name, arguments) 对。
 
-        Only the first occurrence of each unique pair is kept.
-        Returns the original list if no duplicates were found.
+        仅保留每个唯一对的首次出现。
+        如果未发现重复项，则返回原始列表。
         """
         seen: set = set()
         unique: list = []
@@ -5070,13 +5068,13 @@ class AIAgent:
         return transformed
 
     def _tool_result_content_for_active_model(self, tool_name: str, result: Any) -> Any:
-        """Return the tool message content that is safe for the active model.
+        """返回对当前活动模型安全的工具消息内容。
 
-        Multimodal tool results normally unwrap to OpenAI-style content parts so
-        vision-capable models can inspect screenshots.  Text-only providers must
-        not receive those image parts, because a rejected tool result becomes
-        part of the canonical history and can make the next user turn fail before
-        the agent has a chance to recover.
+        多模态工具结果通常会拆包为 OpenAI 风格的内容部分（content parts），
+        以便具有视觉能力的模型可以检查截图。纯文本提供商（text-only providers）
+        绝不能接收这些图像部分，因为一个被拒绝的工具结果会成为
+        规范历史记录（canonical history）的一部分，并可能导致下一个用户轮次
+        在 Agent 甚至还来不及恢复/纠错之前就发生失败。
         """
         if not _is_multimodal_tool_result(result):
             return result
@@ -5086,10 +5084,10 @@ class AIAgent:
             return content
 
         if self._model_supports_vision():
-            # Vision-capable on paper — but if the provider rejects list-type
-            # tool content (e.g. Xiaomi MiMo's 400 "text is not set"), or if
-            # we've already learned this lesson in-session, short-circuit to
-            # a text summary so we don't burn a round-trip relearning it.
+            # 理论上具备视觉能力 — 但如果提供商拒绝列表类型的
+            # 工具内容（例如小米 MiMo 的 400 "text is not set"），或者如果
+            # 我们已在当前会话中汲取过这一教训，则直接短路降级为
+            # 文本摘要，以免通过重新尝试学习来浪费一次往返时间（round-trip）。
             if not self._provider_supports_vision_tool_messages():
                 logger.debug(
                     "Tool %s: provider %s does not accept list-type tool "
@@ -5113,6 +5111,10 @@ class AIAgent:
 
         summary = _multimodal_text_summary(result)
         if tool_name == "computer_use":
+            # "computer_use 返回了截图/图像内容，但当前"
+            # "活动模型/提供商不支持图像输入。请切换至"
+            # "具备视觉能力的模型以进行桌面电脑使用（computer use），或使用"
+            # "浏览器工具来处理浏览器任务。"
             return json.dumps({
                 "error": (
                     "computer_use returned screenshot/image content, but the active "

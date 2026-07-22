@@ -143,13 +143,13 @@ _check_fn_cache_lock = threading.Lock()
 
 
 def _check_fn_cached(fn: Callable) -> bool:
-    """Return bool(fn()), TTL-cached across calls.
+    """返回 bool(fn())，并在跨多次调用间进行 TTL 缓存。
 
-    Exceptions are swallowed as False. A transient False/exception within
-    ``_CHECK_FN_FAILURE_GRACE_SECONDS`` of the last True is suppressed (the
-    last-good True is returned and the failure is NOT cached, so the next call
-    re-probes) to keep flaky external checks (Docker daemon busy, socket
-    contention, probe timeout) from silently stripping tools mid-session.
+    发生异常会被当作 False 吞掉。在距离上一次返回 True 的
+    ``_CHECK_FN_FAILURE_GRACE_SECONDS`` 秒内发生的短暂 False 或异常会被抑制
+    （返回上一次有效的 True，且该失败不会被缓存，因此下一次调用会
+    重新探测），以防止不稳定的外部检查（如 Docker 守护进程繁忙、套接字
+    竞争、探测超时）在会话中途悄悄移除工具。
     """
     now = time.monotonic()
     with _check_fn_cache_lock:
@@ -519,20 +519,19 @@ class ToolRegistry:
     # ------------------------------------------------------------------
 
     def get_definitions(self, tool_names: Set[str], quiet: bool = False) -> List[dict]:
-        """Return OpenAI-format tool schemas for the requested tool names.
+        """根据请求的工具名称返回 OpenAI 格式的工具 schema。
 
-        Only tools whose ``check_fn()`` returns True (or have no check_fn)
-        are included. ``check_fn()`` results are cached for ~30 s via
-        :func:`_check_fn_cached` to amortize repeat probes (check_terminal_
-        requirements probes modal/docker, browser checks probe playwright,
-        etc.); TTL chosen so env-var changes (``hermes tools enable foo``)
-        still take effect in near-real-time without forcing a full cache
-        flush on every call.
+        仅包含 ``check_fn()`` 返回 True（或未设定 check_fn）的
+        工具。``check_fn()`` 的结果会通过 :func:`_check_fn_cached`
+        缓存约 30 秒，以平摊重复探测的开销（如 check_terminal_
+        requirements 探测 modal/docker，浏览器检查探测 playwright
+        等）；选择此 TTL（生存时间）是为了让环境变量的变更
+        （如 ``hermes tools enable foo``）仍能在近乎实时的情况下生效，
+        同时无需在每次调用时都强制进行完整的缓存刷新。
         """
         result = []
-        # Per-call cache on top of the 30 s TTL — handles repeat probes of the
-        # same check_fn within one definitions pass without re-reading the
-        # TTL clock.
+        # 基于 30 秒 TTL 之上的单次调用级缓存 —— 用于在单次定义构建流程中
+        # 处理对同一个 check_fn 的重复探测，无需再次读取 TTL 时钟。
         check_results: Dict[Callable, bool] = {}
         entries_by_name = {entry.name: entry for entry in self._snapshot_entries()}
         for name in sorted(tool_names):
@@ -548,11 +547,11 @@ class ToolRegistry:
                     continue
             # Ensure schema always has a "name" field — use entry.name as fallback
             schema_with_name = {**entry.schema, "name": entry.name}
-            # Apply runtime-dynamic overrides (e.g. delegate_task description
-            # depends on current delegation.max_concurrent_children /
-            # max_spawn_depth). Caller side (model_tools.get_tool_definitions)
-            # already keys its memo on config.yaml mtime + size, so changes
-            # to delegation.* in config invalidate the cache automatically.
+            # 应用运行时动态重写（例如 delegate_task 的描述
+            # 取决于当前的 delegation.max_concurrent_children /
+            # max_spawn_depth）。调用方（model_tools.get_tool_definitions）
+            # 已经根据 config.yaml 的 mtime + size 对其备忘（memo）进行了键控，
+            # 因此 config 中 delegation.* 的更改会自动使缓存失效。
             if entry.dynamic_schema_overrides is not None:
                 try:
                     overrides = entry.dynamic_schema_overrides()

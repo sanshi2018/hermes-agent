@@ -55,27 +55,28 @@ DELEGATE_BLOCKED_TOOLS = frozenset(
 
 
 # ---------------------------------------------------------------------------
-# Subagent approval callbacks
+# 子代理审批回调
 # ---------------------------------------------------------------------------
-# Subagents run inside a ThreadPoolExecutor worker. The CLI's interactive
-# approval callback is stored in tools/terminal_tool.py's threading.local(),
-# so worker threads do NOT inherit it. Without a callback,
-# prompt_dangerous_approval() falls back to input() from the worker thread,
-# which deadlocks against the parent's prompt_toolkit TUI that owns stdin.
+# 子代理运行在 ThreadPoolExecutor 工作线程内部。CLI 的交互式
+# 审批回调存储在 tools/terminal_tool.py 的 threading.local() 中，
+# 因此工作线程不会继承它。如果没有回调，
+# prompt_dangerous_approval() 会在工作线程中回退使用 input()，
+# 这会与占用 stdin 的父级 prompt_toolkit TUI 发生死锁。
 #
-# Fix: install a non-interactive callback into every subagent worker thread
-# via ThreadPoolExecutor(initializer=_set_subagent_approval_cb, initargs=(cb,)).
-# The callback is chosen by the `delegation.subagent_auto_approve` config:
-#   false (default) → _subagent_auto_deny (safe; matches leaf tool blocklist)
-#   true            → _subagent_auto_approve (opt-in YOLO for cron/batch)
-# Both emit a logger.warning for audit; gateway sessions are unaffected
-# because they resolve approvals via tools/approval.py's per-session queue,
-# not through these TLS callbacks.
+# 修复方案：通过
+# ThreadPoolExecutor(initializer=_set_subagent_approval_cb, initargs=(cb,))
+# 向每个子代理工作线程安装一个非交互式回调。
+# 该回调由 `delegation.subagent_auto_approve` 配置决定：
+#   false（默认） → _subagent_auto_deny（安全；与叶子工具黑名单一致）
+#   true            → _subagent_auto_approve（适用于 cron/批处理的选择性开启 YOLO 模式）
+# 两者都会记录 logger.warning 用于审计；网关会话不受影响，
+# 因为它们是通过 tools/approval.py 的按会话（per-session）队列来解析审批，
+# 而不是通过这些 TLS（线程局部存储）回调。
 def _subagent_auto_deny(command: str, description: str, **kwargs) -> str:
-    """Auto-deny dangerous commands in subagent threads (safe default).
+    """在子代理（subagent）线程中自动拒绝危险命令（安全默认值）。
 
-    Returns 'deny' so the subagent sees a refusal it can recover from, and
-    never calls input() (which would deadlock the parent TUI).
+    返回 'deny'，以使子代理看到可以从中恢复的拒绝通知，且
+    绝不调用 input()（调用它会导致父级 TUI 死锁）。
     """
     logger.warning(
         "Subagent auto-denied dangerous command: %s (%s). "
@@ -86,10 +87,10 @@ def _subagent_auto_deny(command: str, description: str, **kwargs) -> str:
 
 
 def _subagent_auto_approve(command: str, description: str, **kwargs) -> str:
-    """Auto-approve dangerous commands in subagent threads (opt-in YOLO).
+    """在子代理（subagent）线程中自动批准危险命令（选择性开启 YOLO 模式）。
 
-    Only installed when delegation.subagent_auto_approve=true. Returns 'once'
-    so the subagent proceeds without blocking the parent UI.
+    仅在 delegation.subagent_auto_approve=true 时安装。返回 'once'
+    以使子代理可以在不阻塞父级 UI 的情况下继续运行。
     """
     logger.warning(
         "Subagent auto-approved dangerous command: %s (%s)",
@@ -99,11 +100,11 @@ def _subagent_auto_approve(command: str, description: str, **kwargs) -> str:
 
 
 def _get_subagent_approval_callback():
-    """Return the callback to install into subagent worker threads.
+    """返回要安装到子代理（subagent）工作线程中的回调函数。
 
-    Config key: delegation.subagent_auto_approve (bool, default False).
-    Reads via the same _load_config() path as the rest of delegate_task so
-    priority is config.yaml > (no env override for this knob) > default.
+    配置键：delegation.subagent_auto_approve（bool，默认值 False）。
+    通过与 delegate_task 其余部分相同的 _load_config() 路径读取，因此
+    优先级为 config.yaml >（此开关无环境变量覆盖）> 默认值。
     """
     cfg = _load_config()
     val = cfg.get("subagent_auto_approve", False)
@@ -352,13 +353,14 @@ def _normalize_role(r: Optional[str]) -> str:
 
 
 def _get_max_concurrent_children() -> int:
-    """Read delegation.max_concurrent_children from config, falling back to
-    DELEGATION_MAX_CONCURRENT_CHILDREN env var, then the default (3).
+    """从配置中读取 delegation.max_concurrent_children，
+    未配置时降级使用环境变量 DELEGATION_MAX_CONCURRENT_CHILDREN，
+    再未配置则使用默认值（3）。
 
-    Users can raise this as high as they want; only the floor (1) is enforced.
+    用户可以将其调至任意高值；仅强制约束下限（1）。
 
-    Uses the same ``_load_config()`` path that the rest of ``delegate_task``
-    uses, keeping config priority consistent (config.yaml > env > default).
+    使用与 ``delegate_task`` 其余部分相同的 ``_load_config()`` 路径，
+    以保持配置优先级的一致性（config.yaml > 环境变量 > 默认值）。
     """
     cfg = _load_config()
     val = cfg.get("max_concurrent_children")
@@ -465,19 +467,19 @@ def _get_child_timeout() -> Optional[float]:
 
 
 def _get_max_spawn_depth() -> int:
-    """Read delegation.max_spawn_depth from config, floored at 1 (no ceiling).
+    """从配置中读取 delegation.max_spawn_depth，下限为 1（无上限）。
 
-    depth 0 = parent agent.  max_spawn_depth = N means agents at depths
-    0..N-1 can spawn; depth N is the leaf floor.  Default 1 is flat:
-    parent spawns children (depth 1), depth-1 children cannot spawn
-    (blocked by this guard AND, for leaf children, by the delegation
-    toolset strip in _strip_blocked_tools).
+    depth 0 = 父 Agent。max_spawn_depth = N 意味着处于深度
+    0..N-1 的 Agent 可以进一步衍生；深度 N 为叶子节点下限。默认值 1 为扁平化结构：
+    父 Agent 衍生子 Agent（depth 1），depth-1 的子 Agent 无法进一步衍生
+    （会被此防护拦截，且对于 leaf 子 Agent，还会被
+    _strip_blocked_tools 中的委托工具集剥离所限制）。
 
-    Raise to 2+ to unlock nested orchestration. role="orchestrator"
-    removes the toolset strip for spawning children when
-    max_spawn_depth >= 2, enabling them to spawn their own workers.
-    Like max_concurrent_children, there is no upper ceiling — but each
-    extra level multiplies API cost, so raise it deliberately.
+    提高到 2+ 可解锁嵌套式编排。当 max_spawn_depth >= 2 时，
+    role="orchestrator" 会取消对衍生子 Agent 的工具集剥离，
+    从而允许它们衍生属于自己的 worker。
+    与 max_concurrent_children 类似，它没有上限 —— 但每增加
+    一层都会使 API 成本成倍增长，因此请谨慎调高该值。
     """
     cfg = _load_config()
     val = cfg.get("max_spawn_depth")
@@ -1433,16 +1435,16 @@ def _dump_subagent_timeout_diagnostic(
     worker_thread: Optional[threading.Thread],
     goal: str,
 ) -> Optional[str]:
-    """Write a structured diagnostic dump for a subagent that timed out
-    before making any API call.
+    """为在发起任何 API 调用之前超时的子代理
+    编写结构化的诊断转储。
 
-    See issue #14726: users hit "subagent timed out after 300s with no response"
-    with zero API calls and no way to inspect what happened. This helper
-    writes a dedicated log under ``~/.hermes/logs/subagent-<sid>-<ts>.log``
-    capturing the child's config, system-prompt / tool-schema sizes, activity
-    tracker snapshot, and the worker thread's Python stack at timeout.
+    参见 issue #14726：用户遇到“subagent timed out after 300s with no response”
+    （API 调用次数为零且无法检查发生了什么）。此辅助函数
+    会在 ``~/.hermes/logs/subagent-<sid>-<ts>.log`` 下写入一份专用日志，
+    捕获子级的配置、系统提示词 / 工具 schema 的大小、活动
+    跟踪器快照以及超时时工作线程的 Python 堆栈。
 
-    Returns the absolute path to the diagnostic file, or None on failure.
+    返回诊断文件的绝对路径，若失败则返回 None。
     """
     try:
         from hermes_constants import get_hermes_home
@@ -1751,16 +1753,16 @@ def _run_single_child(
     **_kwargs,
 ) -> Dict[str, Any]:
     """
-    Run a pre-built child agent. Called from within a thread.
-    Returns a structured result dict.
+    运行预先构建的子代理。在线程内被调用。
+    返回一个结构化的结果字典。
     """
     child_start = time.monotonic()
 
     # Get the progress callback from the child agent
     child_progress_cb = getattr(child, "tool_progress_callback", None)
 
-    # Restore parent tool names using the value saved before child construction
-    # mutated the global. This is the correct parent toolset, not the child's.
+    # 使用在子级构建修改全局变量之前保存的值
+    # 来还原父级工具名称。这才是正确的父级工具集，而非子级的。
     import model_tools
 
     _saved_tool_names = getattr(
@@ -1779,14 +1781,14 @@ def _run_single_child(
             except Exception as exc:
                 logger.debug("Failed to bind child to leased credential: %s", exc)
 
-    # Heartbeat: periodically propagate child activity to the parent so the
-    # gateway inactivity timeout doesn't fire while the subagent is working.
-    # Without this, the parent's _last_activity_ts freezes when delegate_task
-    # starts and the gateway eventually kills the agent for "no activity".
+    # 心跳：定期将子级活动传播给父级，从而使
+    # 网关不活动超时在子代理（subagent）工作时不会触发。
+    # 没有这个的话，父级的 _last_activity_ts 会在 delegate_task
+    # 开始时冻结，网关最终会因“无活动（no activity）”而杀死该代理。
     _heartbeat_stop = threading.Event()
-    # Stale detection: track the child's (tool, iteration) pair across
-    # heartbeat cycles. If neither advances, count the cycle as stale.
-    # Different thresholds for idle vs in-tool (see _HEARTBEAT_STALE_CYCLES_*).
+    # 停滞检测：跨心跳周期跟踪子级的 (tool, iteration) 对。
+    # 如果两者均未推进，则将该周期计为停滞（stale）。
+    # 空闲（idle）与工具执行中（in-tool）使用不同的阈值（参见 _HEARTBEAT_STALE_CYCLES_*）。
     _last_seen_iter = [0]
     _last_seen_tool = [None]  # type: list
     _stale_count = [0]
@@ -1806,12 +1808,10 @@ def _run_single_child(
                 child_iter = child_summary.get("api_call_count", 0)
                 child_max = child_summary.get("max_iterations", 0)
 
-                # Stale detection: count cycles where neither the iteration
-                # count nor the current_tool advances. A child running a
-                # legitimately long-running tool (terminal command, web
-                # fetch) keeps current_tool set but doesn't advance
-                # api_call_count — we don't want that to look stale at the
-                # idle threshold.
+                # 僵死检测：统计迭代次数和当前工具（current_tool）均未推进的循环次数。
+                # 当子进程正在运行一个耗时较长的合法工具（如终端命令、网络请求）时，
+                # current_tool 会保持设置状态，但 api_call_count 不会增加——
+                # 我们不希望这种情况在达到空闲阈值时被误判为僵死。
                 iter_advanced = child_iter > _last_seen_iter[0]
                 tool_changed = child_tool != _last_seen_tool[0]
                 if iter_advanced or tool_changed:
@@ -1821,11 +1821,9 @@ def _run_single_child(
                 else:
                     _stale_count[0] += 1
 
-                # Pick threshold based on whether the child is currently
-                # inside a tool call. In-tool threshold is high enough to
-                # cover legitimately slow tools; idle threshold stays
-                # tight so the gateway timeout can fire on a truly wedged
-                # child.
+                # 根据子进程当前是否处于工具调用中来选择阈值。
+                # 工具调用中的阈值设置得足够高，以涵盖正常但较慢的工具；
+                # 空闲阈值则保持严格，以便在子进程真正卡死时能够触发网关超时。
                 stale_limit = (
                     _HEARTBEAT_STALE_CYCLES_IN_TOOL
                     if child_tool
@@ -1862,10 +1860,10 @@ def _run_single_child(
 
     _heartbeat_thread = threading.Thread(target=_heartbeat_loop, daemon=True)
 
-    # Register the live agent in the module-level registry so the TUI can
-    # target it by subagent_id (kill, pause, status queries).  Unregistered
-    # in the finally block, even when the child raises.  Test doubles that
-    # hand us a MagicMock don't carry stable ids; skip registration then.
+    # 在模块级注册表中注册活动代理，以便 TUI 可以
+    # 通过 subagent_id 对其进行定位（终止、暂停、状态查询）。即使
+    # 子级抛出异常，也会在 finally 块中取消注册。传递
+    # MagicMock 的测试替身不带有稳定 ID；此时将跳过注册。
     _raw_sid = getattr(child, "_subagent_id", None)
     _subagent_id = _raw_sid if isinstance(_raw_sid, str) else None
     if _subagent_id:
@@ -1894,14 +1892,15 @@ def _run_single_child(
         _heartbeat_thread.start()
         if child_progress_cb:
             try:
+                # 回调
                 child_progress_cb("subagent.start", preview=goal)
             except Exception as e:
                 logger.debug("Progress callback start failed: %s", e)
 
-        # File-state coordination: reuse the stable subagent_id as the child's
-        # task_id so file_state writes, active-subagents registry, and TUI
-        # events all share one key.  Falls back to a fresh uuid only if the
-        # pre-built id is somehow missing.
+        # 文件状态协调：复用稳定的 subagent_id 作为子级的
+        # task_id，以便 file_state 写入、active-subagents 注册表以及 TUI
+        # 事件全部共享同一个键。仅当预构建的 ID
+        # 因某种原因缺失时，才会回退使用全新的 uuid。
         import uuid as _uuid
 
         child_task_id = _subagent_id or f"subagent-{task_index}-{_uuid.uuid4().hex[:8]}"
@@ -1911,31 +1910,31 @@ def _run_single_child(
             list(file_state.known_reads(parent_task_id)) if parent_task_id else []
         )
 
-        # Run child with an optional hard timeout (off by default —
-        # result(timeout=None) blocks until the child finishes). Stuck-child
-        # protection comes from the heartbeat staleness monitor instead.
+        # 运行带可选硬超时的子级（默认关闭 —
+        # result(timeout=None) 会阻塞直到子级完成）。子级卡死
+        # 保护则改由心跳停滞监视器提供。
         child_timeout = _get_child_timeout()
-        # Daemon worker (tools.daemon_pool): a timed-out child is abandoned
-        # below; a stdlib non-daemon worker would then block interpreter
-        # exit at atexit-join time if the child never unwinds.
+        # 守护工作线程（tools.daemon_pool）：超时的子级会在
+        # 下方被放弃；若该子级一直未展开/释放，标准库的非守护
+        # 工作线程就会在 atexit-join 时阻塞解释器的退出。
         from tools.daemon_pool import DaemonThreadPoolExecutor
         _timeout_executor = DaemonThreadPoolExecutor(
             max_workers=1,
-            # Install a non-interactive approval callback in the worker thread
-            # so dangerous-command prompts from the subagent don't fall back to
-            # input() and deadlock the parent's prompt_toolkit TUI.
-            # Callback (deny vs approve) is governed by delegation.subagent_auto_approve.
+            # 在工作线程中安装一个非交互式的审批回调，
+            # 以便来自子代理（subagent）的危险命令提示不会回退到
+            # input() 并导致父级的 prompt_toolkit TUI 死锁。
+            # 回调（拒绝还是批准）由 delegation.subagent_auto_approve 控制。
             initializer=_set_subagent_approval_cb,
             initargs=(_get_subagent_approval_callback(),),
         )
-        # Capture the worker thread so the timeout diagnostic can dump its
-        # Python stack (see #14726 — 0-API-call hangs are opaque without it).
+        # 捕获工作线程，以便超时诊断能够转储其
+        # Python 堆栈（参见 #14726 —— 没有它，0 次 API 调用的挂起将是不透明的）。
         _worker_thread_holder: Dict[str, Optional[threading.Thread]] = {"t": None}
 
         def _relay_child_text(delta: str) -> None:
-            # Forward the child's streamed reply text up the progress relay so
-            # gateway watch windows mirror it live (subagent.text → message.delta).
-            # Inert under CLI/TUI: their progress handlers ignore non-tool events.
+            # 将子级的流式回复文本向上转发到进度中继，以便
+            # 网关监视窗口能实时镜像显示它（subagent.text → message.delta）。
+            # 在 CLI/TUI 下无效果：它们的进度处理程序会忽略非工具事件。
             if not delta or not child_progress_cb:
                 return
             try:
@@ -1973,9 +1972,9 @@ def _run_single_child(
                 duration,
             )
 
-            # When a subagent times out BEFORE making any API call, dump a
-            # diagnostic to help users (and us) see what the child was doing.
-            # See #14726 — without this, 0-API-call hangs are black boxes.
+            # 当子代理在发起任何 API 调用之前超时，转储
+            # 诊断信息以帮助用户（以及我们）了解子级当时在做什么。
+            # 参见 #14726 —— 没有这个，0 次 API 调用的挂起就是黑盒。
             diagnostic_path: Optional[str] = None
             child_api_calls = 0
             try:
@@ -1987,8 +1986,8 @@ def _run_single_child(
                 diagnostic_path = _dump_subagent_timeout_diagnostic(
                     child=child,
                     task_index=task_index,
-                    # is_timeout implies a cap was configured (result(timeout=None)
-                    # never raises FuturesTimeoutError); guard for the type checker.
+                    # is_timeout 意味着配置了上限（result(timeout=None)
+                    # 绝不会引发 FuturesTimeoutError）；为类型检查器提供保护。
                     timeout_seconds=float(child_timeout or 0.0),
                     duration_seconds=float(duration),
                     worker_thread=_worker_thread_holder.get("t"),
@@ -2048,8 +2047,8 @@ def _run_single_child(
                 "diagnostic_path": diagnostic_path,
             }
         finally:
-            # Shut down executor without waiting — if the child thread
-            # is stuck on blocking I/O, wait=True would hang forever.
+            # 关闭执行器而不等待 —— 如果子线程
+            # 卡在阻塞式 I/O 上，wait=True 会永远挂起。
             _timeout_executor.shutdown(wait=False)
 
         # Flush any remaining batched progress to gateway
@@ -2066,11 +2065,11 @@ def _run_single_child(
         interrupted = result.get("interrupted", False)
         api_calls = result.get("api_calls", 0)
 
-        # The child emits the literal "(empty)" sentinel (see run_agent.py) when
-        # it gives up after repeated empty-LLM-response retries — typically a
-        # transport bug (misrouted provider, adapter returning empty
-        # ChatCompletion, etc.). Treat it as a failure so the parent surfaces
-        # it instead of silently accepting zero-content "success".
+        # 当子级在多次空 LLM 响应重试后放弃时，会发出字面量 "(empty)"
+        # 哨兵值（参见 run_agent.py）——这通常是某种传输层 bug
+        # （如提供商路由错误、适配器返回空的 ChatCompletion
+        # 等）。将其视为失败，以便父级能将其暴露出来，
+        # 而不是静默接受零内容的“成功”。
         _empty_sentinel = summary.strip() == "(empty)"
 
         if interrupted:
@@ -2083,8 +2082,8 @@ def _run_single_child(
         else:
             status = "failed"
 
-        # Build tool trace from conversation messages (already in memory).
-        # Uses tool_call_id to correctly pair parallel tool calls with results.
+        # 从对话消息（已在内存中）构建工具追踪记录。
+        # 使用 tool_call_id 将并行工具调用与其结果正确配对。
         tool_trace: list[Dict[str, Any]] = []
         trace_by_id: Dict[str, Dict[str, Any]] = {}
         messages = result.get("messages") or []
@@ -2149,15 +2148,15 @@ def _run_single_child(
                 ),
             },
             "tool_trace": tool_trace,
-            # Captured before the finally block calls child.close() so the
-            # parent thread can fire subagent_stop with the correct role.
-            # Stripped before the dict is serialised back to the model.
+            # 在 finally 块调用 child.close() 之前捕获，以便
+            # 父线程能够以正确的角色触发 subagent_stop。
+            # 在字典被序列化回模型之前将其剥离。
             "_child_role": getattr(child, "_delegate_role", None),
-            # Captured before child.close() so the parent aggregator can fold
-            # the child's total spend into the parent's session cost.  Port of
-            # Kilo-Org/kilocode#9448 — previously the footer only reflected the
-            # parent's direct API calls and under-counted subagent-heavy runs.
-            # Stripped before the dict is serialised back to the model.
+            # 在 child.close() 之前捕获，以便父级聚合器能够将
+            # 子级的总开销合并进父级的会话成本中。移植自
+            # Kilo-Org/kilocode#9448 — 此前页脚仅反映
+            # 父级的直接 API 调用，低估了大量使用子代理的运行成本。
+            # 在字典被序列化回模型之前剥离。
             "_child_cost_usd": (
                 float(getattr(child, "session_estimated_cost_usd", 0.0) or 0.0)
                 if isinstance(
@@ -2170,12 +2169,10 @@ def _run_single_child(
         if status == "failed":
             entry["error"] = result.get("error", "Subagent did not produce a response.")
 
-        # Cross-agent file-state reminder.  If this subagent wrote any
-        # files the parent had already read, surface it so the parent
-        # knows to re-read before editing — the scenario that motivated
-        # the registry.  We check writes by ANY non-parent task_id (not
-        # just this child's), which also covers transitive writes from
-        # nested orchestrator→worker chains.
+        # 跨代理文件状态提醒。如果此子代理写入了父级此前已经读取过的任何文件，将其提示出来，以便父级
+        # 知道在编辑前重新读取 —— 这正是促成注册表设计的场景。
+        # 我们检查任何非父级 task_id 的写入（不仅仅是当前子级的），这也涵盖了来自
+        # 嵌套“协调器→工作者”链的传递性写入。
         try:
             if parent_task_id and parent_reads_snapshot:
                 sibling_writes = file_state.writes_since(
@@ -2204,10 +2201,10 @@ def _run_single_child(
         except Exception:
             logger.debug("file_state sibling-write check failed", exc_info=True)
 
-        # Per-branch observability payload: tokens, cost, files touched, and
-        # a tail of tool-call results.  Fed into the TUI's overlay detail
-        # pane + accordion rollups (features 1, 2, 4).  All fields are
-        # optional — missing data degrades gracefully on the client.
+        # 按分支划分的可观测性有效载荷：token、成本、涉及的文件，以及
+        # 工具调用结果的尾部数据。供入 TUI 的叠加层详情
+        # 面板 + 折叠面板汇总（功能 1、2、4）。所有字段均为
+        # 可选 —— 缺失的数据在客户端上会优雅降级。
         _cost_usd = getattr(child, "session_estimated_cost_usd", None)
         _reasoning_tokens = getattr(child, "session_reasoning_tokens", 0)
         try:
@@ -2291,17 +2288,17 @@ def _run_single_child(
         }
 
     finally:
-        # Stop the heartbeat thread so it doesn't keep touching parent activity
-        # after the child has finished (or failed).  Guard the join: .start()
-        # now lives inside the try block, so if it raised (OS thread
-        # exhaustion) the thread was never started and Thread.join() would
-        # raise RuntimeError.  ident is None until start() succeeds.
+        # 停止心跳线程，使其在子级完成（或失败）后
+        # 不会继续更新父级活动状态。对 join 进行保护：.start()
+        # 现在位于 try 块内部，因此如果它引发异常（操作系统线程
+        # 耗尽），则线程从未被启动，且 Thread.join() 将会
+        # 引发 RuntimeError。在 start() 成功之前，ident 为 None。
         _heartbeat_stop.set()
         if _heartbeat_thread.ident is not None:
             _heartbeat_thread.join(timeout=5)
 
-        # Drop the TUI-facing registry entry.  Safe to call even if the
-        # child was never registered (e.g. ID missing on test doubles).
+        # 移除面向 TUI 的注册表条目。即使子级
+        # 从未被注册（例如测试替身上缺少 ID），也可安全调用。
         if _subagent_id:
             _unregister_subagent(_subagent_id)
 
@@ -2311,17 +2308,17 @@ def _run_single_child(
             except Exception as exc:
                 logger.debug("Failed to release credential lease: %s", exc)
 
-        # Restore the parent's tool names so the process-global is correct
-        # for any subsequent execute_code calls or other consumers.
+        # 恢复父级的工具名称，使进程全局状态对于
+        # 任何后续的 execute_code 调用或其他使用者保持正确。
         import model_tools
 
         saved_tool_names = getattr(child, "_delegate_saved_tool_names", None)
         if isinstance(saved_tool_names, list):
             model_tools._last_resolved_tool_names = list(saved_tool_names)
 
-        # Remove child from active tracking
+        # 从活动跟踪中移除子级
 
-        # Unregister child from interrupt propagation
+        # 从中断传播中注销子级
         if hasattr(parent_agent, "_active_children"):
             try:
                 lock = getattr(parent_agent, "_active_children_lock", None)
@@ -2333,9 +2330,9 @@ def _run_single_child(
             except (ValueError, UnboundLocalError) as e:
                 logger.debug("Could not remove child from active_children: %s", e)
 
-        # Close tool resources (terminal sandboxes, browser daemons,
-        # background processes, httpx clients) so subagent subprocesses
-        # don't outlive the delegation.
+        # 关闭工具资源（终端沙盒、浏览器守护进程、
+        # 后台进程、httpx 客户端），以使子代理子进程
+        # 不会在委派任务结束后继续存活。
         try:
             if hasattr(child, "close"):
                 child.close()
@@ -2376,43 +2373,43 @@ def delegate_task(
     parent_agent=None,
 ) -> str:
     """
-    Spawn one or more child agents to handle delegated tasks.
+    衍生（生成）一个或多个子 Agent 来处理委托的任务。
 
-    Supports two modes:
-      - Single: provide goal (+ optional context, toolsets, role)
-      - Batch:  provide tasks array [{goal, context, toolsets, role}, ...]
+    支持两种模式：
+      - 单个（Single）：提供 goal（+ 可选的 context、toolsets、role）
+      - 批量（Batch）： 提供 tasks 数组 [{goal, context, toolsets, role}, ...]
 
-    The 'role' parameter controls whether a child can further delegate:
-    'leaf' (default) cannot; 'orchestrator' retains the delegation
-    toolset and can spawn its own workers, bounded by
-    delegation.max_spawn_depth.  Per-task role beats the top-level one.
+    'role' 参数控制子 Agent 是否能够进一步进行委托：
+    'leaf'（默认）不能进一步委托；'orchestrator' 则保留委托
+    工具集，并可以衍生属于它自己的 worker，其上限由
+    delegation.max_spawn_depth 限制。任务级别的 role 优先级高于顶层的设置。
 
-    Returns JSON with results array, one entry per task.
+    返回包含 results 数组的 JSON，每个任务对应其中的一项。
     """
     if parent_agent is None:
         return tool_error("delegate_task requires a parent agent context.")
 
-    # Operator-controlled kill switch — lets the TUI freeze new fan-out
-    # when a runaway tree is detected, without interrupting already-running
-    # children.  Cleared via the matching `delegation.pause` RPC.
+    # 操作员控制的停止开关（Kill switch）——当检测到失控的衍生树时，
+    # 允许 TUI 冻结新的任务扇出（fan-out），而不会中断已经在运行的子 Agent。
+    # 可通过对应的 `delegation.pause` RPC 进行清除。
     if is_spawn_paused():
         return tool_error(
             "Delegation spawning is paused. Clear the pause via the TUI "
             "(`p` in /agents) or the `delegation.pause` RPC before retrying."
         )
 
-    # Normalise the top-level role once; per-task overrides re-normalise.
+    # 统一（规范化）一次顶层 role；每个任务的覆盖设置会重新进行统一。
     top_role = _normalize_role(role)
 
-    # Background (async) delegation now applies to BOTH single tasks and
-    # batches. A batch simply becomes N independent async dispatches: each
-    # child runs on the daemon executor and re-enters the conversation via
-    # the completion queue on its own, carrying its own handle. There's no
-    # combined "wait for all" — fan-out is exactly N background subagents.
+    # 后台（异步）委托现在同时适用于单个任务和批量任务。
+    # 批量任务仅相当于 N 个独立的异步调度：每个子 Agent 在
+    # 守护进程执行器上运行，并各自通过完成队列重新进入对话，
+    # 且带有各自的句柄。这里没有统一的“等待全部完成”——
+    # 扇出（fan-out）本质上就是 N 个后台子 Agent。
     background = is_truthy_value(background, default=False) if background is not None else False
 
-    # Depth limit — configurable via delegation.max_spawn_depth,
-    # default 2 for parity with the original MAX_DEPTH constant.
+    # 深度限制 —— 可通过 delegation.max_spawn_depth 配置，
+    # 默认值为 2，以保持与原始 MAX_DEPTH 常量一致。
     depth = getattr(parent_agent, "_delegate_depth", 0)
     max_spawn = _get_max_spawn_depth()
     if depth >= max_spawn:
@@ -2431,11 +2428,11 @@ def delegate_task(
     # Load config
     cfg = _load_config()
     default_max_iter = cfg.get("max_iterations", DEFAULT_MAX_ITERATIONS)
-    # Model-supplied max_iterations is ignored — the config value is authoritative
-    # so users get predictable budgets. The kwarg is retained for internal callers
-    # and tests; a model-emitted value here would only shrink the budget and
-    # surprise the user mid-run. Log and drop it if one slips through from a
-    # cached tool schema or a stale provider.
+    # 模型提供的 max_iterations 会被忽略——以配置值（config value）为准，
+    # 从而确保用户获得可预测的预算。保留该关键字参数仅用于内部调用者
+    # 和测试；模型在此处给出的值只会缩减预算，并在运行途中
+    # 给用户带来意料之外的影响。如果有参数值从缓存的工具 schema
+    # 或旧版提供商中漏过，则记录日志并直接丢弃。
     if max_iterations is not None and max_iterations != default_max_iter:
         logger.debug(
             "delegate_task: ignoring caller-supplied max_iterations=%s; "
@@ -2444,11 +2441,10 @@ def delegate_task(
         )
     effective_max_iter = default_max_iter
 
-    # Resolve delegation credentials (provider:model pair).
-    # When delegation.provider is configured, this resolves the full credential
-    # bundle (base_url, api_key, api_mode) via the same runtime provider system
-    # used by CLI/gateway startup.  When unconfigured, returns None values so
-    # children inherit from the parent.
+    # 解析委托凭证（provider:model 对）。
+    # 当配置了 delegation.provider 时，此逻辑会通过 CLI/网关启动时使用的
+    # 同款运行时提供商系统，解析出完整的凭证包（base_url, api_key, api_mode）。
+    # 未配置时，则返回 None 值，以便子进程继承父进程的配置。
     try:
         creds = _resolve_delegation_credentials(cfg, parent_agent)
     except ValueError as exc:
@@ -2496,28 +2492,28 @@ def delegate_task(
     # Track goal labels for progress display (truncated for readability)
     task_labels = [t["goal"][:40] for t in task_list]
 
-    # Save parent tool names BEFORE any child construction mutates the global.
-    # _build_child_agent() calls AIAgent() which calls get_tool_definitions(),
-    # which overwrites model_tools._last_resolved_tool_names with child's toolset.
+    # 在任何子 Agent 的构建修改全局变量之前，保存父级的工具名称。
+    # _build_child_agent() 会调用 AIAgent()，后者会调用 get_tool_definitions()，
+    # 这会用子 Agent 的工具集覆盖 model_tools._last_resolved_tool_names。
     import model_tools as _model_tools
 
     _parent_tool_names = list(_model_tools._last_resolved_tool_names)
 
-    # Build all child agents on the main thread (thread-safe construction)
-    # Wrapped in try/finally so the global is always restored even if a
-    # child build raises (otherwise _last_resolved_tool_names stays corrupted).
+    # 在主线程上构建所有子 Agent（保证线程安全的构建流程）
+    # 包裹在 try/finally 中，因此即使子 Agent 构建过程抛出异常，
+    # 全局变量也始终会被还原（否则 _last_resolved_tool_names 会保持损坏状态）。
     children = []
     try:
         for i, t in enumerate(task_list):
-            # Per-task role beats top-level; normalise again so unknown
-            # per-task values warn and degrade to leaf uniformly.
+            # 针对单个任务的角色优先级高于顶层配置；再次进行规范化，
+            # 以便对于未知的单任务值能够统一发出警告并降级为 leaf。
             effective_role = _normalize_role(t.get("role") or top_role)
             child = _build_child_agent(
                 task_index=i,
                 goal=t["goal"],
                 context=t.get("context"),
-                # Subagents always inherit the parent's toolsets; the model
-                # cannot choose or narrow them (no model-facing toolsets arg).
+                # 子 Agent 始终继承父级的工具集；
+                # 模型无法选择或缩小这些工具集的范围（不向模型暴露 toolsets 参数）。
                 toolsets=None,
                 model=creds["model"],
                 max_iterations=effective_max_iter,
@@ -2533,22 +2529,23 @@ def delegate_task(
                 override_acp_args=creds.get("args"),
                 role=effective_role,
             )
-            # Override with correct parent tool names (before child construction mutated global)
+            # 用正确的父级工具名称覆盖（在子 Agent 构建修改全局变量之前）
             child._delegate_saved_tool_names = _parent_tool_names
             children.append((i, t, child))
     finally:
-        # Authoritative restore: reset global to parent's tool names after all children built
+        # 权威还原：在构建完全部子 Agent 后，将全局变量重置为父级的工具名称
         _model_tools._last_resolved_tool_names = _parent_tool_names
 
+    # TODO KEY
     def _execute_and_aggregate() -> dict:
-        """Run all built children (1 or N), join on them, aggregate results,
-        fire subagent_stop hooks + cost rollup, and return the combined result
-        dict. Used by BOTH the synchronous path and the background runner. In
-        the background case this whole function runs on the daemon executor, so
-        the parent turn isn't blocked — but the batch still JOINS on itself
-        here (all children must finish) before producing ONE consolidated
-        results block. That is the contract: fan-out runs in the background,
-        waits on each other, and returns together.
+        """运行所有已构建的子级（1 个或 N 个），等待（join）它们完成，聚合结果，
+        触发 subagent_stop 钩子 + 成本汇总，并返回合并后的结果
+        字典。同步路径和后台运行器均会使用此函数。在
+        后台运行的情况下，这整个函数都在守护执行器（daemon executor）上运行，因此
+        父级轮次不会被阻塞 —— 但该批次在这里仍会自我等待（JOIN）
+        （所有子级必须全部完成），然后再生成一份合并后的
+        结果块。这就是契约：扇出（fan-out）在后台运行，
+        相互等待，并一同返回。
         """
         if n_tasks == 1:
             # Single task -- run directly (no thread pool overhead)
@@ -2785,25 +2782,23 @@ def delegate_task(
             "total_duration_seconds": total_duration,
         }
 
-    # ----- Background dispatch: run the WHOLE batch as one async unit -----
-    # When background is true, the entire fan-out runs on the daemon executor
-    # via a single async delegation. _execute_and_aggregate() joins on every
-    # child and produces ONE consolidated results block, which re-enters the
-    # conversation as a single message when ALL children finish. The chat is
-    # not blocked in the meantime. This is the contract: dispatch N subagents,
-    # keep chatting, get the combined summaries back together at the end.
+    # ----- 后台调度：将整个批次作为一个异步单元运行 -----
+    # 当 background 为 true 时，整个扇出（fan-out）过程通过
+    # 单个异步委托在守护进程执行器上运行。_execute_and_aggregate() 会等待
+    # 每个子进程完成并生成一个合并的综合结果块，当所有
+    # 子进程完成时，该结果块将作为单条消息重新进入
+    # 对话。在此期间聊天不会被阻塞。这就是其契约：调度 N 个子 Agent，
+    # 继续聊天，最后一起收回合并后的摘要。
     if background:
         from tools.async_delegation import dispatch_async_delegation_batch
         from tools.approval import get_current_session_key
 
-        # Stateless request/response sessions (the API server / WebUI path)
-        # cannot route a detached subagent result back to the agent after the
-        # turn ends — there is no persistent channel and the adapter's send()
-        # is a no-op, so a background dispatch would silently never re-enter the
-        # conversation (issue #10760). Fall back to SYNCHRONOUS execution: the
-        # work still runs and its result returns in this same response, which is
-        # strictly better than a handle that never resolves. Mirrors the
-        # pool-at-capacity inline fallback below.
+        # 无状态请求/响应会话（API 服务器 / WebUI 路径）
+        # 无法在轮次结束后将独立的子 Agent 结果路由回 Agent ——没有持久通道且适配器的 send() 为无操作（no-op），
+        # 因此后台调度会在无感知的情况下永不重新进入对话（问题 #10760）。
+        # 降级为同步（SYNCHRONOUS）执行：工作仍会运行，其结果会在
+        # 同一个响应中返回，这显然比一个永不决议（resolve）的句柄要好。
+        # 镜像了下方线程池满载时的内联降级逻辑。
         try:
             from gateway.session_context import async_delivery_supported
             _async_ok = async_delivery_supported()
@@ -2831,13 +2826,13 @@ def delegate_task(
 
             _source = get_session_env("HERMES_SESSION_SOURCE", "")
             _origin_ui_session_id = get_session_env("HERMES_UI_SESSION_ID", "")
-            # In desktop/TUI, the routable session key is the durable
-            # AIAgent.session_id. Context compression can rotate that id during
-            # the same turn before the TUI-side session dict is re-anchored;
-            # if we capture the stale approval/session context key here, the
-            # async completion becomes an orphan and any desktop poller may
-            # consume it. Gateway chats are different: their session_key is the
-            # platform conversation key (agent:main:...), so keep it there.
+            # 在桌面端/TUI中，可路由的会话键（session key）是持久的
+            # AIAgent.session_id。上下文压缩可能会在同一轮次内，
+            # 在 TUI 端的会话字典被重新锚定之前轮换该 ID；
+            # 如果我们在这里捕获了陈旧的批准/会话上下文键，
+            # 异步完成通知就会变成孤儿，任何桌面轮询器都可能会消耗它。
+            # 网关聊天则不同：它们的 session_key 是平台对话键
+            # （如 agent:main:...），因此将其保留在那里。
             if _source == "tui":
                 _agent_session_id = str(getattr(parent_agent, "session_id", "") or "")
                 if _agent_session_id:
@@ -2847,9 +2842,8 @@ def delegate_task(
         _parent_session_id = getattr(parent_agent, "session_id", None)
         _child_agents = [c for (_, _, c) in children]
 
-        # Detach every child from the parent's interrupt-propagation list — the
-        # batch's lifecycle is owned by the async registry now, not the parent
-        # turn. _build_child_agent attached them (correct for sync runs).
+        # 将每一个子级从父级的中断传播列表中分离 —— 该批次的生命周期现在由异步注册表接管，而不是父级的
+        # 轮次。_build_child_agent 此前附加了它们（对于同步运行来说这是正确的）。
         if hasattr(parent_agent, "_active_children"):
             _ac_lock = getattr(parent_agent, "_active_children_lock", None)
             for _c in _child_agents:
@@ -2876,6 +2870,7 @@ def delegate_task(
                     pass
 
         _goals = [t["goal"] for t in task_list]
+        # TODO KEY
         dispatch = dispatch_async_delegation_batch(
             goals=_goals,
             context=context,
@@ -2916,9 +2911,13 @@ def delegate_task(
             }
             return json.dumps(payload, ensure_ascii=False)
 
-        # Pool at capacity / schedule failure — children are still attached
-        # (we detach above only on the parent list, but the async unit was
-        # never accepted, so re-attaching isn't needed: we just run inline).
+        # // TODO ? 怎么判断的容量到上限了？
+        # 池达到容量上限 / 调度失败 —— 子级仍然处于附加状态
+        # （我们在上方仅从父级列表中解除了附加，但该异步单元
+        # 从未被接受，因此不需要重新附加：我们只需直接内联运行）。
+        # ---
+        # "delegate_task: 异步池已达容量上限 (%s)；"
+        # "改为同步运行整个批次。",
         logger.info(
             "delegate_task: async pool at capacity (%s); running the whole "
             "batch synchronously instead.",
@@ -2926,6 +2925,11 @@ def delegate_task(
         )
         _cap_result = _execute_and_aggregate()
         if isinstance(_cap_result, dict):
+            # "后台委派池已达容量上限 "
+            # "(delegation.max_concurrent_children)，因此子代理（subagent）以 "
+            # "同步（SYNCHRONOUSLY）方式运行，结果已包含在上方。请在 "
+            # "config.yaml 中调高 delegation.max_concurrent_children 以允许 "
+            # "更多的并发后台委派。"
             _cap_result["note"] = (
                 "The background delegation pool was at capacity "
                 "(delegation.max_concurrent_children), so the subagent(s) ran "
@@ -3025,25 +3029,25 @@ def _resolve_child_credential_pool(
 
 
 def _resolve_delegation_credentials(cfg: dict, parent_agent) -> dict:
-    """Resolve credentials for subagent delegation.
+    """解析子 Agent 委托的凭证。
 
-    If ``delegation.base_url`` is configured, subagents use that direct
-    OpenAI-compatible endpoint. ``delegation.api_key`` overrides the key; when
-    omitted, ``api_key`` is returned as ``None`` so ``_build_child_agent``
-    inherits the parent agent's key (``effective_api_key = override_api_key or
-    parent_api_key``). This lets providers that store their key outside
-    ``OPENAI_API_KEY`` (e.g. ``MINIMAX_API_KEY``, ``DASHSCOPE_API_KEY``) work
-    without a duplicate config entry.
+    如果配置了 ``delegation.base_url``，子 Agent 将使用该直接兼容
+    OpenAI 的端点。``delegation.api_key`` 会覆盖密钥；当
+    省略时，``api_key`` 将返回为 ``None``，以便 ``_build_child_agent``
+    继承父 Agent 的密钥（``effective_api_key = override_api_key or
+    parent_api_key``）。这使得将密钥存储在 ``OPENAI_API_KEY`` 之外的
+    提供商（例如 ``MINIMAX_API_KEY``、``DASHSCOPE_API_KEY``）无需
+    重复定义配置条目即可正常工作。
 
-    Otherwise, if ``delegation.provider`` is configured, the full credential
-    bundle (base_url, api_key, api_mode, provider) is resolved via the runtime
-    provider system — the same path used by CLI/gateway startup. This lets
-    subagents run on a completely different provider:model pair.
+    否则，如果配置了 ``delegation.provider``，则会通过运行时
+    提供商系统解析完整的凭证包（base_url, api_key, api_mode, provider）
+    ——这也是 CLI/网关启动时使用的同一路径。这允许
+    子 Agent 运行在完全不同的 provider:model 对上。
 
-    If neither base_url nor provider is configured, returns None values so the
-    child inherits everything from the parent agent.
+    如果既未配置 base_url 也未配置 provider，则返回 None 值，以便
+    子 Agent 从父 Agent 继承所有内容。
 
-    Raises ValueError with a user-friendly message on credential failure.
+    凭证获取失败时引发带有用户友好信息的 ValueError。
     """
     configured_model = str(cfg.get("model") or "").strip() or None
     configured_provider = str(cfg.get("provider") or "").strip() or None
@@ -3051,31 +3055,31 @@ def _resolve_delegation_credentials(cfg: dict, parent_agent) -> dict:
     configured_api_key = str(cfg.get("api_key") or "").strip() or None
     configured_api_mode = str(cfg.get("api_mode") or "").strip().lower() or None
 
-    # Native-SDK providers (Bedrock, Vertex, Google GenAI) speak their own
-    # wire protocol — they cannot be reached via OpenAI chat_completions against
-    # a base_url. For these, always fall through to resolve_runtime_provider()
-    # so the proper SDK path is taken. The configured base_url is still
-    # forwarded through runtime-provider resolution when applicable (e.g. a
-    # custom Bedrock regional endpoint).
+    # 原生 SDK 提供商（Bedrock、Vertex、Google GenAI）使用它们自己的
+    # 网络协议——无法通过面向 base_url 的 OpenAI chat_completions 端点
+    # 进行访问。对于这些提供商，始终退回使用 resolve_runtime_provider()
+    # 以走正确的 SDK 路径。在适用情况下（例如
+    # 自定义 Bedrock 区域端点），配置的 base_url 仍会
+    # 通过运行时提供商解析流程进行转发。
     _NATIVE_SDK_PROVIDERS = {"bedrock", "vertex", "google", "google-genai"}
     _provider_lower = (configured_provider or "").strip().lower()
     _is_native_sdk_provider = _provider_lower in _NATIVE_SDK_PROVIDERS
 
     if configured_base_url and not _is_native_sdk_provider:
-        # When delegation.api_key is not set, return None so _build_child_agent
-        # falls back to the parent agent's API key via the credential inheritance
-        # path (effective_api_key = override_api_key or parent_api_key). This
-        # lets providers that store their key in a non-OPENAI_API_KEY env var
-        # (e.g. MINIMAX_API_KEY, DASHSCOPE_API_KEY) work without requiring
-        # callers to duplicate the key under delegation.api_key.
-        api_key = configured_api_key  # None → inherited from parent in _build_child_agent
+        # 当未设置 delegation.api_key 时，返回 None，以便 _build_child_agent
+        # 通过凭证继承路径降级使用父 Agent 的 API 密钥
+        # （effective_api_key = override_api_key or parent_api_key）。这
+        # 使得将密钥存储在非 OPENAI_API_KEY 环境变量中的提供商
+        # （例如 MINIMAX_API_KEY、DASHSCOPE_API_KEY）无需
+        # 调用者在 delegation.api_key 下重复填写密钥即可正常工作。
+        api_key = configured_api_key  # None → 在 _build_child_agent 中继承自父级
 
-        # Use the shared URL-based api_mode detector (same path the main agent's
-        # runtime resolver uses) so Anthropic-compatible direct endpoints with a
-        # /anthropic suffix — Azure AI Foundry, MiniMax, Zhipu GLM, LiteLLM
-        # proxies — pick the right transport automatically. Without this,
-        # subagents would default to chat_completions and hit 404s on endpoints
-        # that only speak the Anthropic Messages protocol. Fixes #10213.
+        # 使用共享的基于 URL 的 api_mode 检测器（与主 Agent 的
+        # 运行时解析器所用路径相同），从而使带有
+        # /anthropic 后缀且兼容 Anthropic 的直接端点——Azure AI Foundry、MiniMax、智谱 GLM、LiteLLM
+        # 代理——能自动选择正确的传输方式。若非如此，
+        # 子 Agent 将默认使用 chat_completions，并在仅支持
+        # Anthropic Messages 协议的端点上触发 404 错误。修复了 #10213。
         from hermes_cli.runtime_provider import _detect_api_mode_for_url
 
         base_lower = configured_base_url.lower()
@@ -3094,8 +3098,8 @@ def _resolve_delegation_credentials(cfg: dict, parent_agent) -> dict:
             provider = "custom"
             api_mode = "anthropic_messages"
 
-        # Explicit delegation.api_mode in config always wins. Lets users force
-        # a transport for non-standard endpoints the URL heuristic can't detect.
+        # 配置中显式指定的 delegation.api_mode 始终优先。允许用户针对
+        # URL 启发式规则无法检测的非标准端点强制指定传输方式。
         if configured_api_mode in {"chat_completions", "codex_responses", "anthropic_messages"}:
             api_mode = configured_api_mode
 
@@ -3153,23 +3157,23 @@ def _resolve_delegation_credentials(cfg: dict, parent_agent) -> dict:
 
 
 def _load_config() -> dict:
-    """Load delegation config from the active Hermes config.
+    """从当前激活的 Hermes 配置中加载委托（delegation）配置。
 
-    Prefer the shared persistent loader because it follows the active
-    HERMES_HOME/profile. ``cli.CLI_CONFIG`` is a legacy fallback for entry
-    points that cannot import the shared loader; importing it first can return
-    an old default ``delegation`` block and hide user-set keys such as
-    ``max_concurrent_children``.
+    优先使用共享的持久化加载器，因为它遵循当前激活的
+    HERMES_HOME/profile。``cli.CLI_CONFIG`` 是针对无法导入共享加载器的
+    入口点的旧版备用方案（legacy fallback）；先导入它可能会返回
+    旧的默认 ``delegation`` 块，并隐藏用户设置的键（如
+    ``max_concurrent_children``）。
 
-    Uses ``load_config_readonly()``: every consumer of this dict is read-only
-    (``.get()`` lookups), and this runs on each ``get_definitions()`` schema
-    rebuild via ``_get_max_concurrent_children``, so skipping the defensive
-    deepcopy matters. Do NOT mutate the returned dict.
+    使用 ``load_config_readonly()``：该字典的所有使用者均为只读
+    （仅进行 ``.get()`` 查询），且该逻辑会在每次 ``get_definitions()``
+    重建 schema 时通过 ``_get_max_concurrent_children`` 运行，因此跳过
+    防御性深拷贝（defensive deepcopy）至关重要。请勿修改返回的字典。
 
-    ``HERMES_IGNORE_USER_CONFIG=1`` (``hermes chat --ignore-user-config``) is
-    only honored by the legacy ``cli`` loader, not the shared one, so when the
-    flag is set we keep ``cli.CLI_CONFIG`` authoritative to preserve the
-    flag's contract of suppressing user config.yaml settings.
+    ``HERMES_IGNORE_USER_CONFIG=1``（``hermes chat --ignore-user-config``）
+    仅由旧版 ``cli`` 加载器遵循，而共享加载器不遵循，因此当设置该
+    标志时，我们保持以 ``cli.CLI_CONFIG`` 为准，以确保符合该标志
+    抑制用户 config.yaml 设置的契约。
     """
     prefer_legacy = os.environ.get("HERMES_IGNORE_USER_CONFIG") == "1"
     if not prefer_legacy:
@@ -3375,14 +3379,80 @@ def _build_dynamic_schema_overrides() -> dict:
 
 DELEGATE_TASK_SCHEMA = {
     "name": "delegate_task",
-    # NOTE: description / tasks.description / role.description are placeholder
-    # values. The real text is generated per get_definitions() call by
-    # _build_dynamic_schema_overrides() (registered via
-    # dynamic_schema_overrides below) so the model sees the user's actual
-    # delegation.max_concurrent_children / max_spawn_depth, not the framework
-    # defaults. Building these lazily (instead of at module import) also
-    # avoids forcing cli.CLI_CONFIG to load before the test conftest can
-    # redirect HERMES_HOME.
+    # 注意：description / tasks.description / role.description 均为占位符
+    # 值。真实文本是在每次调用 get_definitions() 时，由
+    # _build_dynamic_schema_overrides()（通过下方的
+    # dynamic_schema_overrides 注册）动态生成的，这样模型看到的就是用户实际的
+    # delegation.max_concurrent_children / max_spawn_depth，而不是框架
+    # 默认值。延迟构建这些内容（而不是在模块导入时构建）还可以
+    # 避免在测试 conftest 重定向 HERMES_HOME 之前强制加载 cli.CLI_CONFIG。
+    # "description": (
+    #     "在隔离的上下文中生成一个或多个子 Agent。"
+    #     "description 会在每次调用 get_definitions() 时重新构建，"
+    #     "以反映用户当前的委托限制。"
+    # ),
+    # "parameters": {
+    #     "type": "object",
+    #     "properties": {
+    #         "goal": {
+    #             "type": "string",
+    #             "description": (
+    #                 "子 Agent 应该完成的目标。请保持具体且"
+    #                 "自包含——子 Agent 对你的对话历史"
+    #                 "一无所知。"
+    #             ),
+    #         },
+    #         "context": {
+    #             "type": "string",
+    #             "description": (
+    #                 "子 Agent 所需的背景信息：文件路径、"
+    #                 "错误信息、项目结构、约束条件。你描述得"
+    #                 "越具体，子 Agent 的表现就越好。"
+    #             ),
+    #         },
+    #         "tasks": {
+    #             "type": "array",
+    #             "items": {
+    #                 "type": "object",
+    #                 "properties": {
+    #                     "goal": {"type": "string", "description": "任务目标"},
+    #                     "context": {
+    #                         "type": "string",
+    #                         "description": "特定任务的上下文",
+    #                     },
+    #                     "role": {
+    #                         "type": "string",
+    #                         "enum": ["leaf", "orchestrator"],
+    #                         "description": "针对每个任务的角色重写。语义参见顶层 'role'。",
+    #                     },
+    #                 },
+    #                 "required": ["goal"],
+    #             },
+    #             # 不设 maxItems —— 运行时限制可通过
+    #             # delegation.max_concurrent_children 进行配置（默认值为 3），
+    #             # 并在 delegate_task() 中通过明确的错误提示进行强制约束。
+    #             "description": "（在 get_definitions() 调用时重新构建）",
+    #         },
+    #         "role": {
+    #             "type": "string",
+    #             "enum": ["leaf", "orchestrator"],
+    #             "description": "（在 get_definitions() 调用时重新构建）",
+    #         },
+    #         "background": {
+    #             "type": "boolean",
+    #             "description": (
+    #                 "已废弃 / 已忽略。单任务委托总是"
+    #                 "自动在后台运行——你不需要（也"
+    #                 "无法）选择开启或关闭。当子 Agent 完成时，"
+    #                 "结果会作为一条新消息重新进入"
+    #                 "对话；在此期间你正常继续工作即可。设置此参数没有"
+    #                 "任何效果；保留该参数仅为了向下"
+    #                 "兼容。"
+    #             ),
+    #         },
+    #     },
+    #     "required": [],
+    # },
     "description": (
         "Spawn one or more subagents in isolated contexts. "
         "Description is rebuilt at every get_definitions() call to reflect "

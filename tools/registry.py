@@ -108,29 +108,22 @@ class ToolEntry:
 
 
 # ---------------------------------------------------------------------------
-# check_fn TTL cache
+# check_fn TTL 缓存
 #
-# check_fn callables like tools/terminal_tool.check_terminal_requirements
-# probe external state (Docker daemon, Modal SDK install, playwright binary
-# availability). For a long-lived CLI or gateway process, calling them on
-# every get_definitions() is pure waste — external state changes on human
-# timescales. Cache results for ~30 s so env-var flips via ``hermes tools``
-# or live credential file changes propagate within a turn or two without
-# requiring any explicit invalidation.
+# 诸如 tools/terminal_tool.check_terminal_requirements 之类的 check_fn 可调用对象
+# 会探测外部状态（例如 Docker 守护进程、Modal SDK 安装情况、playwright 二进制文件
+# 可用性）。对于长生命周期的 CLI 或网关进程，在每次调用 get_definitions() 时都进行检查
+# 纯属浪费——外部状态通常按人类的时间尺度发生变化。将其结果缓存约 30 秒，这样通过 ``hermes tools``
+# 进行的环境变量切换或实时凭据文件更改，就能在一两个轮次内生效，而无需显式使缓存失效。
 #
-# Transient-failure suppression (issue #21658 / #5304): these probes can flap.
-# A single ``subprocess.run([docker, "version"], timeout=5)`` that times out
-# under load returns False for one call, which would silently strip the entire
-# terminal+file toolset from whatever agent is being built at that instant —
-# most visibly a delegate_task subagent, which then reports "Tool read_file
-# does not exist". To absorb such flakes WITHOUT pinning a permanently-stale
-# "available" verdict, we remember the last time each check returned True and,
-# when a fresh probe fails within a short grace window of that last success,
-# we serve the last-good True instead of caching the failure. A failure that
-# persists past the grace window is honored normally, so a backend that really
-# went down stops advertising its tools.
+# 瞬时故障抑制（issue #21658 / #5304）：这些探测可能会出现波动。
+# 负载下超时的单次 ``subprocess.run([docker, "version"], timeout=5)`` 调用会返回 False，
+# 这会默默地从当时正在构建的任何智能体（最明显的是 delegate_task 子智能体，随后它会报告
+# “Tool read_file does not exist”）中剥离整个 terminal+file 工具集。为了吸收此类波动，
+# 但又不会永久锁定陈旧的“可用”判定，我们会记住每次检查最后一次返回 True 的时间；当新探测
+# 在上次成功后的短宽限期内失败时，我们会提供最后一次成功的 True，而不是缓存该失败。
+# 持续超出宽限期的一次失败将会被正常采纳，因此真正宕机的后端将停止发布其工具。
 # ---------------------------------------------------------------------------
-
 _CHECK_FN_TTL_SECONDS = 30.0
 # How long after a successful check a subsequent transient failure is treated
 # as a flake (last-good True is served) rather than a real outage. Kept short

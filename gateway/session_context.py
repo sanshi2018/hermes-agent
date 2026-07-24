@@ -93,25 +93,25 @@ _SESSION_MESSAGE_ID: ContextVar = ContextVar("HERMES_SESSION_MESSAGE_ID", defaul
 
 _SESSION_PROFILE: ContextVar = ContextVar("HERMES_SESSION_PROFILE", default=_UNSET)
 
-# Whether the current session's delivery channel can route an ASYNC completion
-# back to the agent AFTER the current turn ends (i.e. wake a fresh turn).
+# 当前会话的传递通道能否在当前轮次结束之后，将异步（ASYNC）完成通知
+# 路由回代理（即唤醒一个新轮次）。
 #
-# True  — CLI (in-process completion_queue drain) and the real gateway
-#         platforms (Telegram/Discord/Slack/...), which hold a persistent
-#         outbound channel and run the watcher/drain loops.
-# False — stateless request/response adapters (the API server: every route,
-#         spec and proprietary, tears down its channel when the turn ends, so
-#         a background completion that finishes later has nowhere to go).
+# True  — CLI（进程内的 completion_queue 消耗）以及真实的网关
+#         平台（Telegram/Discord/Slack/...），它们持有一个持久的
+#         出站通道并运行观察者/消耗（watcher/drain）循环。
+# False — 无状态的请求/响应适配器（API 服务器：每个路由，
+#         不管是规范的还是专有的，都会在轮次结束时拆除其通道，因此
+#         稍后完成的后台任务通知将无处发送）。
 #
-# Tools that promise async delivery (terminal notify_on_complete /
-# watch_patterns, delegate_task background=True) read this via
-# ``async_delivery_supported()`` and refuse to hand out a promise the channel
-# can't keep — turning a silent no-op into an explicit contract.
+# 承诺异步传递的工具（终端的 notify_on_complete /
+# watch_patterns，delegate_task background=True）会通过
+# ``async_delivery_supported()`` 读取此项，并拒绝给出通道无法
+# 兑现的承诺——从而将静默的不执行（no-op）转变为显式的契约。
 #
-# Default _UNSET => treated as supported, so CLI (which never sets a platform)
-# and any contextvar-unaware path keep working. Stateless adapters opt OUT by
-# setting ``supports_async_delivery = False`` on the adapter class; the gateway
-# propagates that into this contextvar at session-bind time.
+# 默认值 _UNSET => 被视为支持，因此 CLI（它从不设置平台）
+# 以及任何不感知 contextvar 的路径都能继续工作。无状态适配器通过
+# 在适配器类上设置 ``supports_async_delivery = False`` 来选择退出；网关
+# 会在会话绑定（session-bind）时将其传播到此 contextvar 中。
 _SESSION_ASYNC_DELIVERY: ContextVar = ContextVar("HERMES_SESSION_ASYNC_DELIVERY", default=_UNSET)
 
 # Cron auto-delivery vars — set per-job in run_job() so concurrent jobs
@@ -328,17 +328,17 @@ def get_session_env(name: str, default: str = "") -> str:
 
 
 def async_delivery_supported() -> bool:
-    """Whether the current session can deliver a background completion later.
+    """当前会话稍后能否传递后台完成通知。
 
-    Returns ``False`` only when the active session was explicitly bound by a
-    stateless adapter (the API server) that cannot route a notification back to
-    the agent after the turn ends. CLI, cron, and the real gateway platforms —
-    and any path that never bound the contextvar — return ``True``.
+    仅当活动会话被无状态适配器（API 服务器）显式绑定，
+    且该适配器在轮次结束后无法将通知路由回代理时，
+    才返回 ``False``。CLI、cron 和真实的网关平台——
+    以及任何从未绑定 contextvar 的路径——均返回 ``True``。
 
-    Tools that promise async delivery (``terminal`` notify_on_complete /
-    watch_patterns, ``delegate_task`` background=True) consult this before
-    registering a watcher / dispatching a detached child, so they can refuse a
-    promise the channel can't keep instead of silently no-op'ing.
+    承诺异步传递的工具（``terminal`` notify_on_complete /
+    watch_patterns，``delegate_task`` background=True）会在
+    注册观察者/派发独立子任务之前查询此项，以便它们能够拒绝
+    通道无法兑现的承诺，而不是静默地不执行任何操作（no-op）。
     """
     value = _SESSION_ASYNC_DELIVERY.get()
     if value is _UNSET:

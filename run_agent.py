@@ -5684,26 +5684,23 @@ class AIAgent:
             self._executing_tools = False
 
     def _dispatch_delegate_task(self, function_args: dict) -> str:
-        """Single call site for delegate_task dispatch.
+        """delegate_task 分派的单一调用点。
 
-        New DELEGATE_TASK_SCHEMA fields only need to be added here to reach all
-        invocation paths (concurrent, sequential, inline).
+        新的 DELEGATE_TASK_SCHEMA 字段只需要在此处添加，即可覆盖所有
+        调用路径（并发、顺序、内联）。
         """
         from tools.delegate_tool import (
             _strip_model_hidden_task_fields,
             delegate_task as _delegate_task,
         )
-        # Delegations from the top-level MODEL always run in the background —
-        # the model does not get to choose. delegate_task returns immediately
-        # with a handle (one per task) and each subagent's result re-enters the
-        # conversation as a new message when it finishes. This applies to BOTH
-        # a single task and a fan-out batch (each task becomes its own
-        # independent background subagent). The one exception:
-        #   - A delegation from an ORCHESTRATOR SUBAGENT (depth > 0) stays
-        #     synchronous: the orchestrator needs its workers' results within
-        #     its own turn to compose a summary, and a subagent doesn't own the
-        #     gateway session the async result would route back to.
-        # The schema-level `background` param is intentionally ignored here.
+        # 来自顶层 MODEL 的委派总是以后台模式运行 ——模型无法自行选择。
+        # delegate_task 会立即返回一个句柄（每个任务一个），并且每个子Agent的结果会在完成后
+        # 作为一条新消息重新进入对话。这适用于单个任务以及扇出批处理（每个任务都成为其自己的独立背景子代理）。
+        # 唯一的例外是：
+        #   - 来自编排器子代理（ORCHESTRATOR SUBAGENT，深度 > 0）的委派保持同步：
+        #   编排器需要在其自己的回合内获取其工作线程的结果来撰写摘要，并且子agent不拥有
+        #     异步结果将路由回的网关会话。
+        # 架构层面的 `background` 参数在此处被有意忽略。
         _is_subagent = getattr(self, "_delegate_depth", 0) > 0
         return _delegate_task(
             goal=function_args.get("goal"),

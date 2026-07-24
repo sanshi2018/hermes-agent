@@ -191,11 +191,11 @@ def set_sudo_password_callback(cb):
 
 
 def set_approval_callback(cb):
-    """Register a callback for dangerous command approval prompts.
+    """注册一个针对危险命令审批提示的回调函数。
 
-    Per-thread scope — ACP sessions that run concurrently in a
-    ThreadPoolExecutor each have their own callback slot. See
-    GHSA-qg5c-hvr5-hjgr.
+    线程级作用域 —— 在 ThreadPoolExecutor 中并发运行的
+    ACP 会话各自拥有独立的回调槽位。参见
+    GHSA-qg5c-hvr5-hjgr。
     """
     _callback_tls.approval = cb
 

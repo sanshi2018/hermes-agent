@@ -58,22 +58,22 @@
 
 ```mermaid
 sequenceDiagram
-    participant LOOP as conversation_loop
+    participant CONV_LOOP as conversation_loop
     participant MT as model_tools.py
     participant HOOK as 插件钩子<br/>hermes_cli/plugins.py
     participant REG as ToolRegistry<br/>tools/registry.py
     participant H as 工具 handler
 
-    Note over LOOP: 回合开始前
-    LOOP->>MT: get_tool_definitions(enabled_toolsets)
+    Note over CONV_LOOP: 回合开始前
+    CONV_LOOP->>MT: get_tool_definitions(enabled_toolsets)
     MT->>MT: resolve_toolset() 展开工具集<br/>(toolsets.py:687, 支持 includes 递归)
     MT->>REG: get_definitions(tool_names)
     REG->>REG: 逐工具 check_fn (30s TTL 缓存)<br/>+ dynamic_schema_overrides
     REG-->>MT: OpenAI 格式 schema 列表<br/>(memo: registry generation + config mtime)
-    MT-->>LOOP: tools=[...] 随每次 API 调用发送
+    MT-->>CONV_LOOP: tools=[...] 随每次 API 调用发送
 
-    Note over LOOP: 模型发出 tool_call
-    LOOP->>MT: handle_function_call(name, raw_args, task_id)
+    Note over CONV_LOOP: 模型发出 tool_call
+    CONV_LOOP->>MT: handle_function_call(name, raw_args, task_id)
     MT->>MT: coerce_tool_args() (model_tools.py:650)<br/>字符串→数字/布尔/JSON 纠偏
     MT->>HOOK: pre_tool_call 钩子
     MT->>REG: registry.dispatch(name, args)
@@ -83,7 +83,7 @@ sequenceDiagram
     REG-->>MT: 结果字符串
     MT->>MT: 按 max_result_size_chars 截断
     MT->>HOOK: post_tool_call 钩子
-    MT-->>LOOP: tool 消息内容
+    MT-->>CONV_LOOP: tool 消息内容
 ```
 
 两个容易被忽视但重要的环节：

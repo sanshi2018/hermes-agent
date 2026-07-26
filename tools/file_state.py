@@ -221,11 +221,10 @@ class FileStateRegistry:
         since_ts: float,
         paths: Iterable[str],
     ) -> Dict[str, List[str]]:
-        """返回除 ``exclude_task_id`` 之外的代理在
+        """返回除 ``exclude_task_id`` 之外的Agent在
         ``since_ts`` 之后完成的写入操作的 ``{writer_task_id: [paths]}``。
 
-        由 delegate_task 用于向委派结果追加“子代理修改了
-        父级此前读取过的文件”的提醒。
+        由 delegate_task 用于向委派结果追加“subAgent修改了父级此前读取过的文件”的提醒。
         """
         if _disabled():
             return {}

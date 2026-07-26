@@ -3289,10 +3289,10 @@ class AIAgent:
             pass  # Never let header parsing break the agent loop
 
     def get_activity_summary(self) -> dict:
-        """Return a snapshot of the agent's current activity for diagnostics.
+        """返回 Agent 当前活动的快照，用于诊断。
 
-        Called by the gateway timeout handler to report what the agent was doing
-        when it was killed, and by the periodic "still working" notifications.
+        由网关超时处理程序在 Agent 被终止时调用，以汇报其当时正在执行的操作；
+        也可由定期的“仍在工作”通知调用。
         """
         elapsed = time.time() - self._last_activity_ts
         return {

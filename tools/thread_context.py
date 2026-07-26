@@ -62,18 +62,19 @@ def _callback_api():
 
 
 def propagate_context_to_thread(target: Callable) -> Callable:
-    """Wrap *target* for execution on a worker thread with the *current*
-    thread's ContextVars and approval/sudo callbacks propagated.
+    """对 *target* 进行封装，以便在工作线程（worker thread）中执行，
+    同时将 *当前* 线程的 ContextVars 以及审批/sudo 回调函数传递过去。
 
-    Call this on the parent thread; pass the returned callable as the
-    thread/executor target.  The returned callable forwards its positional
-    and keyword arguments to *target* and returns its result.
+    请在父线程中调用此函数；并将返回的可调用对象（callable）
+    作为线程/执行器（thread/executor）的目标参数传入。
+    该返回的可调用对象会将其接收到的位置参数和关键字参数转发给 *target*，
+    并返回其执行结果。
 
-    Fail-closed: if callback installation raises, the callbacks are left
-    unset (``None``).  That is the safe outcome — ``prompt_dangerous_approval``
-    denies dangerous commands when no callback is registered in an interactive
-    context, and the gateway approval queue blocks when its notify callback is
-    absent.
+    故障安全/拒绝优先（Fail-closed）：如果回调函数的挂载引发异常，
+    这些回调将保持未设置状态（``None``）。
+    这是安全的处理结果 —— 当交互上下文中未注册回调函数时，
+    ``prompt_dangerous_approval`` 会拒绝危险指令；
+    而当通知回调缺失时，网关审批队列则会直接阻塞。
     """
     ctx = contextvars.copy_context()
     parent_approval_cb = parent_sudo_cb = None

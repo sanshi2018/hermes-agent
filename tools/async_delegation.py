@@ -333,25 +333,26 @@ def dispatch_async_delegation_batch(
     interrupt_fn: Optional[Callable[[], None]] = None,
     max_async_children: int = _DEFAULT_MAX_ASYNC_CHILDREN,
 ) -> Dict[str, Any]:
-    """Dispatch a WHOLE fan-out batch as ONE background unit.
+    """将整个扇出（fan-out）批量任务作为一个单独的后台单元进行调度。
 
-    Unlike ``dispatch_async_delegation`` (which backs a single subagent),
-    ``runner`` here runs the entire batch — it builds and joins on every child
-    in parallel and returns the combined ``{"results": [...],
-    "total_duration_seconds": N}`` dict that the synchronous path would have
-    returned. We occupy ONE async slot for the whole batch (the in-batch
-    parallelism is bounded separately by ``max_concurrent_children``), so a
-    single ``delegate_task`` fan-out never exhausts the async pool by itself.
+    与 ``dispatch_async_delegation``（仅支持单个子代理）不同，
+    此处的 ``runner`` 负责运行整个批量任务 ——
+    它并行构建并等待（join）每个子任务，
+    然后返回由同步路径原本会返回的组合字典
+    ``{"results": [...], "total_duration_seconds": N}``。
+    我们为这整批任务仅占用 1 个异步槽位
+    （批次内部的并行度由 ``max_concurrent_children`` 单独限制），
+    因此单次 ``delegate_task`` 扇出绝不会独自耗尽异步池。
 
-    When the batch finishes, a SINGLE completion event is pushed onto the
-    shared ``process_registry.completion_queue`` carrying the full per-task
-    ``results`` list, so the consolidated summaries re-enter the conversation
-    as one message once every child is done — the chat is never blocked while
-    they run.
+    当批量任务完成时，单个完成事件会被推送至
+    共享的 ``process_registry.completion_queue`` 中，
+    其中包含了每个任务完整的 ``results`` 列表；
+    因此，一旦所有子任务全部完成，
+    汇总后的总结就会作为一个统一的消息重新进入对话 ——
+    在它们运行期间，聊天绝不会被阻塞。
 
-    Returns ``{"status": "dispatched", "delegation_id": ...}`` on success or
-    ``{"status": "rejected", "error": ...}`` when the async pool is at
-    capacity.
+    成功时返回 ``{"status": "dispatched", "delegation_id": ...}``；
+    当异步池已满时返回 ``{"status": "rejected", "error": ...}``。
     """
     delegation_id = _new_delegation_id()
     dispatched_at = time.time()

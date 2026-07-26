@@ -348,53 +348,50 @@ def init_agent(
     pass_session_id: bool = False,
 ):
     """
-    Initialize the AI Agent.
+    初始化 AI Agent。
 
-    Args:
-        base_url (str): Base URL for the model API (optional)
-        api_key (str): API key for authentication (optional, uses env var if not provided)
-        provider (str): Provider identifier (optional; used for telemetry/routing hints)
-        api_mode (str): API mode override: "chat_completions" or "codex_responses"
-        model (str): Model name to use (default: "anthropic/claude-opus-4.6")
-        max_iterations (int): Maximum number of tool calling iterations (default: 90)
-        tool_delay (float): Delay between tool calls in seconds (default: 1.0)
-        enabled_toolsets (List[str]): Only enable tools from these toolsets (optional)
-        disabled_toolsets (List[str]): Disable tools from these toolsets (optional)
-        save_trajectories (bool): Whether to save conversation trajectories to JSONL files (default: False)
-        verbose_logging (bool): Enable verbose logging for debugging (default: False)
-        quiet_mode (bool): Suppress progress output for clean CLI experience (default: False)
-        ephemeral_system_prompt (str): System prompt used during agent execution but NOT saved to trajectories (optional)
-        log_prefix_chars (int): Number of characters to show in log previews for tool calls/responses (default: 100)
-        log_prefix (str): Prefix to add to all log messages for identification in parallel processing (default: "")
-        providers_allowed (List[str]): OpenRouter providers to allow (optional)
-        providers_ignored (List[str]): OpenRouter providers to ignore (optional)
-        providers_order (List[str]): OpenRouter providers to try in order (optional)
-        provider_sort (str): Sort providers by price/throughput/latency (optional)
-        openrouter_min_coding_score (float): Coding-score floor (0.0-1.0) for the
-            openrouter/pareto-code router. Only applied when model == "openrouter/pareto-code".
-            None or empty = let OpenRouter pick the strongest available coder.
-        session_id (str): Pre-generated session ID for logging (optional, auto-generated if not provided)
-        tool_progress_callback (callable): Callback function(tool_name, args_preview) for progress notifications
-        clarify_callback (callable): Callback function(question, choices) -> str for interactive user questions.
-            Provided by the platform layer (CLI or gateway). If None, the clarify tool returns an error.
-        max_tokens (int): Maximum tokens for model responses (optional, uses model default if not set)
-        reasoning_config (Dict): OpenRouter reasoning configuration override (e.g. {"effort": "none"} to disable thinking).
-            If None, defaults to {"enabled": True, "effort": "medium"} for OpenRouter. Set to disable/customize reasoning.
-        prefill_messages (List[Dict]): Messages to prepend to conversation history as prefilled context.
-            Useful for injecting a few-shot example or priming the model's response style.
-            Example: [{"role": "user", "content": "Hi!"}, {"role": "assistant", "content": "Hello!"}]
-            NOTE: Anthropic Sonnet 4.6+ and Opus 4.6+ reject a conversation that ends on an
-            assistant-role message (400 error).  For those models use structured outputs or
-            output_config.format instead of a trailing-assistant prefill.
-        platform (str): The interface platform the user is on (e.g. "cli", "telegram", "discord", "whatsapp").
-            Used to inject platform-specific formatting hints into the system prompt.
-        skip_context_files (bool): If True, skip auto-injection of project context files
-            (SOUL.md, .hermes.md, AGENTS.md, CLAUDE.md, .cursorrules) from the cwd / HERMES_HOME
-            into the system prompt. Use this for batch processing and data generation to avoid
-            polluting trajectories with user-specific persona or project instructions.
-        load_soul_identity (bool): If True, still use ~/.hermes/SOUL.md as the primary
-            identity even when skip_context_files=True. Project context files from the cwd
-            remain skipped.
+    参数：
+        base_url (str): 模型 API 的基础 URL（可选）
+        api_key (str): 用于身份验证的 API 密钥（可选，未提供时使用环境变量）
+        provider (str): 提供商标识符（可选；用于遥测/路由提示）
+        api_mode (str): API 模式覆盖："chat_completions" 或 "codex_responses"
+        model (str): 要使用的模型名称（默认："anthropic/claude-opus-4.6"）
+        max_iterations (int): 工具调用的最大迭代次数（默认：90）
+        tool_delay (float): 工具调用之间的延迟时间，单位为秒（默认：1.0）
+        enabled_toolsets (List[str]): 仅启用来自这些工具集的工具（可选）
+        disabled_toolsets (List[str]): 禁用来自这些工具集的工具（可选）
+        save_trajectories (bool): 是否将对话轨迹保存到 JSONL 文件中（默认：False）
+        verbose_logging (bool): 启用详细日志记录以供调试（默认：False）
+        quiet_mode (bool): 静默模式，抑制进度输出以提供简洁的 CLI 体验（默认：False）
+        ephemeral_system_prompt (str): 在 Agent 执行期间使用但**不会**保存到轨迹中的临时系统提示词（可选）
+        log_prefix_chars (int): 工具调用/响应的日志预览中显示的字符数（默认：100）
+        log_prefix (str): 添加到所有日志消息前用于在并行处理中标识的前缀（默认：""）
+        providers_allowed (List[str]): 允许使用的 OpenRouter 提供商列表（可选）
+        providers_ignored (List[str]): 忽略的 OpenRouter 提供商列表（可选）
+        providers_order (List[str]): 按顺序尝试的 OpenRouter 提供商列表（可选）
+        provider_sort (str): 按价格/吞吐量/延迟对提供商进行排序（可选）
+        openrouter_min_coding_score (float): openrouter/pareto-code 路由器的代码能力得分底线 (0.0-1.0)。
+            仅在 model == "openrouter/pareto-code" 时生效。
+            为 None 或为空表示让 OpenRouter 挑选当前可用的最强代码模型。
+        session_id (str): 用于日志记录的预生成会话 ID（可选，未提供时自动生成）
+        tool_progress_callback (callable): 用于接收进度通知的回调函数 fn(tool_name, args_preview)
+        clarify_callback (callable): 用于处理交互式用户提问的回调函数 fn(question, choices) -> str。
+            由平台层（CLI 或网关）提供。如果为 None，则 clarify 工具将返回错误。
+        max_tokens (int): 模型响应的最大 Token 数（可选，未设置时使用模型默认值）
+        reasoning_config (Dict): OpenRouter 推理配置覆盖（例如 {"effort": "none"} 用于禁用思考）。
+            如果为 None，对于 OpenRouter 默认使用 {"enabled": True, "effort": "medium"}。设置此项可禁用/自定义推理。
+        prefill_messages (List[Dict]): 作为预填上下文追加到对话历史前面的消息列表。
+            常用于注入少样本示例（few-shot）或引导模型的响应风格。
+            示例：[{"role": "user", "content": "Hi!"}, {"role": "assistant", "content": "Hello!"}]
+            注意：Anthropic Sonnet 4.6+ 和 Opus 4.6+ 会拒绝以 assistant 角色消息结尾的对话（报错 400）。
+            对于这些模型，请改用结构化输出或 output_config.format，而非在末尾预填 assistant 消息。
+        platform (str): 用户所在的接口平台（例如 "cli", "telegram", "discord", "whatsapp"）。
+            用于将特定平台的格式化提示注入到系统提示词中。
+        skip_context_files (bool): 若为 True，则跳过从当前工作目录 / HERMES_HOME 自动注入项目上下文文件
+            （SOUL.md、.hermes.md、AGENTS.md、CLAUDE.md、.cursorrules）到系统提示词中。
+            用于批量处理和数据生成，以避免特定用户的 Persona 或项目指令污染轨迹。
+        load_soul_identity (bool): 若为 True，即使在 skip_context_files=True 时，
+            仍使用 ~/.hermes/SOUL.md 作为主要身份。但当前工作目录下的项目上下文文件依然会被跳过。
     """
     _install_safe_stdio()
 

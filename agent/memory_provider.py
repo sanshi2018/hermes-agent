@@ -231,15 +231,15 @@ class MemoryProvider(ABC):
 
     def on_delegation(self, task: str, result: str, *,
                       child_session_id: str = "", **kwargs) -> None:
-        """Called on the PARENT agent when a subagent completes.
+        """当子代理（subagent）完成任务时，在父代理（PARENT agent）上调用。
 
-        The parent's memory provider gets the task+result pair as an
-        observation of what was delegated and what came back. The subagent
-        itself has no provider session (skip_memory=True).
+        父代理的内存提供者（memory provider）会将“任务+结果”对
+        作为“被委托事项及返回结果”的观察记录（observation）进行获取。
+        子代理本身没有提供者会话（skip_memory=True）。
 
-        task: the delegation prompt
-        result: the subagent's final response
-        child_session_id: the subagent's session_id
+        task: 委托提示词（delegation prompt）
+        result: 子代理的最终响应
+        child_session_id: 子代理的 session_id
         """
 
     def get_config_schema(self) -> List[Dict[str, Any]]:

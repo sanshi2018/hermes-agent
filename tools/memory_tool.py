@@ -282,19 +282,19 @@ class MemoryStore:
         return mem_dir / "MEMORY.md"
 
     def _reload_target(self, target: str, *, skip_drift: bool = False) -> Optional[str]:
-        """Re-read entries from disk into in-memory state.
+        """将条目从磁盘重新读取到内存状态中。
 
-        Called under file lock to get the latest state before mutating.
-        Returns the backup path if external drift was detected (the on-disk
-        file contains content that wouldn't round-trip through our
-        parser/serializer, OR an entry larger than the store's char limit).
-        When drift is detected the caller must abort the mutation —
-        flushing would discard the un-roundtrippable content.
-        Returns None on clean reload.
+        在文件锁的保护下调用，以便在发生变更前获取最新状态。
+        如果检测到外部漂移（磁盘文件包含无法通过我们的解析器/序列化器
+        完成往返转换的内容，或者包含超出存储区字符限制的条目），
+        则返回备份路径。
+        当检测到漂移时，调用方必须中止变更 ——
+        因为刷新写盘会丢弃这些无法往返转换的内容。
+        如果重新加载正常，则返回 None。
 
-        When *skip_drift* is True the round-trip / entry-size check is
-        bypassed.  Used by the ``add`` action which appends without
-        rewriting, so existing content is never clobbered.
+        当 *skip_drift* 为 True 时，将跳过往返转换及条目大小检查。
+        此选项供仅执行追加而不重写文件的 ``add`` 操作使用，
+        因此绝不会覆盖现有内容。
         """
         path = self._path_for(target)
         bak = None if skip_drift else self._detect_external_drift(target)
@@ -342,12 +342,12 @@ class MemoryStore:
             return {"success": False, "error": scan_error}
 
         with self._file_lock(self._path_for(target)):
-            # Re-read from disk under lock to pick up writes from other sessions.
-            # For add (append-only), we skip the drift guard — appending never
-            # clobbers existing content, so round-trip mismatches from prior
-            # tool-written entries in the same session are harmless.  The drift
-            # guard remains active for replace/remove where full-file rewrite
-            # would discard un-roundtrippable content (issue #26045).
+            # 在锁保护下重新从磁盘读取，以获取来自其他会话的写入。
+            # 对于 add（仅追加）操作，我们跳过漂移防护（drift guard）—— 追加绝不会
+            # 覆盖已有内容，因此同一会话中先前由工具写入的条目所导致的
+            # 往返校验不匹配（round-trip mismatches）是无害的。
+            # 漂移防护对于 replace/remove 操作依然有效，因为重写整个文件
+            # 会丢弃无法成功进行往返校验的内容（参见问题 #26045）。
             self._reload_target(target, skip_drift=True)
 
             entries = self._entries_for(target)
@@ -818,11 +818,11 @@ def load_on_disk_store() -> "MemoryStore":
 
 def _apply_write_gate(action: str, target: str, content: Optional[str],
                       old_text: Optional[str]) -> Optional[str]:
-    """Evaluate the memory write gate. Returns a JSON tool-result string when
-    the write should NOT proceed normally (blocked or staged), or None when the
-    caller should perform the real write.
+    """评估内存写入门控机制。当写入操作不应正常执行
+    （被拦截或暂存）时，返回一个 JSON 格式的工具结果字符串；
+    当调用方应当执行真正的写入操作时，返回 None。
 
-    Only the mutating actions (add/replace/remove) are gated.
+    仅有变动性操作（add/replace/remove）受门控限制。
     """
     if action not in {"add", "replace", "remove"}:
         return None
@@ -921,18 +921,17 @@ def _apply_batch_write_gate(target: str, operations: List[Dict[str, Any]]) -> Op
 
 
 def _missing_old_text_error(store: "MemoryStore", target: str, action: str) -> str:
-    """Build a recoverable error for a replace/remove call that arrived without
-    ``old_text``.
+    """构建适用于 replace/remove 调用因缺失 ``old_text`` 产生的可恢复错误响应。
 
-    ``replace``/``remove`` are inherently targeted -- without ``old_text`` there
-    is no entry to act on, so we cannot fulfil the call. But returning a bare
-    "old_text is required" is a dead-end: some structured-output clients omit the
-    optional ``old_text`` field (it isn't, and can't be, schema-required without
-    a top-level combinator the Codex backend rejects -- see
-    tests/tools/test_memory_tool_schema.py). So instead we return the current
-    entry inventory plus an explicit retry instruction, letting the model reissue
-    the call with ``old_text`` set to a unique substring of the entry it means.
-    Mirrors the batch path's ``_batch_error`` shape. (issues #43412, #49466)
+    ``replace`` 与 ``remove`` 操作本质上是针对特定目标的 —— 如果没有提供 ``old_text``，
+    系统将无法定位需要操作的条目，因此无法完成调用。然而，直接返回单纯的
+    "old_text is required" 错误会导致流程卡死：部分支持结构化输出的客户端会忽略可选的
+    ``old_text`` 字段（由于顶级组合器的限制，该字段无法在 schema 中设为必填项，
+    否则会被 Codex 后端拒绝 —— 详见 tests/tools/test_memory_tool_schema.py）。
+
+    因此，我们改为返回当前已存条目的清单，并附上明确的重试指令，
+    以便模型能够重新发起调用，并将 ``old_text`` 设置为目标条目中唯一的子字符串。
+    该逻辑与批量操作路径下的 ``_batch_error`` 响应格式保持一致。（对应 issue #43412、#49466）
     """
     entries = store._entries_for(target)
     current = store._char_count(target)
@@ -1002,17 +1001,18 @@ def memory_tool(
     if action == "replace" and (not old_text or not content):
         missing = "old_text" if not old_text else "content"
         if not old_text:
-            # The client/model omitted old_text. Replace is inherently targeted
-            # -- we can't guess which entry. Return the current inventory plus a
-            # retry instruction so the model can reissue with old_text set,
-            # instead of hitting a dead-end error. (issues #43412, #49466)
+            # 客户端/模型遗漏了 old_text 参数。替换操作本质上是针对特定目标的
+            # —— 我们无法确定具体要修改哪一条记录。因此返回当前已有的条目清单并附带
+            # 重试指令，以便模型能够补充 old_text 参数后重新发起请求，
+            # 从而避免陷入无法处理的错误中断。（对应 issue #43412、#49466）
             return _missing_old_text_error(store, target, "replace")
         return tool_error(f"{missing} is required for 'replace' action.", success=False)
     if action == "remove" and not old_text:
         return _missing_old_text_error(store, target, "remove")
 
-    # Approval gate: when on, stages the write (background/gateway) or prompts
-    # inline (interactive CLI); when off (default) passes straight through.
+    # 批准门控：启用时，会将写入操作挂起暂存（后台/网关模式）
+    # 或触发内联提示（交互式命令行模式）；
+    # 关闭时（默认状态）则直接通过放行。
     gate_result = _apply_write_gate(action, target, content, old_text)
     if gate_result is not None:
         return gate_result

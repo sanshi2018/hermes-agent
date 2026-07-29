@@ -113,21 +113,21 @@ def _pending_dir(subsystem: str) -> Path:
 
 def stage_write(subsystem: str, payload: Dict[str, Any],
                 *, summary: str, origin: str) -> Dict[str, Any]:
-    """Persist a pending write and return a short record describing it.
+    """持久化挂起的写入操作，并返回描述该操作的简短记录。
 
-    Args:
-        subsystem: ``memory`` or ``skills``.
-        payload: the exact kwargs needed to replay the write when approved
-            (e.g. ``{"action": "add", "target": "user", "content": "..."}``
-            for memory, or the full ``skill_manage`` kwargs for skills).
-        summary: a one-line human-readable description shown in pending lists.
-            For skills this is the LLM/heuristic gist; for memory it can be the
-            entry text itself.
-        origin: ``foreground`` or ``background_review`` — recorded for audit.
+    参数：
+        subsystem: ``memory`` 或 ``skills``。
+        payload: 批准后用于重放写入操作的精确 kwargs 字典
+            （例如，对于内存为 ``{"action": "add", "target": "user", "content": "..."}``，
+            对于技能则为完整的 ``skill_manage`` kwargs）。
+        summary: 在待处理列表中显示的单行人类可读描述。
+            对于技能，这是 LLM/启发式推断要点；对于内存，可以是
+            条目文本本身。
+        origin: ``foreground`` 或 ``background_review`` — 用于审计记录。
 
-    Returns a dict with ``id`` and metadata. Best-effort: on disk failure it
-    logs and still returns a record (the write is simply lost, which is the
-    safe failure for an approval gate — nothing is silently committed).
+    返回包含 ``id`` 和元数据的字典。尽力而为原则：若磁盘发生故障，
+    会记录日志并仍然返回一条记录（写入操作直接丢失，
+    这是批准门控机制的安全失败策略 —— 绝不会静默提交）。
     """
     pid = uuid.uuid4().hex[:8]
     record = {
@@ -252,32 +252,32 @@ class GateDecision:
 
 def evaluate_gate(subsystem: str, *, inline_summary: str = "",
                   inline_detail: str = "") -> GateDecision:
-    """Decide what to do with a pending write for ``subsystem``.
+    """决定如何处理 ``subsystem`` 中挂起的写入操作。
 
-    Args:
-        subsystem: ``memory`` or ``skills``.
-        inline_summary: short description used as the inline approval prompt
-            header (memory foreground path only).
-        inline_detail: full content shown in the inline prompt (memory entries
-            are small; skills never take the inline path).
+    参数：
+        subsystem: ``memory`` 或 ``skills``。
+        inline_summary: 用作内联批准提示头的简短描述
+            （仅适用于内存的前台路径）。
+        inline_detail: 内联提示中显示的完整内容（内存条目较小；
+            技能类操作绝不会走内联路径）。
 
-    Decision matrix:
-        gate off (default)                    → allow (writes flow freely)
-        gate on, memory + interactive CLI     → inline approve/deny prompt
-        gate on, memory + gateway/script/bg   → stage
-        gate on, skills (any origin)          → stage (too big to review inline)
+    决策矩阵：
+        关闭门控（默认）                      → 允许（写入自由放行）
+        开启门控，内存 + 交互式命令行          → 内联批准/拒绝提示
+        开启门控，内存 + 网关/脚本/后台进程    → 暂存
+        开启门控，技能（任意来源）            → 暂存（内容过大，不宜内联审核）
 
-    Note: there is no config-driven "blocked" outcome — the gate only ever
-    delays a write for approval, never silently refuses it. ``blocked`` is
-    still produced when the user *actively denies* an inline prompt.
+    注意：不存在由配置驱动的“已拦截 (blocked)”结果 —— 门控只会延迟写入
+    以等待批准，绝不会静默拒绝。仅当用户*主动拒绝*内联提示时，
+    才会产生 ``blocked`` 状态。
     """
     if not write_approval_enabled(subsystem):
         return GateDecision(allow=True)
 
     background = is_background()
 
-    # Skills always stage — a SKILL.md is too large to review inline, and a
-    # background skill write happens in a daemon thread with no user present.
+    # 技能总是采用暂存模式 —— SKILL.md 的内容过大，不适合在命令行中内联审核，
+    # 且后台的技能写入操作发生在守护线程中，此时并没有用户在场。
     if subsystem == SKILLS or background:
         where = "/skills pending" if subsystem == SKILLS else "/memory pending"
         return GateDecision(
@@ -288,10 +288,10 @@ def evaluate_gate(subsystem: str, *, inline_summary: str = "",
             ),
         )
 
-    # Memory + foreground: if an interactive approval channel exists (a CLI
-    # approval callback registered on this thread), prompt inline — entries
-    # are small enough to show in full. Otherwise (gateway, script, batch,
-    # no listener) stage instead of forcing a blind deny.
+    # 内存 + 前台：如果存在交互式批准通道（例如在此线程上注册了
+    # 命令行批准回调），则直接在内联提示中确认 —— 内存条目足够小，
+    # 可以完整展示。否则（如网关、脚本、批处理或无监听器的情况），
+    # 则进行暂存，避免盲目拒绝。
     if _interactive_approval_available():
         granted = _prompt_inline_memory_approval(inline_summary, inline_detail)
         if granted is True:
@@ -313,19 +313,19 @@ def evaluate_gate(subsystem: str, *, inline_summary: str = "",
 
 
 def _interactive_approval_available() -> bool:
-    """True when a foreground memory write can be approved inline.
+    """当前台内存写入操作可以进行内联批准时返回 True。
 
-    Inline prompting requires a per-thread approval callback registered by the
-    interactive CLI (``tools.terminal_tool.set_approval_callback``). Every
-    other surface stages instead:
+    内联提示需要由交互式命令行注册线程专属的批准回调函数
+    （``tools.terminal_tool.set_approval_callback``）。
+    其他所有场景则采用暂存机制：
 
-    * **Gateway/API sessions** — the dangerous-command ``/approve`` round-trip
-      lives in the pending-approval queue (``submit_pending`` +
-      ``_await_gateway_decision``), which ``prompt_dangerous_approval`` never
-      reaches; trying to prompt from a gateway session would hit the
-      ``input()`` fallback and silently deny. Staging gives the user a real
-      review affordance (``/memory pending``) instead.
-    * Scripts, cron, and background threads — no user present.
+    * **网关/API 会话** — 高危命令的 ``/approve`` 往返逻辑
+      存在于待批准队列中（``submit_pending`` +
+      ``_await_gateway_decision``），``prompt_dangerous_approval``
+      永远无法到达此处；尝试从网关会话发起提示会触发
+      ``input()`` 的回退逻辑并静默拒绝。采用暂存机制可以为用户
+      提供真正的审核入口（``/memory pending``）。
+    * 脚本、定时任务 (cron) 和后台线程 — 无用户在场。
     """
     try:
         from tools.terminal_tool import _get_approval_callback
@@ -335,17 +335,17 @@ def _interactive_approval_available() -> bool:
 
 
 def _prompt_inline_memory_approval(summary: str, detail: str) -> Optional[bool]:
-    """Prompt the user inline to approve a memory write.
+    """通过内联提示询问用户是否批准内存写入操作。
 
-    Returns True (approved), False (denied), or None (no interactive prompt
-    available / prompt failed → caller should stage instead).
+    返回 True（已批准）、False（已拒绝）或 None（无可用的交互式提示 /
+    提示失败 → 调用方应改为执行暂存操作）。
 
-    Reuses the per-thread CLI approval callback registered for dangerous
-    commands (``tools.terminal_tool.set_approval_callback``). The callback is
-    invoked directly — NOT via ``prompt_dangerous_approval`` — because that
-    wrapper falls back to ``input()`` (deadlock-prone under prompt_toolkit,
-    see #15216) and converts callback errors into a silent deny; here a
-    failed prompt must stage the write instead.
+    复用为高危命令注册的线程专属命令行批准回调函数
+    （``tools.terminal_tool.set_approval_callback``）。该回调函数会被
+    直接调用 —— 而非通过 ``prompt_dangerous_approval`` —— 因为该包装函数
+    会回退使用 ``input()``（在 prompt_toolkit 环境下极易引发死锁，
+    详见 #15216）并将回调错误转换为静默拒绝；而在当前场景下，
+    提示失败必须转为将写入操作进行暂存。
     """
     try:
         from tools.terminal_tool import _get_approval_callback
@@ -362,10 +362,11 @@ def _prompt_inline_memory_approval(summary: str, detail: str) -> Optional[bool]:
     body = detail.strip()
     description = f"Save to memory: {header}"
     command = body if body else header
-    # Invoke the callback directly instead of via prompt_dangerous_approval:
-    # that wrapper swallows callback exceptions into "deny", which would
-    # silently refuse the write. Direct invocation lets a crashed prompt fall
-    # back to staging (the gate only ever delays a write, never drops it).
+    # 直接调用回调函数，而不是通过 prompt_dangerous_approval 处理：
+    # 该包装函数会将回调产生的异常吞掉并视作“拒绝 (deny)”，
+    # 这将导致写入操作被静默拒绝。
+    # 直接调用可以让崩溃的提示回退至暂存状态
+    # （门控机制只会延迟写入，绝不会直接丢弃）。
     try:
         choice = callback(command, description, allow_permanent=False)
     except Exception as e:

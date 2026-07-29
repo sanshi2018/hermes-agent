@@ -254,11 +254,11 @@ def scan_for_threats(content: str, scope: str = "context") -> List[str]:
 
 
 def first_threat_message(content: str, scope: str = "strict") -> Optional[str]:
-    """Return a human-readable error string for the first threat found, or None.
+    """返回发现的第一个威胁的人类可读错误字符串，若无威胁则返回 None。
 
-    Convenience wrapper used by paths that block on the first hit
-    (memory tool writes, skills install) where the caller just needs a
-    yes/no + a message.
+    便捷包装函数，供在首次命中时即进行拦截的路径使用
+    （如内存工具写入、技能安装），调用方仅需要获知
+    “是否触发拦截”以及对应的错误信息。
     """
     findings = scan_for_threats(content, scope=scope)
     if not findings:

@@ -92,17 +92,18 @@ class MemoryProvider(ABC):
         return ""
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
-        """Recall relevant context for the upcoming turn.
+        """召回即将开始的对话轮次所需的相关上下文。
 
-        Called before each API call. Return formatted text to inject as
-        context, or empty string if nothing relevant. Implementations
-        should be fast — use background threads for the actual recall
-        and return cached results here.
+                在每次 API 调用前执行。返回格式化后的文本，
+                以便作为上下文注入；若没有相关内容，则返回空字符串。
 
-        session_id is provided for providers serving concurrent sessions
-        (gateway group chats, cached agents). Providers that don't need
-        per-session scoping can ignore it.
-        """
+                实现应保持高效——实际的召回工作应放在后台线程中执行，
+                此处只返回缓存结果。
+
+                ``session_id`` 用于支持并发会话的提供方，
+                例如网关群聊或缓存代理。
+                不需要按会话隔离的提供方可以忽略该参数。
+                """
         return ""
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
@@ -155,13 +156,16 @@ class MemoryProvider(ABC):
     # -- Optional hooks (override to opt in) ---------------------------------
 
     def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
-        """Called at the start of each turn with the user message.
+        """在每轮对话开始时，使用用户消息调用。
 
-        Use for turn-counting, scope management, periodic maintenance.
+                可用于轮次计数、作用域管理和定期维护。
 
-        kwargs may include: remaining_tokens, model, platform, tool_count.
-        Providers use what they need; extras are ignored.
-        """
+                ``kwargs`` 可能包含：``remaining_tokens``、``model``、
+                ``platform``、``tool_count``。
+
+                各提供方可按需使用其中的参数；
+                未使用的额外参数将被忽略。
+                """
 
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
         """当会话结束时调用（显式退出或超时）。

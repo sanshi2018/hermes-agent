@@ -1,23 +1,30 @@
-"""Per-turn setup for ``run_conversation`` (the turn prologue).
+"""
+``run_conversation`` 的每轮次设置（即轮次序言）。
 
-``run_conversation`` opened with ~470 lines of straight-line setup before the
-tool-calling loop ever started: stdio guarding, runtime-main wiring, retry-counter
-resets, user-message sanitization, todo/nudge-counter hydration, system-prompt
-restore-or-build, crash-resilience persistence, preflight context compression, the
-``pre_llm_call`` plugin hook, and external-memory prefetch.
+在工具调用循环真正开始之前，``run_conversation`` 原本会先执行
+约 470 行线性的准备逻辑：stdio 保护、runtime-main 接线、
+重试计数器重置、用户消息清洗、todo / nudge 计数器水合、
+系统提示词恢复或构建、崩溃恢复持久化、预检上下文压缩、
+``pre_llm_call`` 插件钩子，以及外部记忆预取。
 
-All of that is *prologue* — it runs once per turn, has no back-references into the
-loop, and produces a fixed set of values the loop then consumes. ``TurnContext``
-captures those produced values; ``build_turn_context`` performs the setup work and
-returns one. ``run_conversation`` is left to unpack the context and run the loop,
-shrinking the orchestrator by the full prologue.
+所有这些都属于“序言”——
+它们每轮只运行一次，不会反向引用循环内部逻辑，
+并且会产出一组固定的值，供后续循环消费。
 
-The builder still mutates ``agent`` heavily (counters, thread id, cached prompt,
-session DB) exactly as the inline code did — those side effects are the point. The
-``TurnContext`` it returns carries only the *locals* the loop reads back.
+``TurnContext`` 会捕获这些产出的值；
+``build_turn_context`` 则负责执行设置工作并返回一个上下文对象。
+这样，``run_conversation`` 只需解包该上下文并运行循环，
+从而把完整的序言部分从编排器中瘦身出去。
 
-Behavior is identical to the original inline prologue; this is a pure
-move-and-name refactor with no semantic change.
+该构建器仍会像原来的内联代码一样，
+大量修改 ``agent``（计数器、线程 ID、缓存提示词、会话数据库等）；
+这些副作用正是这段设置逻辑的目的。
+
+它返回的 ``TurnContext`` 只携带循环后续会读回的局部变量。
+
+行为与原来的内联序言完全一致；
+这只是一次纯粹的“移动并命名”式重构，
+不包含任何语义变化。
 """
 
 from __future__ import annotations
@@ -91,28 +98,28 @@ def _should_run_preflight_estimate(
 
 @dataclass
 class TurnContext:
-    """Values produced by the turn prologue and consumed by the turn loop."""
+    """由轮次序言生成，并由轮次循环消费的值。"""
 
-    # Sanitized inbound message (surrogates stripped).
+    # 已清洗的入站消息（已移除代理项字符）。
     user_message: str
-    # Clean message preserved for transcripts / memory queries (no nudge injection).
+    # 为转录记录 / 记忆查询保留的干净消息（未注入 nudge）。
     original_user_message: Any
-    # Working message list for this turn (loop appends to it).
+    # 当前轮次使用的工作消息列表（循环会向其中追加内容）。
     messages: List[Dict[str, Any]]
-    # May be reset to None by preflight compression (new session created).
+    # 可能会被预检压缩重置为 None（表示已创建新会话）。
     conversation_history: Optional[List[Dict[str, Any]]]
-    # Cached system prompt active for this turn (may be rebuilt by compression).
+    # 当前轮次生效的缓存系统提示词（可能会被压缩流程重建）。
     active_system_prompt: Optional[str]
-    # Task / turn identifiers.
+    # 任务 / 轮次标识符。
     effective_task_id: str
     turn_id: str
-    # Index of the current user turn within ``messages``.
+    # 当前用户轮次在 ``messages`` 中的索引。
     current_turn_user_idx: int
-    # Whether the post-turn memory review should fire.
+    # 是否应触发轮次后的记忆审查。
     should_review_memory: bool = False
-    # Context contributed by ``pre_llm_call`` plugins (appended to user message).
+    # 由 ``pre_llm_call`` 插件提供的上下文（会追加到用户消息中）。
     plugin_user_context: str = ""
-    # External-memory prefetch result, reused across loop iterations.
+    # 外部记忆预取结果，会在多次循环迭代之间复用。
     ext_prefetch_cache: str = ""
 
 
@@ -134,24 +141,30 @@ def build_turn_context(
     set_current_write_origin,
     ra,
 ) -> TurnContext:
-    """Run the once-per-turn setup and return the loop's input context.
-
-    The callables/helpers the original prologue referenced from the
-    ``conversation_loop`` module are passed in explicitly to keep this module
-    free of an import cycle with ``agent.conversation_loop``.
     """
-    # Guard stdio against OSError from broken pipes (systemd/headless/daemon).
+    执行每轮一次的设置，并返回供循环使用的输入上下文。
+
+    原始序言中引用自 ``conversation_loop`` 模块的可调用对象 / 辅助函数
+    会被显式传入，
+    以避免本模块与 ``agent.conversation_loop`` 之间形成导入环。
+    """
+
+    # 保护 stdio，避免因管道断开而抛出 OSError
+    # （systemd / 无头环境 / 守护进程场景）。
     install_safe_stdio()
 
-    # NOTE: the DB session row is created later, AFTER the system prompt is
-    # restored/built (see _ensure_db_session() below the system-prompt block).
-    # Creating it here — before _cached_system_prompt is populated — inserts a
-    # row with system_prompt=NULL on a fresh API/gateway agent that carries
-    # client-managed history, which then trips the "stored system prompt is
-    # null; rebuilding from scratch" warning and a needless first-turn prefix
-    # cache miss. (Issue #45499.)
-
-    # Tell auxiliary_client what the live main provider/model are for this turn.
+    # 注意：DB 会话行会在稍后创建，
+    # 也就是在系统提示词被恢复 / 构建之后
+    # （见系统提示词代码块下方的 _ensure_db_session()）。
+    #
+    # 如果在这里创建——也就是在 _cached_system_prompt 填充之前创建——
+    # 那么对于携带客户端托管历史的全新 API / 网关 agent，
+    # 会插入一行 system_prompt=NULL 的记录。
+    # 这随后会触发“已存储的系统提示词为空；从头重建”的警告，
+    # 并导致第一次轮次出现不必要的前缀缓存未命中。
+    # （Issue #45499。）
+    #
+    # 告诉 auxiliary_client 当前轮次实际使用的主提供方 / 模型。
     try:
         from agent.auxiliary_client import set_runtime_main
         set_runtime_main(
@@ -173,26 +186,39 @@ def build_turn_context(
     # Restore the primary runtime if the previous turn activated fallback.
     agent._restore_primary_runtime()
 
-    # Between-turns MCP refresh: an MCP server that finished connecting since
-    # the previous turn (slow HTTP/OAuth servers routinely take 2-6s on a cold
-    # connect, missing the bounded startup wait) lands in THIS turn's tool
-    # snapshot.  This is cache-safe by construction: it runs in the per-turn
-    # prologue, before this turn's first API call assembles ``tools=``, so it
-    # only ever extends a fresh request prefix — it never mutates the cached
-    # prefix of an in-flight turn.  No-op when no MCP servers are registered
-    # (the common case, gated by the cheap ``has_registered_mcp_tools`` check)
-    # or when the tool set is unchanged (``refresh_agent_mcp_tools`` diffs by
-    # name and leaves the snapshot untouched on no-change).
+    # 轮次之间的 MCP 刷新：
+    # 如果某个 MCP 服务器在上一轮之后才完成连接
+    # （慢速 HTTP / OAuth 服务器在冷启动连接时通常需要 2–6 秒，
+    #  因而可能错过有界的启动等待），
+    # 那么它会进入“当前这一轮”的工具快照。
+    #
+    # 该设计天然是缓存安全的：
+    # 它运行在每轮序言中，
+    # 位于当前轮次首次 API 调用组装 ``tools=`` 之前；
+    # 因此它只会扩展一个新的请求前缀，
+    # 绝不会修改正在进行的轮次所使用的缓存前缀。
+    #
+    # 在没有注册 MCP 服务器时不执行任何操作
+    # （这是常见情况，由廉价的 ``has_registered_mcp_tools`` 检查保护）；
+    # 或者当工具集未变化时也不执行任何操作
+    # （``refresh_agent_mcp_tools`` 会按名称进行差异比较，
+    #  并在没有变化时保持快照不变）。
     try:
         if not getattr(agent, "_skip_mcp_refresh", False):
-            # Import-cost gate: ``tools.mcp_tool`` pulls in the whole ``mcp``
-            # package (~0.4s measured) even when the user has zero MCP servers
-            # configured.  MCP tools can only be registered by code that has
-            # already imported ``tools.mcp_tool`` (discovery, /reload-mcp,
-            # late-binding refresh) — so if it isn't in sys.modules yet, there
-            # is nothing to refresh and the import can be skipped outright.
-            # This keeps the no-MCP first turn off the heavy import path
-            # without changing behavior for MCP users.
+            # 导入成本门控：
+            # ``tools.mcp_tool`` 会拉入整个 ``mcp`` 包
+            # （实测约 0.4 秒），
+            # 即使用户没有配置任何 MCP 服务器也是如此。
+            #
+            # MCP 工具只能由已经导入 ``tools.mcp_tool`` 的代码注册
+            # （例如发现流程、/reload-mcp、后期绑定刷新）；
+            # 因此，如果它尚未出现在 sys.modules 中，
+            # 就说明没有任何内容需要刷新，
+            # 也就可以直接跳过这次导入。
+            #
+            # 这样可以让未使用 MCP 的首次轮次
+            # 避开沉重的导入路径，
+            # 同时不改变 MCP 用户的行为。
             import sys as _sys
             if "tools.mcp_tool" in _sys.modules:
                 from tools.mcp_tool import has_registered_mcp_tools, refresh_agent_mcp_tools
@@ -271,11 +297,13 @@ def build_turn_context(
     # Initialize conversation (copy to avoid mutating the caller's list).
     messages = list(conversation_history) if conversation_history else []
 
-    # Hydrate todo store from conversation history.
+    # 从对话历史记录中
+    # 填充待办事项存储。
     if conversation_history and not agent._todo_store.has_items():
         agent._hydrate_todo_store(conversation_history)
 
-    # Hydrate per-session nudge counters from persisted history (issue #22357).
+    # 从持久化的历史记录中
+    # 填充每个会话的微调/提示计数器（Issue #22357）。
     if conversation_history and agent._user_turn_count == 0:
         prior_user_turns = sum(
             1 for m in conversation_history if m.get("role") == "user"
@@ -287,8 +315,8 @@ def build_turn_context(
 
     # Track user turns for memory flush and periodic nudge logic.
     agent._user_turn_count += 1
-    # Copilot x-initiator: the first API call of this user turn is
-    # user-initiated; tool-loop follow-ups revert to "agent" (#3040).
+    # Copilot x-initiator：用户本轮对话的首次 API 调用
+    # 由用户发起；工具循环中的后续调用则重置为 "agent"（#3040）。
     agent._is_user_initiated_turn = True
 
     # Reset the streaming context scrubber at the top of each turn.
@@ -319,9 +347,10 @@ def build_turn_context(
     current_turn_user_idx = len(messages) - 1
     agent._persist_user_message_idx = current_turn_user_idx
 
-    # Cosmetic side-signal: detect an affection "reaction" (ily / <3 / good bot)
-    # and notify the host so it can play hearts. Token-free, never touches the
-    # conversation, and never fatal — a purely optional UI beat.
+    # 装饰性的辅助信号：检测表达喜爱的“回应”（ily / <3 / good bot），
+    # 并通知宿主，以便播放爱心动画。
+    # 该机制不消耗令牌、从不影响对话，也绝不会导致致命错误——
+    # 仅仅是一个完全可选的 UI 小效果。
     reaction_callback = getattr(agent, "reaction_callback", None)
     if reaction_callback is not None:
         try:
@@ -346,12 +375,14 @@ def build_turn_context(
 
     active_system_prompt = agent._cached_system_prompt
 
-    # Create the DB session row now that _cached_system_prompt is populated, so
-    # the persisted snapshot is written non-NULL on the first turn (Issue
-    # #45499). Idempotent: _ensure_db_session() no-ops once the row exists.
+    # 现在创建数据库会话记录，因为此时 _cached_system_prompt 已完成填充，
+    # 从而确保首次对话写入的持久化快照不是 NULL（Issue #45499）。
+    #
+    # 该操作具备幂等性：一旦记录已存在，
+    # _ensure_db_session() 将不执行任何操作。
     agent._ensure_db_session()
 
-    # Crash-resilience: persist the inbound user turn as soon as the session row exists.
+    # 崩溃恢复机制：会话记录一旦存在，便立即持久化写入本轮收到的用户消息。
     try:
         agent._persist_session(messages, conversation_history)
     except Exception:
@@ -361,10 +392,11 @@ def build_turn_context(
             exc_info=True,
         )
 
-    # ── Preflight context compression ──
-    # Gate the (expensive) full token estimate behind a cheap pre-check.
-    # See ``_should_run_preflight_estimate`` for the OR semantics that fix
-    # issue #27405 (a few very large messages slipping past the count gate).
+    # ── 上下文压缩预检 ──
+    # 先通过低开销的预检查进行筛选，再执行成本较高的完整令牌数估算。
+    # 有关修复问题 #27405 的“或”逻辑语义，请参阅
+    # ``_should_run_preflight_estimate``。
+    # 该问题会导致少量超大消息绕过消息数量检查。
     if agent.compression_enabled and _should_run_preflight_estimate(
         messages,
         agent.context_compressor.protect_first_n,
@@ -475,6 +507,7 @@ def build_turn_context(
                 if not _compressor.should_compress(_preflight_tokens):
                     break
 
+    # TODO KEY 通过hook从插件中召回记忆
     # Plugin hook: pre_llm_call (context injected into user message, not system prompt).
     plugin_user_context = ""
     try:
@@ -492,9 +525,9 @@ def build_turn_context(
             sender_id=getattr(agent, "_user_id", None) or "",
         )
         _ctx_parts: list[str] = []
-        # Spill oversized per-hook context to disk so a runaway plugin
-        # can't inflate every subsequent turn's prompt. Ported from
-        # openai/codex PR #21069 ("Spill large hook outputs from context").
+        # 将过大的单 Hook 上下文转储至磁盘，
+        # 避免失控的插件撑大后续每一轮对话的 Prompt。
+        # 移植自 openai/codex PR #21069（“从上下文中转储大型 Hook 输出”）。
         try:
             from tools.hook_output_spill import (
                 get_spill_config as _spill_cfg,

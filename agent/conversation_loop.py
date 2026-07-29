@@ -280,30 +280,37 @@ def _try_refresh_nous_paid_entitlement_credentials(agent) -> bool:
 
 
 def _restore_or_build_system_prompt(agent, system_message, conversation_history):
-    """从会话数据库中恢复缓存的系统提示词（system prompt），或者重新构建它。
+    """从会话数据库中恢复缓存的系统提示词，或重新构建一个新的提示词。
 
-    会修改 ``agent._cached_system_prompt``，并在首次构建时将新鲜构建的
-    提示词持久化保存回会话数据库。该功能从 ``run_conversation`` 中
-    抽取出来，以便能够隔离测试前缀缓存（prefix-cache）的恢复路径。
+        此函数会修改 ``agent._cached_system_prompt``；如果是首次构建，
+        还会将新构建的提示词持久化回会话数据库。
 
-    存储的行具有三路状态区分，并通过日志显现，以便在 ``agent.log`` 中
-    能够看到静默的前缀缓存未命中情况：
+        该逻辑从 ``run_conversation`` 中提取出来，
+        以便单独测试前缀缓存的恢复流程。
 
-      * ``missing`` — 尚无会话行（合法的首轮对话）。
-      * ``null``   — 行存在，但 ``system_prompt`` 列为 NULL。
-        这属于系统提示词持久化功能推出之前的旧会话，或者是迁移
-        遗留物。当 ``conversation_history`` 非空时会发出警告。
-      * ``empty``  — 行存在，但 ``system_prompt`` 列为空字符串。
-        表示前一轮的写入操作执行了但未存储任何内容（隐蔽的持久化缺陷）。
-        始终会发出警告。
-      * ``present`` — 行存在且包含可用的提示词 → 逐字原样复用。
+        对数据库中已存储记录的状态进行区分，并通过日志呈现，
+        从而让未被察觉的前缀缓存未命中情况能够在 ``agent.log`` 中显示：
 
-    针对会话数据库的读写失败会记录在 WARNING（而非 DEBUG）级别，
-    这样持久性问题（磁盘满、架构漂移、锁竞争）无需开启冗长模式即可
-    显现出来。这在过去是一个调试级别的日志，会导致网关路径上的
-    前缀缓存复用静默失效（网关路径每轮都会构建一个全新的 ``AIAgent``，
-    并依赖于这一数据库往返）。
-    """
+          * ``missing`` — 尚不存在会话记录，这是首次对话时的正常情况。
+          * ``null`` — 记录存在，但 ``system_prompt`` 列为 NULL。
+            这可能是尚未支持系统提示词持久化的旧版会话，
+            或数据库迁移遗留的数据。
+            当 ``conversation_history`` 非空时会发出警告。
+          * ``empty`` — 记录存在，但 ``system_prompt`` 列为空字符串。
+            这表示上一轮的写入操作已经执行，却没有存入任何内容，
+            属于未被察觉的持久化缺陷。此情况始终会发出警告。
+          * ``present`` — 记录存在，且包含可用的提示词；
+            该提示词将被原样复用。
+
+        对会话数据库的读取或写入失败会以 WARNING 级别记录，
+        而不是 DEBUG 级别，以便磁盘空间耗尽、数据库结构变更、
+        锁竞争等持续性问题无需开启详细日志模式也能被发现。
+
+        此类问题过去仅以 DEBUG 级别记录，
+        导致网关路径中的前缀缓存复用被悄然破坏。
+        该路径会在每一轮对话中创建新的 ``AIAgent``，
+        因而依赖这次数据库往返来恢复缓存。
+        """
     stored_prompt = None
     stored_state = "missing"
     if conversation_history and agent._session_db:
@@ -358,9 +365,9 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
     # prompt) — build from scratch.
     agent._cached_system_prompt = agent._build_system_prompt(system_message)
 
-    # Plugin hook: on_session_start — fired once when a brand-new
-    # session is created (not on continuation).  Plugins can use this
-    # to initialise session-scoped state (e.g. warm a memory cache).
+    # 插件钩子：on_session_start——仅在创建全新会话时触发一次，
+    # 会话继续时不会触发。插件可利用该钩子初始化会话级状态，
+    # 例如预热内存缓存。
     try:
         from hermes_cli.plugins import invoke_hook as _invoke_hook
         _invoke_hook(
@@ -372,12 +379,17 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
     except Exception as exc:
         logger.warning("on_session_start hook failed: %s", exc)
 
-    # Cold-start credits seed (L3) — fallback for the first-turn path. The TUI/
-    # desktop build seeds at session OPEN (see seed_credits_at_session_start in
-    # tui_gateway), so this call is usually a no-op there (idempotent: skips when
-    # _credits_state already exists). For the plain CLI / any path that didn't seed
-    # at build, it primes credits state from /api/oauth/account (or a fixture) on the
-    # first turn so depletion / usage-band warnings fire. Fail-open inside the helper.
+    # 冷启动额度状态预填充（L3）——用于首次对话流程的兜底处理。
+    # TUI/桌面端构建会在会话打开时预填充额度状态
+    # （参见 tui_gateway 中的 seed_credits_at_session_start），
+    # 因此此调用在这些场景下通常不会执行任何操作。
+    #
+    # 该操作具备幂等性：当 _credits_state 已存在时会直接跳过。
+    # 对于普通 CLI，或任何在构建阶段未预填充额度状态的调用路径，
+    # 它会在首次对话时通过 /api/oauth/account（或测试夹具）
+    # 初始化额度状态，以便正确触发额度耗尽警告和用量区间警告。
+    #
+    # 辅助函数内部采用失败开放策略。
     try:
         from agent.credits_tracker import seed_credits_at_session_start
 
@@ -385,10 +397,12 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
     except Exception:
         logger.debug("cold-start credits seed failed (fail-open)", exc_info=True)
 
-    # Persist the system prompt snapshot in SQLite.  Failure here used
-    # to log at DEBUG, which silently broke prefix-cache reuse on the
-    # gateway path (fresh AIAgent per turn → reads from this row every
-    # subsequent turn).
+    # 将系统提示词的快照持久化到 SQLite。
+    # 此处的失败过去仅以 DEBUG 级别记录，
+    # 导致网关路径中的前缀缓存复用被悄然破坏。
+    #
+    # 该路径会在每轮对话中创建新的 AIAgent，
+    # 因而后续每一轮都会从此记录中读取系统提示词。
     if agent._session_db:
         try:
             agent._session_db.update_system_prompt(agent.session_id, agent._cached_system_prompt)

@@ -7,6 +7,7 @@
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/tests" />
       <excludeFolder url="file://$MODULE_DIR$/website" />
+      <excludeFolder url="file://$MODULE_DIR$/.plans" />
     </content>
     <orderEntry type="jdk" jdkName="uv (hermes-agent)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

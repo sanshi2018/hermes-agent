@@ -961,21 +961,22 @@ def memory_tool(
     store: Optional[MemoryStore] = None,
 ) -> str:
     """
-    Single entry point for the memory tool. Dispatches to MemoryStore methods.
+    内存工具的统一入口函数。负责分发请求至 MemoryStore 的相关方法。
 
-    Two shapes:
-      - Single op: action + (content / old_text).
-      - Batch:     operations=[{action, content?, old_text?}, ...] applied
-                   atomically against the final char budget in ONE call.
+    包含两种操作形式：
+      - 单操作：action + (content / old_text)。
+      - 批量操作：operations=[{action, content?, old_text?}, ...]，
+                   在单次调用中依据最终字符预算原子化地批量应用。
 
-    Returns JSON string with results.
+    返回包含处理结果的 JSON 字符串。
     """
     if store is None:
         return tool_error("Memory is not available. It may be disabled in config or this environment.", success=False)
 
-    # Some strict providers fill optional schema fields with JSON null rather
-    # than omitting them.  Treat ``target: null`` as omitted so memory writes
-    # still use the documented default store instead of failing validation.
+    # 部分要求严格的提供程序会在可选的 schema 字段中填充 JSON null，
+    # 而非将其省略。将 ``target: null`` 视为被省略的处理方式，
+    # 从而确保内存写入仍能使用文档记录的默认存储区，
+    # 而不是在校验环节失败。
     if target is None:
         target = "memory"
 
@@ -993,8 +994,9 @@ def memory_tool(
         return json.dumps(result, ensure_ascii=False)
 
     # --- Single-op path ---------------------------------------------------
-    # Validate required params BEFORE the gate so an invalid write is rejected
-    # immediately instead of being staged and only failing at approve time.
+    # 在进入门控逻辑之前优先校验必填参数，
+    # 从而确保无效的写入操作能被立即拒绝，
+    # 而不是先进入暂存阶段、待到批准时才失败。
     if action == "add" and not content:
         return tool_error("Content is required for 'add' action.", success=False)
     if action == "replace" and (not old_text or not content):
@@ -1056,7 +1058,71 @@ def apply_memory_pending(payload: Dict[str, Any], store: "MemoryStore") -> Dict[
     return {"success": False, "error": f"Unknown staged action '{action}'."}
 # OpenAI Function-Calling Schema
 # =============================================================================
-
+# MEMORY_SCHEMA = {
+#     "name": "memory",
+#     "description": (
+#         "将持久事实保存到持久内存中，使其在多个会话间保持有效。内存信息会"
+#         "注入到未来的每一次对话中，因此请保持条目精简且具有高信息价值。\n\n"
+#         "操作方式 (HOW)：通过 'operations' 数组在一次调用中完成所有修改（每个元素形式为: "
+#         "{action, content?, old_text?}）。批量操作具备原子性，且字符限制仅针对"
+#         "最终结果进行检查 —— 因此，即使单独添加会导致超限，单次调用也可以同时删除/替换过期条目"
+#         "以腾出空间并添加新内容。响应会汇报当前/限制字符数并确认完成；一次批量调用"
+#         "即可完成更新，切勿重复发起。仅在仅需进行单项独立修改时，才使用顶层的 "
+#         "action/content/old_text 字段。\n\n"
+#         "适用时机 (WHEN)：当用户提出偏好、更正或个人细节，或者你了解到关于其环境、"
+#         "规范或工作流的确定事实时，应主动进行保存。"
+#         "优先级：用户偏好与更正 > 环境事实 > 操作流程。最优质的内存能够防止"
+#         "用户重复表达相同的诉求。\n\n"
+#         "容量已满时 (IF FULL)：添加请求将被拒绝，并展示当前已有条目。此时请重新发起"
+#         "一次批量调用 (ONE batch)，将删除/缩减旧条目与添加新条目的操作整合在一起处理。\n\n"
+#         "存储目标 (TARGETS)：'user' = 用户是谁（姓名、角色、偏好、风格）。'memory' = 你的"
+#         "笔记（环境、规范、工具特性、经验教训）。\n\n"
+#         "跳过内容 (SKIP)：琐碎/显而易见的信息、易于重新获取的事实、原始数据转储、任务进度、"
+#         "已完成工作的日志、临时 TODO 状态（此类信息请使用 session_search）。可复用的"
+#         "操作流程应存放于技能 (skill) 中，而非内存中。"
+#     ),
+#     "parameters": {
+#         "type": "object",
+#         "properties": {
+#             "action": {
+#                 "type": "string",
+#                 "enum": ["add", "replace", "remove"],
+#                 "description": "要执行的操作类型（单操作形式）。使用 'operations' 时请省略此字段。"
+#             },
+#             "target": {
+#                 "type": "string",
+#                 "enum": ["memory", "user"],
+#                 "description": "内存存储区：'memory' 用于个人笔记，'user' 用于用户画像。"
+#             },
+#             "content": {
+#                 "type": "string",
+#                 "description": "条目内容。执行 'add' 和 'replace' 时必填（单操作形式）。"
+#             },
+#             "old_text": {
+#                 "type": "string",
+#                 "description": "执行 'replace' 和 'remove' 时的必填项（单操作形式）：用于标识待修改现有条目的简短唯一子字符串。仅在 'add' 时可省略。"
+#             },
+#             "operations": {
+#                 "type": "array",
+#                 "description": (
+#                     "批量操作形式：在单次调用中原子化应用的操作列表，"
+#                     "统一根据最终字符预算进行校验。当需要进行多项修改或整合腾出空间时，"
+#                     "推荐使用此方式。每个元素的形式为 {action, content?, old_text?}。"
+#                 ),
+#                 "items": {
+#                     "type": "object",
+#                     "properties": {
+#                         "action": {"type": "string", "enum": ["add", "replace", "remove"]},
+#                         "content": {"type": "string", "description": "用于 add/replace 操作的条目内容。"},
+#                         "old_text": {"type": "string", "description": "用于 replace/remove 操作的标识条目子字符串。"},
+#                     },
+#                     "required": ["action"],
+#                 },
+#             },
+#         },
+#         "required": ["target"],
+#     },
+# }
 MEMORY_SCHEMA = {
     "name": "memory",
     "description": (

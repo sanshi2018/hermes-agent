@@ -476,27 +476,30 @@ class MemoryManager:
 
     @staticmethod
     def _strip_skill_scaffolding(text: str) -> Optional[str]:
-        """Return memory-worthy user text, or None to skip the turn.
+        """返回值得记忆的用户文本；若应跳过该轮，则返回 None。
 
-        When a user invokes a /skill or /bundle, Hermes expands the turn into
-        a model-facing message that embeds the entire skill body. Feeding that
-        verbatim to memory providers pollutes their stores/embeddings with
-        prompt scaffolding instead of what the user actually asked. We recover
-        just the user's instruction here, once, for every provider — so this
-        is fixed for the whole provider fan-out, not per backend.
+           当用户调用 /skill 或 /bundle 时，Hermes 会将该轮展开为一条
+           面向模型的消息，其中嵌入完整的技能正文。若将其原样传递给
+           记忆提供方，会使其存储内容或嵌入向量受到提示词脚手架污染，
+           而不是记录用户实际提出的请求。
 
-        - Non-skill messages pass through unchanged.
-        - Skill turns with a user instruction return that instruction.
-        - Bare skill invocations (no instruction) return None → callers skip
-          the turn, since there is no user content worth remembering.
+           此处统一恢复用户指令，并将结果提供给所有记忆提供方。
+           因此，该修复作用于整个提供方扇出流程，而非针对各个后端
+           分别处理。
+
+           - 非技能消息将原样透传。
+           - 包含用户指令的技能调用会返回该指令。
+           - 不包含指令的纯技能调用会返回 None；
+             调用方应跳过该轮，因为其中没有值得记忆的用户内容。
         """
         return extract_user_instruction_from_skill_message(text)
 
     def prefetch_all(self, query: str, *, session_id: str = "") -> str:
-        """Collect prefetch context from all providers.
+        """从所有提供方收集预取上下文。
 
-        Returns merged context text labeled by provider. Empty providers
-        are skipped. Failures in one provider don't block others.
+            返回按提供方标注并合并后的上下文文本。
+            内容为空的提供方会被跳过。
+            单个提供方发生故障时，不会阻塞其他提供方。
         """
         clean_query = self._strip_skill_scaffolding(query)
         if not clean_query:

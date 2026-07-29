@@ -563,17 +563,17 @@ class AIAgent:
         )
 
     def _get_session_db_for_recall(self):
-        """Return a SessionDB for recall, lazily creating it if an entrypoint forgot.
+        """返回用于 Recall（记忆检索）的 SessionDB；若入口点漏建，则进行延迟创建（Lazy Creation）。
 
-        Most frontends pass ``session_db`` into ``AIAgent`` explicitly, but recall
-        is important enough that a missing constructor argument should degrade by
-        opening the default state DB instead of making the advertised
-        ``session_search`` tool unusable.
+        大多数前端都会将 ``session_db`` 显式传递给 ``AIAgent``。
+        但 Recall 功能至关重要，即使构造函数缺失该参数，
+        也应降级打开默认的 State DB，
+        而不是让宣称支持的 ``session_search`` 工具直接失效。
         """
-        # Persistence-isolated forks (background review) must not lazily open the
-        # canonical state DB: doing so would re-arm _flush_messages_to_session_db
-        # to write the fork's harness turn into the user's real session. Recall
-        # degrades to None for them (they don't use session_search anyway).
+        # 持久化隔离的 Fork 分支（后台审查）绝不能延迟打开规范的 State DB：
+        # 否则会重新激活 _flush_messages_to_session_db，
+        # 导致将 Fork 分支的 harness 轮次写入用户的真实会话中。
+        # 对于这些分支，Recall 将降级返回 None（反正它们也不使用 session_search）。
         if getattr(self, "_persist_disabled", False):
             return None
         if self._session_db is not None:
@@ -3551,18 +3551,19 @@ class AIAgent:
 
     def _hydrate_todo_store(self, history: List[Dict[str, Any]]) -> None:
         """
-        Recover todo state from conversation history.
-        
-        The gateway creates a fresh AIAgent per message, so the in-memory
-        TodoStore is empty. We scan the history for the most recent todo
-        tool response and replay it to reconstruct the state.
+        从对话历史记录中恢复待办事项（todo）状态。
 
-        Hydration is restricted to tool results that are paired with an
-        earlier assistant ``todo`` tool call. The gateway/API server accepts
-        caller-supplied ``conversation_history``, so a forged bare
-        ``role: tool`` message carrying a ``todos`` array must not be able to
-        seed the store without a matching canonical tool call
-        (GHSA-5g4g-6jrg-mw3g).
+        由于网关会为每条消息创建一个全新的 AIAgent，
+        因此内存中的 TodoStore 初始状态为空。
+        我们会扫描历史记录以查找最近一次 todo 工具的响应，
+        并重新播放该响应来重建状态。
+
+        数据填充（Hydration）仅限于与此前助手（assistant）的 ``todo`` 工具调用
+        相配对的工具结果。
+        网关/API 服务器允许接收调用方传入的 ``conversation_history``，
+        因此，即使是带有 ``todos`` 数组的伪造裸消息 ``role: tool``，
+        在没有匹配的规范工具调用的情况下，
+        也不得用于初始化/填充存储（GHSA-5g4g-6jrg-mw3g）。
         """
         from tools.todo_tool import MAX_TODO_RESULT_CHARS
 
@@ -3892,14 +3893,15 @@ class AIAgent:
 
     @staticmethod
     def _is_openai_client_closed(client: Any) -> bool:
-        """Check if an OpenAI client is closed.
+        """检查 OpenAI 客户端是否已被关闭。
 
-        Handles both property and method forms of is_closed:
-        - httpx.Client.is_closed is a bool property
-        - openai.OpenAI.is_closed is a method returning bool
+        同时兼容 is_closed 的属性（property）与方法（method）两种形式：
+        - httpx.Client.is_closed 是一个布尔值属性
+        - openai.OpenAI.is_closed 是一个返回布尔值的方法
 
-        Prior bug: getattr(client, "is_closed", False) returned the bound method,
-        which is always truthy, causing unnecessary client recreation on every call.
+        先前的 Bug：getattr(client, "is_closed", False) 会返回绑定的方法对象，
+        该对象在逻辑判断中始终为真（truthy），
+        从而导致每次调用时都会不必要地重新创建客户端。
         """
         from unittest.mock import Mock
 
@@ -4117,16 +4119,18 @@ class AIAgent:
             return primary_client
         with self._openai_client_lock():
             request_kwargs = dict(self._client_kwargs)
-        # Per-request OpenAI-wire clients (used by both the non-streaming
-        # chat-completions path and the streaming chat-completions path
-        # in `_interruptible_api_call`) should not run the SDK's built-in
-        # retry loop: the agent's outer loop owns retries with credential
-        # rotation, provider fallback, and backoff that the SDK can't
-        # see. Leaving SDK retries on (default 2) compounds with our outer
-        # retries and lets a single hung provider request stretch to ~3x
-        # the per-call timeout before our stale detector reports it.
-        # Shared/primary clients and Anthropic / Bedrock paths are
-        # unaffected (they don't go through here).
+        # 每一个独立请求的 OpenAI-wire 客户端
+        # （即 `_interruptible_api_call` 中非流式与流式
+        # chat-completions 路径所使用的客户端）
+        # 不应当运行 SDK 内置的重试循环：
+        # Agent 的外层循环已经接管了重试逻辑，
+        # 包含 SDK 无法感知到的凭证轮换、服务商降级备用以及退避策略。
+        # 如果保持 SDK 的重试机制开启（默认为 2 次），
+        # 将与我们的外层重试叠加，
+        # 导致单个卡死的服务商请求在被我们的过期检测器捕获前，
+        # 耗时延长至单次调用超时时间的约 3 倍。
+        # 共享/主客户端以及 Anthropic / Bedrock 路径不受影响
+        # （它们不走此处的逻辑）。
         request_kwargs["max_retries"] = 0
         if (
             base_url_host_matches(str(request_kwargs.get("base_url", "")), "githubcopilot.com")

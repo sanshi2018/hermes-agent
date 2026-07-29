@@ -1669,14 +1669,19 @@ def anthropic_prompt_cache_policy(
 def create_openai_client(agent, client_kwargs: dict, *, reason: str, shared: bool) -> Any:
     from agent.auxiliary_client import _validate_base_url, _validate_proxy_env_urls
     from agent.ssl_verify import resolve_httpx_verify
-    # Treat client_kwargs as read-only. Callers pass agent._client_kwargs (or shallow
-    # copies of it) in; any in-place mutation leaks back into the stored dict and is
-    # reused on subsequent requests. #10933 hit this by injecting an httpx.Client
-    # transport that was torn down after the first request, so the next request
-    # wrapped a closed transport and raised "Cannot send a request, as the client
-    # has been closed" on every retry. The revert resolved that specific path; this
-    # copy locks the contract so future transport/keepalive work can't reintroduce
-    # the same class of bug.
+    # 将 client_kwargs 视为只读参数。
+    # 调用方会传入 agent._client_kwargs（或其浅拷贝）；
+    # 任何原地修改（in-place mutation）都会污染保存的字典，
+    # 并影响后续的请求。
+    #
+    # Issue #10933 就曾因此出过问题：
+    # 当时注入了一个在首次请求后即被销毁的 httpx.Client 传输层（transport），
+    # 导致下一次请求继续包裹这个已被关闭的传输层，
+    # 从而在每次重试时都抛出 "Cannot send a request, as the client has been closed" 异常。
+    #
+    # 之前的代码撤回修复了那条特定的执行路径；
+    # 此处的拷贝则锁定了规范，
+    # 以确保未来的 transport/keepalive 相关开发不会再次引入同类 Bug。
     client_kwargs = dict(client_kwargs)
     ssl_ca_cert = client_kwargs.pop("ssl_ca_cert", None)
     ssl_verify_cfg = client_kwargs.pop("ssl_verify", None)
@@ -1717,40 +1722,48 @@ def create_openai_client(agent, client_kwargs: dict, *, reason: str, shared: boo
                 agent._client_log_context(),
             )
             return client
-    # Inject TCP keepalives so the kernel detects dead provider connections
-    # instead of letting them sit silently in CLOSE-WAIT (#10324).  Without
-    # this, a peer that drops mid-stream leaves the socket in a state where
-    # epoll_wait never fires, ``httpx`` read timeout may not trigger, and
-    # the agent hangs until manually killed.  Probes after 30s idle, retry
-    # every 10s, give up after 3 → dead peer detected within ~60s.
+    # 注入 TCP 保活机制（keepalives），
+    # 以便内核能够检测出已失效的服务商连接，
+    # 而不是让它们默默地停留在 CLOSE-WAIT 状态（#10324）。
+    # 如果没有这项配置，当对端在传输流途中断开时，
+    # 套接字会处于 epoll_wait 永远不会触发的状态，
+    # ``httpx`` 的读取超时也可能无法生效，
+    # 最终导致 Agent 挂起，直至被手动杀死。
+    # 设置为闲置 30 秒后开始探测，每 10 秒重试一次，尝试 3 次后放弃
+    # → 即可在约 60 秒内检测到失效的对端。
     #
-    # Safety against #10933: the ``client_kwargs = dict(client_kwargs)``
-    # above means this injection only lands in the local per-call copy,
-    # never back into ``agent._client_kwargs``.  Each ``_create_openai_client``
-    # invocation therefore gets its OWN fresh ``httpx.Client`` whose
-    # lifetime is tied to the OpenAI client it is passed to.  When the
-    # OpenAI client is closed (rebuild, teardown, credential rotation),
-    # the paired ``httpx.Client`` closes with it, and the next call
-    # constructs a fresh one — no stale closed transport can be reused.
-    # Tests in ``tests/run_agent/test_create_openai_client_reuse.py`` and
-    # ``tests/run_agent/test_sequential_chats_live.py`` pin this invariant.
+    # 针对 #10933 的安全防护：
+    # 上文的 ``client_kwargs = dict(client_kwargs)``
+    # 意味着此处注入的配置仅作用于单次调用的局部副本，
+    # 绝不会写回 ``agent._client_kwargs`` 中。
+    # 因此，每次调用 ``_create_openai_client`` 都会获得一个全新的、独立的 ``httpx.Client``，
+    # 其生命周期与接收它的 OpenAI 客户端紧密绑定。
+    # 当 OpenAI 客户端被关闭（如重新构建、销毁、凭证轮换）时，
+    # 配对的 ``httpx.Client`` 也会随之关闭，
+    # 随后的下一次调用则会创建一个全新的实例 — 绝不会复用已关闭的陈旧传输层。
+    # ``tests/run_agent/test_create_openai_client_reuse.py`` 和
+    # ``tests/run_agent/test_sequential_chats_live.py`` 中的测试固化了这一不变性要求。
     if "http_client" not in client_kwargs:
         keepalive_http = agent._build_keepalive_http_client(
             client_kwargs.get("base_url", ""), verify=httpx_verify,
         )
         if keepalive_http is not None:
             client_kwargs["http_client"] = keepalive_http
-    # Delegate all rate-limit / 5xx retry to hermes's outer conversation loop,
-    # which honors Retry-After and applies adaptive/jittered backoff. The OpenAI
-    # SDK default (max_retries=2) uses its own 1-2s backoff that ignores
-    # Retry-After and double-retries inside our loop — the same deadlock the
-    # Anthropic clients hit (#26293). This is the single chokepoint every primary
-    # OpenAI/aggregator client passes through (init, switch_model, recovery,
-    # restore, request-scoped); auxiliary_client builds its own clients and keeps
-    # SDK retries because it is NOT wrapped by the conversation loop.
+    # 将所有的速率限制（rate-limit）与 5xx 错误的重试逻辑，
+    # 统一委托给 hermes 外层的对话循环处理，
+    # 该循环会遵循 Retry-After 响应头并应用自适应/带有抖动的退避策略。
+    # OpenAI SDK 的默认设置（max_retries=2）使用的是其自带的 1-2 秒退避机制，
+    # 这种机制不仅会忽略 Retry-After，还会与我们的外层循环叠加产生二次重试 —
+    # 这与 Anthropic 客户端遭遇过的死锁问题（#26293）如出一辙。
+    #
+    # 此处是所有主 OpenAI / 聚合器客户端必须通过的唯一入口
+    # （涵盖初始化、切换模型、恢复、还原以及请求作用域内的客户端）；
+    # 辅助客户端（auxiliary_client）会构建自身的客户端并保留 SDK 的重试功能，
+    # 因为它并没有被对话循环所包裹。
     client_kwargs.setdefault("max_retries", 0)
-    # Uses the module-level `OpenAI` name, resolved lazily on first
-    # access via __getattr__ below. Tests patch via `run_agent.OpenAI`.
+    # 使用模块层级的 `OpenAI` 名称，
+    # 下方会在首次访问时通过 __getattr__ 进行延迟解析。
+    # 测试用例可通过 `run_agent.OpenAI` 进行补丁拦截（patch）。
     client = _ra().OpenAI(**client_kwargs)
     _ra().logger.info(
         "OpenAI client created (%s, shared=%s) %s",
@@ -2917,12 +2930,16 @@ def reapply_reasoning_echo_for_provider(agent, api_messages: list) -> int:
 
 
 def _iter_pool_sockets(client: Any):
-    """Yield raw sockets reachable from an OpenAI/httpx client pool.
+    """
+    产出可从 OpenAI/httpx 客户端连接池中访问到的原始 socket。
 
-    httpcore 1.x stores the concrete HTTP11/HTTP2 connection under
-    ``conn._connection``; older versions exposed stream attributes directly
-    on the pool entry. Keep the traversal defensive because these are private
-    transport internals and vary across httpx/httpcore releases.
+    httpcore 1.x 会将具体的 HTTP11/HTTP2 连接存放在
+    ``conn._connection`` 下；而更早的版本则直接在连接池条目上
+    暴露 stream 属性。
+
+    由于这些都属于私有的传输层内部实现，
+    并且会随 httpx/httpcore 版本变化，
+    因此遍历时需要保持防御性。
     """
     try:
         http_client = getattr(client, "_client", None)
@@ -3177,40 +3194,56 @@ def apply_pending_steer_to_tool_results(agent, messages: list, num_tool_msgs: in
 
 
 def force_close_tcp_sockets(client: Any) -> int:
-    """Abort in-flight TCP I/O by shutting down sockets WITHOUT closing FDs.
+    """
+    通过关闭 socket 的读写方向来中止正在进行的 TCP I/O，
+    但不关闭文件描述符。
 
-    When a provider drops a connection mid-stream — or the user issues an
-    interrupt — we want to unblock httpx's reader/writer immediately rather
-    than waiting for the kernel's per-connection timeout. ``shutdown(SHUT_RDWR)``
-    achieves that: it sends FIN, breaks any pending ``recv``/``send`` with EOF
-    or ``EPIPE``, but does NOT release the file descriptor.
+    当提供方在流式传输中途断开连接，或用户发出中断时，
+    我们希望立即解除 httpx 读写器的阻塞，
+    而不是等待内核的单连接超时。
 
-    Historically this helper also called ``socket.close()`` so the FD got
-    released immediately, but that's unsafe when (as is the case for both the
-    interrupt-abort path and stale-call kill path) the helper runs on a
-    different thread than the one driving the request:
+    ``shutdown(SHUT_RDWR)`` 可以实现这一点：
+    它会发送 FIN，使任何挂起的 ``recv`` / ``send``
+    以 EOF 或 ``EPIPE`` 退出，但不会释放文件描述符。
 
-      * The Python ``socket.socket`` we close here is the SAME object held by
-        httpx's pool, so closing it via Python sets its ``_fd`` to -1 and
-        future operations on that Python object fail safely.
-      * BUT the SSL wrapper (``ssl.SSLSocket``'s underlying OpenSSL ``BIO``)
-        caches the raw integer FD. Once ``os.close(fd)`` runs, the kernel may
-        immediately recycle that integer to the next ``open()`` call — e.g.
-        the kanban dispatcher opening ``kanban.db``.
-      * The owning worker thread then unwinds httpx, the SSL layer flushes a
-        pending TLS record, and the encrypted bytes get written into the
-        wrong file (issue #29507: 24-byte TLS application-data record
-        clobbering SQLite header bytes 5..28).
+    历史上，这个辅助函数也会调用 ``socket.close()``，
+    因此 FD 会被立即释放。
+    但当该辅助函数运行在驱动请求的线程之外时，
+    这样做并不安全；中断中止路径和过期调用终止路径都属于这种情况：
 
-    The fix is to let the owning thread own the close. ``shutdown()`` from any
-    thread is FD-safe; ``close()`` is not. The httpx connection's own close
-    path — which runs from the worker thread when it unwinds — will release
-    the FD via the same ``socket.socket`` object, and because Python's socket
-    close atomically swaps ``_fd`` to -1 *before* issuing ``os.close``, there
-    is no FD-aliasing window when only one thread closes.
+      * 我们在这里关闭的 Python ``socket.socket``，
+        与 httpx 连接池持有的是同一个对象；
+        因此通过 Python 关闭它会把它的 ``_fd`` 置为 -1，
+        后续在该 Python 对象上的操作会安全失败。
 
-    Returns the number of sockets shut down. (Field kept as
-    ``tcp_force_closed=N`` in the log line for backwards-compatible parsing.)
+      * 但是 SSL 包装层
+        （``ssl.SSLSocket`` 底层的 OpenSSL ``BIO``）
+        会缓存原始的整数 FD。
+        一旦执行 ``os.close(fd)``，
+        内核就可能立刻把这个整数复用给下一次 ``open()`` 调用，
+        例如 kanban 分发器打开 ``kanban.db``。
+
+      * 随后，拥有该连接的工作线程开始展开 httpx；
+        SSL 层会刷新一条挂起的 TLS 记录，
+        加密后的字节就会被写入错误的文件。
+        这就是 #29507 问题：
+        一条 24 字节的 TLS 应用数据记录覆盖了
+        SQLite 文件头的第 5..28 字节。
+
+    修复方式是让拥有连接的线程负责关闭。
+    从任意线程调用 ``shutdown()`` 都是 FD 安全的；
+    ``close()`` 则不是。
+
+    httpx 连接自身的关闭路径会在工作线程展开时运行，
+    并通过同一个 ``socket.socket`` 对象释放 FD。
+    由于 Python 的 socket close 会在发出 ``os.close`` 之前，
+    先原子地把 ``_fd`` 交换为 -1，
+    因此只要只有一个线程执行 close，
+    就不会出现 FD 别名窗口。
+
+    返回被 shutdown 的 socket 数量。
+    日志行中该字段仍保留为 ``tcp_force_closed=N``，
+    以兼容旧的解析逻辑。
     """
     import socket as _socket
 

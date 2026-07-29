@@ -5235,39 +5235,58 @@ def refresh_agent_mcp_tools(
     disabled_override=None,
     quiet_mode: bool = True,
 ) -> set:
-    """Re-derive an already-built agent's tool snapshot from the live registry.
+    """
+    基于实时注册表，重新推导一个已构建 agent 的工具快照。
 
-    The agent snapshots ``agent.tools`` once at build time and never re-reads
-    the registry (see ``run_agent`` / ``agent_init``).  When MCP servers connect
-    *after* that snapshot — a slow HTTP/OAuth server that misses the bounded
-    startup wait, or a ``/reload-mcp`` — their tools are invisible until the
-    snapshot is rebuilt.  This is the single shared rebuild used by every such
-    caller (the TUI ``reload.mcp`` RPC, the gateway reload, the late-binding
-    refresh thread, and the per-turn between-turns refresh) so they can't drift
-    apart again.
+    agent 在构建时只会对 ``agent.tools`` 做一次快照，
+    之后不会再重新读取注册表
+    （见 ``run_agent`` / ``agent_init``）。
 
-    The rebuild respects the agent's own ``enabled_toolsets`` /
-    ``disabled_toolsets`` (the same filtering it was built with) and diffs by
-    tool **name** (not count — a count compare misses an equal-size add/remove
-    swap).
+    当 MCP 服务器在该快照之后才完成连接时——
+    例如某个慢速 HTTP / OAuth 服务器错过了有界的启动等待，
+    或者执行了 ``/reload-mcp``——
+    这些服务器提供的工具在快照重建之前都不可见。
 
-    Crucially it is **additive-preserving**: ``get_tool_definitions`` returns
-    only the registry-derived tools, but ``agent_init`` appends two further
-    families directly onto ``agent.tools`` *after* that — external
-    memory-provider tools (mem0/honcho/…) and context-engine tools
-    (``lcm_*``).  A naive ``agent.tools = get_tool_definitions(...)`` would
-    silently DELETE those.  So after rebuilding the registry set we re-run the
-    same post-build injectors ``agent_init`` used, reconstructing the full
-    surface.  The new ``(tools, valid_tool_names)`` pair is published together
-    under ``_agent_tools_lock`` so a concurrent reader never sees a
-    cross-attribute half-swap.
+    这是所有此类调用方共用的唯一重建逻辑
+    （包括 TUI 的 ``reload.mcp`` RPC、网关 reload、后期绑定刷新线程，
+    以及每轮之间的刷新），
+    因此它们不会再次发生实现漂移。
 
-    Returns the set of newly-added tool names (empty when nothing changed), so
-    callers can decide whether to notify the user / re-emit session info.  The
-    caller owns the prompt-cache contract: this helper does NOT check turn state,
-    because each caller has a different policy (``/reload-mcp`` rebuilds after
-    explicit user consent; the late-binding and between-turns paths only rebuild
-    at a turn boundary, before that turn's ``tools=`` prefix is assembled).
+    重建过程会遵守 agent 自身的 ``enabled_toolsets`` /
+    ``disabled_toolsets``
+    （也就是构建时使用的同一套过滤逻辑），
+    并且按工具 **名称** 做差异比较
+    （而不是按数量；数量比较会漏掉等量的新增 / 删除互换）。
+
+    关键在于：它会 **保留追加项**。
+    ``get_tool_definitions`` 只返回由注册表派生出的工具，
+    但 ``agent_init`` 在此之后还会直接向 ``agent.tools``
+    追加另外两类工具：
+    外部记忆提供方工具（mem0 / honcho / …），
+    以及上下文引擎工具（``lcm_*``）。
+
+    如果天真地执行
+    ``agent.tools = get_tool_definitions(...)``，
+    就会静默删除这些工具。
+
+    因此，在重建注册表工具集之后，
+    我们会重新运行 ``agent_init`` 当初使用的同一批构建后注入器，
+    以重建完整的工具表面。
+
+    新的 ``(tools, valid_tool_names)`` 对
+    会在 ``_agent_tools_lock`` 下整体发布，
+    这样并发读取者就不会看到跨属性的半更新状态。
+
+    返回新加入的工具名称集合；
+    如果没有变化，则返回空集合。
+    调用方可据此决定是否通知用户 / 重新发送会话信息。
+
+    提示词缓存契约由调用方负责：
+    本辅助函数不会检查轮次状态，
+    因为每个调用方都有不同的策略
+    （``/reload-mcp`` 会在用户明确同意后重建；
+    后期绑定路径和轮次之间路径只会在轮次边界重建，
+    并且发生在该轮次的 ``tools=`` 前缀组装之前）。
     """
     from model_tools import get_tool_definitions
     from tools.registry import registry

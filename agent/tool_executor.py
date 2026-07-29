@@ -1292,9 +1292,9 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                     operations=operations,
                     store=agent._memory_store,
                 )
-                # Mirror successful built-in memory writes to external
-                # providers. All gating/op-expansion lives behind the manager
-                # interface (MemoryManager.notify_memory_tool_write).
+                # 将成功的内置内存写入镜像同步至外部
+                # 提供程序。所有的门控与操作扩展逻辑均封装在管理器
+                # 接口（MemoryManager.notify_memory_tool_write）之后。
                 if agent._memory_manager:
                     agent._memory_manager.notify_memory_tool_write(
                         result,

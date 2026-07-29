@@ -190,16 +190,22 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-# ── Cross-turn stale-call circuit breaker (#58962) ─────────────────────
-# A session wedged against an unresponsive provider hits the stale detector
-# on every call and loops forever (observed: 494 consecutive failures over
-# 3+ days, each burning the full stale timeout × retries with no response).
-# The agent carries ``_consecutive_stale_streams``: incremented on every
-# stale kill, reset only when a call actually completes (or when the
-# provider is swapped — switch_model / try_activate_fallback /
-# restore_primary_runtime — since the streak measured the OLD provider).
-# Past the give-up threshold, calls abort immediately with an actionable
-# error instead of re-waiting out the stale timeout.
+# ── 跨轮次过期调用熔断器（#58962）────────────────────────────────────────
+# 当会话因提供方无响应而卡死时，每次调用都会触发过期检测，
+# 从而陷入无限循环（已观察到的案例：连续失败 494 次，
+# 持续 3 天以上；每次都会耗尽完整的过期超时时间 × 重试次数，
+# 却始终得不到任何响应）。
+#
+# Agent 维护了 ``_consecutive_stale_streams`` 计数器：
+# - 每次因过期而强制终止调用时，计数加 1；
+# - 只有当一次调用真正完成时，计数才会清零；
+# - 或者在切换提供方时清零（例如 switch_model、
+#   try_activate_fallback、restore_primary_runtime），
+#   因为此前累计的连续失败仅针对旧的提供方。
+#
+# 当连续失败次数超过放弃阈值后，
+# 后续调用将立即终止，并返回具有明确处理建议的错误，
+# 而不是再次等待整个过期超时时间结束。
 
 def _stale_streak(agent) -> int:
     try:
@@ -223,8 +229,10 @@ def _reset_stale_streak(agent) -> None:
 
 
 def _check_stale_giveup(agent) -> None:
-    """Raise immediately when the consecutive-stale streak is past the
-    give-up threshold — no network attempt, no stale-timeout wait."""
+    """
+    当连续发生“过期调用”的次数超过放弃阈值时，立即抛出异常——
+    不再尝试发起网络请求，也不再等待过期超时。
+    """
     _giveup = env_int("HERMES_STREAM_STALE_GIVEUP", 5)
     _streak = _stale_streak(agent)
     if _giveup > 0 and _streak >= _giveup:
@@ -237,19 +245,23 @@ def _check_stale_giveup(agent) -> None:
 
 
 def _dispatch_nonstreaming_api_request(agent, api_kwargs: dict, *, make_client):
-    """Run one non-streaming LLM request for the active api_mode and return it.
+    """为当前的 api_mode 运行一次非流式的 LLM 请求并返回结果。
 
-    Shared by the interrupt-worker path (``interruptible_api_call``) and the
-    inline path (``direct_api_call``) so the per-api_mode dispatch — codex /
-    anthropic / bedrock / MoA / OpenAI-compatible — lives in exactly one place.
+    由中断工作线程路径（``interruptible_api_call``）和
+    内联路径（``direct_api_call``）共同复用，
+    从而确保针对不同 api_mode 的分发逻辑
+    （codex / anthropic / bedrock / MoA / 兼容 OpenAI 的接口）
+    有且仅有一处实现。
 
-    ``make_client(reason)`` builds the per-request OpenAI client for the codex
-    and OpenAI-compatible branches; the worker path uses it to register the
-    client with its stranger-thread abort machinery, the inline path uses it to
-    capture the client for its own ``finally`` close. The anthropic / bedrock /
-    MoA branches manage their own clients and never call it. All interrupt,
-    abort, cancellation, and close semantics stay in the callers — this helper
-    only issues the request.
+    ``make_client(reason)`` 用于为 codex 和兼容 OpenAI 的分支
+    构建单次请求所需的 OpenAI 客户端；
+    工作线程路径会使用它将客户端注册到其外部线程的中止机制中，
+    而内联路径则使用它来捕获客户端，
+    以便在自身的 ``finally`` 块中将其关闭。
+    至于 anthropic、bedrock 和 MoA 分支，
+    它们会自行管理各自的客户端，绝不会调用此函数。
+    所有中断、中止、取消以及关闭的语义逻辑均保留在调用方中 —
+    此辅助函数仅负责发出请求。
     """
     if agent.api_mode == "codex_responses":
         request_client = make_client("codex_stream_request")
@@ -308,14 +320,15 @@ def should_use_direct_api_call(agent) -> bool:
 
 
 def direct_api_call(agent, api_kwargs: dict):
-    """Run a non-streaming LLM call inline on the conversation thread.
+    """在对话线程中以内联（inline）方式运行非流式 LLM 调用。
 
-    Used when ``should_use_direct_api_call`` is True. Skips the interrupt worker
-    (whose only job is interactive-interrupt responsiveness, which this context
-    does not have) so the nested-pool deadlock (#62151) cannot occur. Because the
-    request runs in-flight normally, the per-request OpenAI client's own httpx
-    timeout (provider ``request_timeout_seconds`` / ``HERMES_API_TIMEOUT``) bounds
-    a genuinely hung provider — the same bound interactive calls already rely on.
+    当 ``should_use_direct_api_call`` 为 True 时使用。
+    跳过中断工作线程（该线程唯一的职责是响应交互式中断，
+    而当前上下文并不存在这种需求），从而防止出现嵌套线程池死锁（#62151）。
+
+    由于请求以正常方式进行传输，每个请求独立的 OpenAI 客户端
+    自身的 httpx 超时设置（服务商 ``request_timeout_seconds`` / ``HERMES_API_TIMEOUT``）
+    便能对真正卡死的服务商起到约束作用 — 这一约束上限与交互式调用所依赖的完全一致。
     """
     _check_stale_giveup(agent)
     agent._touch_activity("waiting for non-streaming API response")
@@ -361,42 +374,46 @@ def direct_api_call(agent, api_kwargs: dict):
 
 def interruptible_api_call(agent, api_kwargs: dict):
     """
-    Run the API call in a background thread so the main conversation loop
-    can detect interrupts without waiting for the full HTTP round-trip.
+    在后台线程中运行 API 调用，
+    以便主对话循环能够检测中断，
+    而无需等待完整的 HTTP 往返过程。
 
-    Each worker thread gets its own OpenAI client instance. Interrupts only
-    close that worker-local client, so retries and other requests never
-    inherit a closed transport.
+    每个工作线程都拥有独立的 OpenAI 客户端实例。
+    其中断操作只会关闭当前工作线程本地的客户端，
+    因此重试和其他请求绝不会继承已关闭的传输通道。
 
-    Includes a stale-call detector: if no response arrives within the
-    configured timeout, the connection is killed and an error raised so
-    the main retry loop can try again with backoff / credential rotation /
-    provider fallback.
+    内嵌过期调用检测机制：
+    若在设定的超时时间内未收到响应，
+    系统将强制关闭连接并抛出异常，
+    以便主重试循环能通过退避策略、轮换凭证或切换服务商来进行重试。
     """
-    # Cron and other non-interactive, nested-pool contexts must not spawn the
-    # interrupt worker — it wedges before the socket opens on the 2nd+ call
-    # (#62151). Run inline instead. See should_use_direct_api_call.
+    # 定时任务（Cron）及其他非交互式、嵌套线程池等上下文环境
+    # 绝对不能衍生中断工作线程 — 它会在第二次及以后的调用中，
+    # 在套接字（socket）开启之前被卡死（详见 issue #62151）。
+    # 此类情况应当以内联（Direct）方式运行。详见 should_use_direct_api_call。
     if should_use_direct_api_call(agent):
         return direct_api_call(agent, api_kwargs)
 
     result = {"response": None, "error": None}
 
-    # Cross-turn stale-call circuit breaker (#58962) — non-streaming sibling
-    # of the guard in interruptible_streaming_api_call.  Quiet-mode /
-    # subagent / no-stream-consumer sessions take THIS path, and a wedged
-    # unattended session here has the same infinite stale-retry class.
+    # 跨轮次（Cross-turn）过期调用熔断机制（#58962）—
+    # 此处为 interruptible_streaming_api_call 中防护逻辑的非流式同胞版本。
+    # 静默模式（Quiet-mode）、子 Agent（subagent）以及无流式消费者（no-stream-consumer）的会话
+    # 都会走这条路径；此类场景下一旦无人看管的会话卡死，
+    # 将引发相同类型的无限过期重试问题。
     _check_stale_giveup(agent)
 
     request_client_holder = {"client": None, "owner_tid": None}
     request_client_lock = threading.Lock()
-    # Request-local cancellation flag. Distinct from agent._interrupt_requested
-    # because that flag is cleared at run_conversation() turn boundaries, but
-    # this daemon worker thread can outlive the turn (the gateway caches
-    # AIAgent instances per session). Tracks whether THIS specific request was
-    # cancelled by the main thread's interrupt handler, so the transport error
-    # that is the expected consequence of our own force-close isn't misread as
-    # a network bug and surfaced to the caller. (PR #6600 — cascading interrupt
-    # hang.)
+    # 请求本地的取消标记。它不同于 agent._interrupt_requested，
+    # 因为该标记会在 run_conversation() 的轮次边界被清除；
+    # 但这个守护工作线程的生命周期可能会超过当前轮次
+    # （网关会按会话缓存 AIAgent 实例）。
+    #
+    # 该标记用于记录“当前这个具体请求”是否已被主线程的中断处理器取消，
+    # 这样，由我们主动强制关闭所导致的、预期中的传输错误，
+    # 就不会被误判为网络故障并暴露给调用方。
+    # （PR #6600 —— 级联中断导致的挂起问题。）
     _request_cancelled = {"value": False}
 
     def _set_request_client(client):
@@ -409,18 +426,21 @@ def interruptible_api_call(agent, api_kwargs: dict):
         return client
 
     def _close_request_client_once(reason: str) -> None:
-        # #29507: dispatch on the calling thread.
+        # #29507：在发起调用的线程上执行分发。
         #
-        # When ``_call`` (the worker) reaches its ``finally`` it owns the
-        # close and we pop + fully close as before. When a *stranger* thread
-        # (the interrupt-check loop, the stale-call detector) drives the
-        # close, only shut the sockets down so the worker's blocked
-        # ``recv``/``send`` unwinds with an ``EPIPE`` / EOF — and let the
-        # worker close ``client`` from its own thread on its way out. That
-        # avoids the FD-recycling race where the kernel reassigned a
-        # just-closed TLS socket FD to ``kanban.db``, and the still-live SSL
-        # BIO on the worker thread then wrote a 24-byte TLS application-data
-        # record into the SQLite header (#29507).
+        # 当 ``_call``（工作线程）执行到自己的 ``finally`` 块时，
+        # 它拥有关闭责任；此时会像以前一样弹出并完整关闭。
+        #
+        # 当某个“外来”线程（例如中断检查循环、过期调用检测器）
+        # 触发关闭时，只关闭 socket，
+        # 让工作线程中阻塞的 ``recv`` / ``send`` 以 ``EPIPE`` / EOF 退出；
+        # 随后由工作线程在退出过程中，从它自己的线程里关闭 ``client``。
+        #
+        # 这样可以避免 FD 复用竞态：
+        # 内核曾将一个刚刚关闭的 TLS socket FD 重新分配给 ``kanban.db``；
+        # 而工作线程上仍然存活的 SSL BIO 随后又向该 FD 写入了一条
+        # 24 字节的 TLS 应用数据记录，
+        # 结果写进了 SQLite 文件头（#29507）。
         with request_client_lock:
             request_client = request_client_holder.get("client")
             owner_tid = request_client_holder.get("owner_tid")
@@ -442,10 +462,11 @@ def interruptible_api_call(agent, api_kwargs: dict):
 
     def _call():
         try:
-            # _set_request_client registers each per-request OpenAI client with
-            # the stranger-thread abort machinery above; the shared dispatch
-            # helper builds it via this callback so the interrupt / stale-call
-            # detectors can force-close the worker's connection.
+            # _set_request_client 会把每个请求各自的 OpenAI 客户端
+            # 注册到上面的“外来线程中止”机制中；
+            # 共享的分发辅助函数会通过这个回调来构建客户端，
+            # 这样中断检测器和过期调用检测器
+            # 就可以强制关闭工作线程的连接。
             result["response"] = _dispatch_nonstreaming_api_request(
                 agent,
                 api_kwargs,
@@ -456,10 +477,13 @@ def interruptible_api_call(agent, api_kwargs: dict):
                 ),
             )
         except Exception as e:
-            # If the request was cancelled by the main thread's interrupt
-            # handler, the transport error is the expected consequence of our
-            # own force-close, NOT a network bug. Swallow it instead of
-            # surfacing — the main thread raises InterruptedError. (#6600)
+            # 如果该请求已被主线程的中断处理器取消，
+            # 那么这个传输错误就是我们主动强制关闭连接后
+            # 预期会出现的结果，
+            # 而不是网络故障。
+            #
+            # 因此应吞掉这个错误，不要向外暴露；
+            # 主线程会抛出 InterruptedError。（#6600）
             if _request_cancelled["value"]:
                 logger.debug(
                     "Non-streaming worker caught %s after request cancellation — "
@@ -471,30 +495,44 @@ def interruptible_api_call(agent, api_kwargs: dict):
         finally:
             _close_request_client_once("request_complete")
 
-    # ── Stale-call timeout (mirrors streaming stale detector) ────────
-    # Non-streaming calls return nothing until the full response is
-    # ready.  Without this, a hung provider can block for the full
-    # httpx timeout (default 1800s) with zero feedback.  The stale
-    # detector kills the connection early so the main retry loop can
-    # apply richer recovery (credential rotation, provider fallback).
+    # ── 过期调用超时（与流式过期检测器保持一致）────────────────────────
+    # 非流式调用在完整响应准备好之前不会返回任何内容。
+    # 如果没有这层保护，卡死的提供方可能会一直阻塞到完整的
+    # httpx 超时时间结束（默认 1800 秒），期间没有任何反馈。
+    #
+    # 过期检测器会提前终止连接，
+    # 这样主重试循环就能应用更丰富的恢复策略
+    # （例如凭证轮换、提供方回退）。
     _stale_timeout = agent._compute_non_stream_stale_timeout(api_kwargs)
 
-    # ── Codex Responses stream watchdogs ────────────────────────────────
-    # The chatgpt.com/backend-api/codex endpoint has an intermittent failure
-    # mode where it accepts the connection but never emits a single stream
-    # event (observed directly: 0 events, no HTTP status, the socket just
-    # hangs). A fresh reconnect succeeds in ~2s, but the wall-clock stale
-    # timeout (often 180–900s) makes us wait minutes before retrying. While no
-    # stream event has arrived yet we apply a much shorter TTFB cutoff so the
-    # main retry loop can reconnect promptly. Large subscription-backed Codex
-    # requests can legitimately spend tens of seconds in backend admission /
-    # prompt prefill before the first SSE event, so the no-byte TTFB watchdog
-    # is disabled for large chatgpt.com/backend-api/codex requests. A second
-    # failure mode emits an opening SSE frame and then stalls forever in SSL
-    # read; for that we watch the gap since the last Codex stream event. This
-    # matches Codex CLI's stream_idle_timeout model: any valid SSE event is
-    # activity. Operators can tune via HERMES_CODEX_TTFB_TIMEOUT_SECONDS and
-    # HERMES_CODEX_EVENT_STALE_TIMEOUT_SECONDS (0 disables each).
+    # ── Codex Responses 流式看门狗 ─────────────────────────────────────
+    # chatgpt.com/backend-api/codex 端点存在一种间歇性故障模式：
+    # 它会接受连接，但始终不发出任何一个流式事件
+    # （直接观察到的现象：0 个事件、没有 HTTP 状态；
+    #  socket 就这样一直挂起）。
+    #
+    # 重新建立一次新连接通常约 2 秒即可成功；
+    # 但按墙钟时间计算的过期超时通常为 180–900 秒，
+    # 这会导致我们在重试前等待数分钟。
+    # 因此，在尚未收到任何流式事件时，
+    # 我们会应用一个短得多的 TTFB 截止时间，
+    # 以便主重试循环可以及时重新连接。
+    #
+    # 由大型订阅支撑的 Codex 请求，
+    # 在后端准入和提示预填充阶段，
+    # 合法情况下也可能花费数十秒才发出第一个 SSE 事件。
+    # 因此，对于大型 chatgpt.com/backend-api/codex 请求，
+    # 会禁用“无字节 TTFB 看门狗”。
+    #
+    # 第二种故障模式是：
+    # 已经发出一个起始 SSE 帧，随后却在 SSL 读取中永久停滞。
+    # 对此，我们会监测距离上一个 Codex 流式事件的时间间隔。
+    # 这与 Codex CLI 的 stream_idle_timeout 模型一致：
+    # 任何有效的 SSE 事件都视为活动。
+    #
+    # 运维人员可以通过 HERMES_CODEX_TTFB_TIMEOUT_SECONDS 和
+    # HERMES_CODEX_EVENT_STALE_TIMEOUT_SECONDS 进行调节
+    # （设置为 0 表示分别禁用对应机制）。
     _codex_watchdog_enabled = agent.api_mode == "codex_responses"
     _openai_codex_backend = _is_openai_codex_backend(agent)
     _est_tokens_for_codex_watchdog = estimate_request_context_tokens(api_kwargs)
@@ -512,13 +550,20 @@ def interruptible_api_call(agent, api_kwargs: dict):
     else:
         _codex_idle_timeout_default = 12.0
 
-    # No-byte TTFB cutoff. The OpenAI SDK's own streaming read timeout is far
-    # longer (openai 2.x DEFAULT_TIMEOUT.read = 600s), so a tight 12s default
-    # killed subscription-backed Codex requests mid-prefill before the backend
-    # had a chance to emit its first SSE event. Default to 120s — long enough to
-    # clear normal backend admission / prompt prefill, short enough to still
-    # reconnect promptly when the socket is genuinely wedged. Set
-    # HERMES_CODEX_TTFB_TIMEOUT_SECONDS=0 to disable this watchdog entirely.
+    # 无字节 TTFB 截止时间。
+    # OpenAI SDK 自身的流式读取超时时间要长得多
+    # （openai 2.x 的 DEFAULT_TIMEOUT.read = 600 秒），
+    # 因此，之前紧凑的 12 秒默认值会在后端还没来得及发出
+    # 第一个 SSE 事件之前，就在提示预填充中途杀掉由订阅支撑的
+    # Codex 请求。
+    #
+    # 默认值调整为 120 秒——
+    # 这个时长足以覆盖正常的后端准入和提示预填充，
+    # 同时在 socket 确实卡死时，仍然足够短，
+    # 可以及时重新连接。
+    #
+    # 设置 HERMES_CODEX_TTFB_TIMEOUT_SECONDS=0
+    # 可完全禁用此看门狗。
     _ttfb_enabled = _codex_watchdog_enabled
     _ttfb_timeout = _env_float("HERMES_CODEX_TTFB_TIMEOUT_SECONDS", 120.0)
     if _ttfb_timeout <= 0:
@@ -570,6 +615,7 @@ def interruptible_api_call(agent, api_kwargs: dict):
     _call_start = time.time()
     agent._touch_activity("waiting for non-streaming API response")
 
+    # TODO KEY 创建一个线程去执行call
     t = threading.Thread(target=_call, daemon=True)
     t.start()
     _poll_count = 0
@@ -577,8 +623,8 @@ def interruptible_api_call(agent, api_kwargs: dict):
         t.join(timeout=0.3)
         _poll_count += 1
 
-        # Touch activity every ~30s so the gateway's inactivity
-        # monitor knows we're alive while waiting for the response.
+        # 大约每 30 秒更新一次活动时间，
+        # 让网关的非活动监视器知道我们在等待响应期间仍然存活。
         if _poll_count % 100 == 0:  # 100 × 0.3s = 30s
             _elapsed = time.time() - _call_start
             agent._touch_activity(
@@ -587,11 +633,14 @@ def interruptible_api_call(agent, api_kwargs: dict):
 
         _elapsed = time.time() - _call_start
 
-        # TTFB detector: the Codex stream has produced no event at all and
-        # we're past the first-byte cutoff → the backend opened the
-        # connection but isn't responding. Kill it so the retry loop can
-        # reconnect (a fresh connection typically succeeds in seconds),
-        # instead of waiting out the much longer wall-clock stale timeout.
+        # TTFB 检测器：
+        # Codex 流还没有产生任何事件，
+        # 并且已经超过首字节截止时间 →
+        # 说明后端虽然打开了连接，但并未响应。
+        #
+        # 终止该连接，让重试循环可以重新连接
+        # （新的连接通常会在数秒内成功），
+        # 而不是继续等待更长的墙钟过期超时。
         if (
             _ttfb_enabled
             and _elapsed > _ttfb_timeout
@@ -645,9 +694,13 @@ def interruptible_api_call(agent, api_kwargs: dict):
                     )
             break
 
-        # Stream-idle detector: the Codex backend emitted at least one SSE
-        # frame, then stopped emitting events. Valid keepalive / in_progress
-        # frames refresh _codex_stream_last_event_ts and should not be killed.
+        # 流空闲检测器：
+        # Codex 后端已经至少发出了一个 SSE 帧，
+        # 随后停止继续发出事件。
+        #
+        # 有效的 keepalive / in_progress 帧会刷新
+        # _codex_stream_last_event_ts，
+        # 因此不应被终止。
         _last_codex_event_ts = getattr(agent, "_codex_stream_last_event_ts", None)
         if (
             _codex_idle_enabled
@@ -684,8 +737,9 @@ def interruptible_api_call(agent, api_kwargs: dict):
                 )
             break
 
-        # Stale-call detector: kill the connection if no response
-        # arrives within the configured timeout.
+        # 过期调用检测器：
+        # 如果在配置的超时时间内没有收到任何响应，
+        # 则终止该连接。
         if _elapsed > _stale_timeout:
             _est_ctx = estimate_request_context_tokens(api_kwargs)
             _silent_hint: Optional[str] = None
@@ -744,10 +798,11 @@ def interruptible_api_call(agent, api_kwargs: dict):
             break
 
         if agent._interrupt_requested:
-            # Mark THIS request cancelled before force-closing so the worker's
-            # exception handler recognizes the forced transport error as a
-            # cancel and exits cleanly instead of surfacing a network error or
-            # (in the streaming path) burning full retry cycles. (#6600)
+            # 在强制关闭之前，先将“当前这个请求”标记为已取消，
+            # 这样工作线程的异常处理器就能把由强制关闭引发的传输错误
+            # 识别为取消操作，并干净地退出；
+            # 而不是向外暴露网络错误，
+            # 或者在流式路径中耗尽完整的重试周期。（#6600）
             _request_cancelled["value"] = True
             logger.debug(
                 "Force-closing httpx client due to interrupt (not a network error)."

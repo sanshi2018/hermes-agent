@@ -104,15 +104,14 @@ def _resolve_to_parent(db, session_id: str) -> str:
 
 
 def _order_for_recall(raw_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Stable-sort FTS rows so interactive sessions rank above automation.
+    """对 FTS 结果行进行稳定排序（Stable-sort），使交互式会话的排名优先于自动化任务。
 
-    Within each class (interactive vs demoted) the original BM25 ``rank``
-    order is preserved — Python's sort is stable, and rows arrive already
-    ranked by relevance. This only changes cross-class ordering: a cron hit
-    never displaces an interactive hit during lineage dedup, so the user's
-    own conversations surface first even when cron rows out-rank them under
-    bare BM25 (#19434). Demoted rows still appear when they're the only
-    matches.
+    在每个分类内部（交互式 vs 降级项），原始的 BM25 ``rank`` 顺序均得以保留 ——
+    Python 的排序算法是稳定的，且结果行在传入时已按相关性排好序。
+    此操作仅改变跨分类间的顺序：在谱系去重（Lineage dedup）过程中，
+    Cron 的命中项绝不会挤占交互式的命中项，
+    因此即使在纯 BM25 算法下 Cron 行的排名更高，用户自己的对话也会优先呈现（#19434）。
+    当降级行是唯一的匹配项时，它们仍会显示出来。
     """
     return sorted(
         raw_results,
@@ -209,12 +208,13 @@ def _locate_session_db(session_id: str):
 
 
 def _read_session(db, session_id: str, head: int = 20, tail: int = 10) -> str:
-    """Read shape: dump a whole session by id (head + tail when large).
+    """读取模式（Read shape）：根据 ID 导出整个会话（内容过大时返回头部与尾部消息）。
 
-    Serves the linked-session case — the user dropped an @session reference and
-    the agent wants the transcript. Bounded payload: small sessions return in
-    full, large ones return the first ``head`` and last ``tail`` messages with a
-    pointer to scroll the middle.
+    适用于关联会话的情形 —— 当用户发送了一个 @session 引用，
+    且 Agent 需要获取对应的对话转录时使用。
+    负载受限：较小的会话将完整返回，
+    较大的会话则仅返回前 ``head`` 条与后 ``tail`` 条消息，
+    并附带滚动浏览中间内容的提示信息。
     """
     try:
         meta = db.get_session(session_id) or {}
@@ -307,11 +307,12 @@ def _scroll(
     window: int = 5,
     current_session_id: str = None,
 ) -> str:
-    """Scroll shape: return a window of messages centered on an anchor.
+    """滚动模式（Scroll shape）：返回以锚点消息为中心的指定窗口消息。
 
-    No FTS5, no bookends — just the slice. The discovery shape's lineage
-    fixup is preserved: if the anchor doesn't live in the named session
-    but does live in a child session in the same lineage, rebind silently.
+    不使用 FTS5 全文检索，无首尾片段（bookends）—— 仅返回消息切片。
+    保留了探索模式（discovery shape）的会话谱系修正机制：
+    如果锚点消息不在指定的会话中，但存在于同谱系的子会话中，
+    则静默重新绑定（rebind）。
     """
     if not isinstance(session_id, str) or not session_id.strip():
         return tool_error("scroll requires session_id", success=False)
@@ -330,8 +331,8 @@ def _scroll(
             window = 5
     window = max(1, min(window, 20))
 
-    # Reject scrolling inside the active session lineage — those messages are
-    # already in context.
+    # 拒绝在当前活动的会话谱系内进行滚动 ——
+    # 这些消息已经包含在上下文（Context）中了。
     if current_session_id:
         a_root = _resolve_to_parent(db, session_id)
         c_root = _resolve_to_parent(db, current_session_id)
@@ -359,9 +360,10 @@ def _scroll(
 
     messages = view.get("window") or []
 
-    # Lineage rebind: caller may have paired a parent session_id with a
-    # message id that lives in a descendant (compaction / delegation creates
-    # child sessions). Locate the real owning session and refetch.
+    # 谱系重新绑定（Lineage rebind）：
+    # 调用方可能将父 session_id 与存在于后代会话中的消息 ID 进行了配对
+    # （压缩/委托操作会创建子会话）。
+    # 此时需定位到真实所属的会话并重新获取数据。
     rebind_warning = None
     if not messages:
         owning = None
@@ -524,10 +526,9 @@ def _discover(
         logging.error("FTS5 search failed: %s", e, exc_info=True)
         return tool_error(f"Search failed: {e}", success=False)
 
-    # Demote automation (cron) rows below interactive ones before dedup, so a
-    # high-volume cron corpus can't starve the user's own sessions out of the
-    # top `limit` results (#19434). Stable — preserves BM25/recency order
-    # within each class.
+    # 在去重之前，将自动化任务（Cron）行数据的优先级降至交互式会话之下，
+    # 以防止高容量的 Cron 语料库挤占前 `limit` 条结果中的用户自有会话（#19434）。
+    # 该逻辑保持稳定 —— 能够保留每种分类内部的 BM25 算法及近效性（Recency）排序。
     raw_results = _order_for_recall(raw_results)
 
     if not raw_results and not title_result:
@@ -540,9 +541,10 @@ def _discover(
             "message": "No matching sessions found.",
         }, ensure_ascii=False)
 
-    # Dedupe by lineage. Keep the raw owning session_id on the surviving
-    # row — only that pairs validly with the FTS5 match id for the anchored
-    # window. parent_session_id is exposed separately when different.
+    # 按谱系（Lineage）去重。
+    # 在保留的行上保留原始所属的 session_id ——
+    # 只有该 ID 才能与 FTS5 匹配点 ID 有效配对，用于构建锚点窗口。
+    # 当 parent_session_id 不同时，会单独予以暴露。
     seen_sessions = {}
     results = []
 
@@ -631,16 +633,15 @@ def session_search(
     # Cross-profile (any shape)
     profile: str = None,
 ) -> str:
-    """Single-shape tool. Mode inferred from which args are set.
+    """单一调用的工具。模式根据传入的参数推断。
 
-    Discovery: pass ``query``.
-    Scroll:    pass ``session_id`` + ``around_message_id``.
-    Read:      pass ``session_id`` (no anchor) — dumps the whole session.
-    Browse:    pass nothing.
+    探索模式（Discovery）：传入 ``query``。
+    滚动模式（Scroll）：   传入 ``session_id`` + ``around_message_id``。
+    读取模式（Read）：     仅传入 ``session_id``（无锚点消息）—— 导出整个会话。
+    浏览模式（Browse）：   不传任何参数。
 
-    Pass ``profile`` to read another profile's sessions (e.g. resolving an
-    ``@session:<profile>/<id>`` link). Scroll wins over read/discovery when an
-    anchor is set — the agent has asked for a specific slice.
+    传入 ``profile`` 可读取其他配置文件的会话（例如用于解析 ``@session:<profile>/<id>`` 链接）。
+    当设置了锚点消息时，滚动模式优先于读取/探索模式 —— 这意味着 Agent 请求获取特定的消息切片。
     """
     if db is None:
         try:
@@ -651,11 +652,11 @@ def session_search(
             from hermes_state import format_session_db_unavailable
             return tool_error(format_session_db_unavailable(), success=False)
 
-    # Normalise a raw `@session:<profile>/<id>` link value passed as session_id.
-    # Session ids never contain "/", so a slash unambiguously means profile/id —
-    # always strip the prefix off the id, and adopt the embedded profile only
-    # when one wasn't passed explicitly. Handles every permutation the model
-    # might send (full value as id, with or without a separate profile=).
+    # 规范化传入 session_id 的原始 `@session:<profile>/<id>` 链接值。
+    # Session ID 本身绝不包含 "/"，因此斜杠明确意味着 profile/id 格式 ——
+    # 始终从 ID 中剥离该前缀，并且仅在未显式传递 profile 参数时，
+    # 才采用链接中嵌入的 profile。
+    # 这能处理模型可能发送的每种排列组合情况（如将完整值作为 ID 传入，附带或不附带独立的 profile=）。
     if isinstance(session_id, str) and "/" in session_id:
         emb_profile, _, emb_id = session_id.partition("/")
         if emb_id:
@@ -663,9 +664,10 @@ def session_search(
             if emb_profile and (profile is None or not str(profile).strip()):
                 profile = emb_profile
 
-    # Cross-profile read: swap in the named profile's DB (read-only) for every
-    # shape below. The current-session-lineage guards no longer apply across
-    # profiles, but they key off ids that won't collide, so they stay inert.
+    # 跨配置文件（Profile）读取：针对下方所有调用模式，
+    # 均切换为指定 Profile 的数据库（只读）。
+    # 当前会话的谱系防护机制在跨 Profile 时不再适用，
+    # 但由于它们所依据的 ID 彼此不会冲突，因此这些机制会保持休眠（不生效）状态。
     if profile is not None and str(profile).strip():
         try:
             profile_db = _resolve_profile_db(profile)
@@ -675,7 +677,7 @@ def session_search(
             db = profile_db
             current_session_id = None
 
-    # Scroll shape takes precedence — explicit anchor beats any query.
+    # 滚动模式（Scroll shape）优先级最高 —— 显式指定的锚点消息高于任何查询词。
     if (isinstance(session_id, str) and session_id.strip()) and around_message_id is not None:
         return _scroll(
             db=db,
@@ -685,16 +687,16 @@ def session_search(
             current_session_id=current_session_id,
         )
 
-    # Read shape: a session_id with no anchor → dump the whole session.
+    # 读取模式（Read shape）：传入了 session_id 但无锚点消息（anchor） → 导出整个会话。
     if isinstance(session_id, str) and session_id.strip():
         sid = session_id.strip()
         result = _read_session(db, sid)
         if json.loads(result).get("success"):
             return result
 
-        # Miss in the target profile — the model may have dropped the owning
-        # profile from the link. Scan every profile and read it from wherever
-        # it lives, tagging the profile it was found in.
+        # 在目标配置文件（Profile）中未命中 —— 模型可能从链接中遗漏了所属的 Profile。
+        # 扫描每一个 Profile 并从其所在位置进行读取，
+        # 同时标记出找到该 Session 时所匹配的 Profile。
         located, owner = _locate_session_db(sid)
         if located is not None:
             try:
@@ -748,7 +750,130 @@ def check_session_search_requirements() -> bool:
     except ImportError:
         return False
 
-
+# {
+#     "name": "session_search",
+#     "description": (
+#         "搜索存储在本地会话数据库中的历史会话，或在指定会话内滚动浏览。\n"
+#         "基于 SQLite 消息存储库的 FTS5 全文检索。无 LLM 调用 ——\n"
+#         "每种调用形式均直接返回数据库中的实际消息内容。\n\n"
+#         "源数据优先限制（SOURCE-FIRST LIMIT）\n\n"
+#         "  本工具仅搜索 Hermes 的对话历史记录。它不能作为外部数据源当前内容的证据。\n"
+#         "  如果用户提供了直接的数据源（如 URL、电话号码/联系人、应用/线程、文件路径、\n"
+#         "  账号、网站或在线系统），在可行的情况下，请优先（或替代 session_search）\n"
+#         "  检查该原始数据源。请将 session_search 用作了解历史对话的辅助上下文，\n"
+#         "  而非证明数据源当前内容的直接依据。\n"
+#         "  如果原始数据源无法访问，请在降级使用历史会话前说明情况及原因。\n"
+#         "  当用户已提供直接数据源时，切勿仅凭 session_search 的结果就得出\n"
+#         "  “未找到”或“无历史来往”的结论。\n\n"
+#         "四种调用模式（FOUR CALLING SHAPES）\n\n"
+#         "  1) 探索模式（DISCOVERY）—— 传入 `query`：\n"
+#         "     session_search(query=\"auth refactor\", limit=3)\n"
+#         "     运行 FTS5 搜索，按会话谱系去重，返回前 N 个匹配的会话。每个结果包含：\n"
+#         "       - session_id、title、when、source\n"
+#         "       - snippet: FTS5 高亮匹配的摘要片段\n"
+#         "       - bookend_start: 会话的前 3 条 user+assistant 消息（目标/开端）\n"
+#         "       - messages: FTS5 匹配点前后 ±5 条消息，并标记锚点消息（上下文中的命中点）\n"
+#         "       - bookend_end: 会话的后 3 条 user+assistant 消息（结果/决策）\n"
+#         "       - match_message_id、messages_before、messages_after\n"
+#         "     首尾两端（Bookends）与消息窗口结合，无需调取完整转录即可重建“目标 → 匹配 → 决策”过程。\n\n"
+#         "  2) 滚动模式（SCROLL）—— 传入 `session_id` + `around_message_id`：\n"
+#         "     session_search(session_id=\"...\", around_message_id=12345, window=10)\n"
+#         "     返回以锚点消息为中心、前后各 `window` 条消息的窗口。不使用 FTS5，无首尾片段，仅返回指定切片。\n"
+#         "     用于探索调用后，当你需要比默认 ±5 条窗口更丰富的上下文时。\n"
+#         "       - 向后滚动：将 messages[-1].id 作为 around_message_id 传入。\n"
+#         "       - 向前滚动：将 messages[0].id 作为 around_message_id 传入。\n"
+#         "       - 边界消息会在两个窗口中同时出现 —— 用作定位标记。\n"
+#         "       - 当 messages_before 或 messages_after 小于 window 时，说明已触及会话开头或结尾。\n\n"
+#         "  3) 读取模式（READ）—— 仅传入 `session_id`（无 around_message_id）：\n"
+#         "     session_search(session_id=\"...\", profile=\"work\")\n"
+#         "     根据 ID 导出整个会话（内容较长时返回前 20 条 + 后 10 条消息）。\n"
+#         "     用于解析用户发在聊天中的 `@session:<profile>/<id>` 链接：\n"
+#         "     按 `/` 切分出 profile 和 id，然后调用 session_search(session_id=id, profile=profile)。\n\n"
+#         "  4) 浏览模式（BROWSE）—— 无参数：\n"
+#         "     session_search()\n"
+#         "     按时间顺序返回最近的会话：包含标题、预览和时间戳。\n"
+#         "     当用户询问“我之前在忙什么”但未指定具体主题时使用。\n\n"
+#         "FTS5 语法（FTS5 SYNTAX）\n\n"
+#         "  默认使用 AND —— 多词查询需要包含所有词。显式使用 OR 可扩大检索范围（如 `alpha OR beta OR gamma`），\n"
+#         "  精确匹配使用双引号（如 `\"docker networking\"`），逻辑非（如 `python NOT java`），\n"
+#         "  或前缀通配符（如 `deploy*`）。\n\n"
+#         "使用时机（WHEN TO USE）\n\n"
+#         "  当遇到关于 Hermes 对话历史本身的问题时使用，例如“关于 X 我们之前做了什么”、“Y 进展到哪一步了”\n"
+#         "  或“找到涉及 Z 的那个会话”。如果用户提供了直接的数据源标识符，在可行时应先检查该数据源；\n"
+#         "  session_search 随后可用于补充历史上下文。会话数据库记录了何时说过什么；\n"
+#         "  外部工具则展示当前的数据源/系统状态。"
+#     ),
+#     "parameters": {
+#         "type": "object",
+#         "properties": {
+#             "query": {
+#                 "type": "string",
+#                 "description": (
+#                     "搜索查询词（探索模式）。用于在历史会话中查找的关键字、短语或布尔表达式。\n"
+#                     "留空则用于浏览最近会话。当设置了 session_id + around_message_id 时（滚动模式），该参数会被忽略。"
+#                 ),
+#             },
+#             "limit": {
+#                 "type": "integer",
+#                 "description": (
+#                     "仅适用于探索模式。返回的最大会话数（默认为 3，最大为 10）。\n"
+#                     "当主题可能跨越多个会话，且你想挑选合适的会话深入滚动浏览时，可调高至 5–10。"
+#                 ),
+#                 "default": 3,
+#             },
+#             "sort": {
+#                 "type": "string",
+#                 "enum": ["newest", "oldest"],
+#                 "description": (
+#                     "仅适用于探索模式。在 FTS5 相关性排序的基础上增加时间偏好。\n"
+#                     "留空保持仅按相关性排序（适合探索性回顾 —— “关于 X 我们了解什么”）。\n"
+#                     "设置 'newest' 用于偏向近期的问题（“X 进展到哪一步了”）。\n"
+#                     "设置 'oldest' 用于偏向追根溯源的问题（“X 是怎么开始的”）。\n"
+#                     "在滚动模式和浏览模式下忽略该参数。"
+#                 ),
+#             },
+#             "session_id": {
+#                 "type": "string",
+#                 "description": (
+#                     "滚动模式。要在内部读取的会话 ID。使用先前探索调用返回的 session_id。\n"
+#                     "必须与 around_message_id 配对使用。"
+#                 ),
+#             },
+#             "around_message_id": {
+#                 "type": "integer",
+#                 "description": (
+#                     "滚动模式。作为窗口中心的消息 ID。可使用探索结果中的 match_message_id，\n"
+#                     "或先前窗口中看到的任何 ID。向后滚动传入上一窗口最后一条消息的 ID；\n"
+#                     "向前滚动传入第一条消息的 ID。"
+#                 ),
+#             },
+#             "window": {
+#                 "type": "integer",
+#                 "description": (
+#                     "仅适用于滚动模式。锚点消息两侧要返回的消息数量（锚点本身始终包含在内）。\n"
+#                     "限制在 [1, 20] 范围内。默认为 5。"
+#                 ),
+#                 "default": 5,
+#             },
+#             "role_filter": {
+#                 "type": "string",
+#                 "description": (
+#                     "可选。要包含的以逗号分隔的角色列表。探索模式默认为 'user,assistant'（工具输出通常为噪音）。\n"
+#                     "传入 'user,assistant,tool' 以包含工具输出（用于调试工具行为），或传入 'tool' 仅搜索工具输出。"
+#                 ),
+#             },
+#             "profile": {
+#                 "type": "string",
+#                 "description": (
+#                     "可选。从另一个 Hermes 配置文件（Profile）的数据库中读取会话（只读）。\n"
+#                     "解析 `@session:<profile>/<id>` 链接时使用：将配置部分传给此处，将 ID 部分传给 session_id。\n"
+#                     "留空则使用当前配置文件。"
+#                 ),
+#             },
+#         },
+#         "required": [],
+#     },
+# }
 SESSION_SEARCH_SCHEMA = {
     "name": "session_search",
     "description": (

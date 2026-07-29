@@ -3069,14 +3069,14 @@ class SessionDB:
         return dict(row) if row else None
 
     def resolve_session_by_title(self, title: str) -> Optional[str]:
-        """Resolve a title to a session ID, preferring the latest in a lineage.
+        """将标题解析为会话 ID，并优先选择同谱系（Lineage）中最新的会话。
 
-        If the exact title exists, returns that session's ID.
-        If not, searches for "title #N" variants and returns the latest one.
-        If the exact title exists AND numbered variants exist, returns the
-        latest numbered variant (the most recent continuation).
+        如果存在完全匹配的标题，则返回该会话的 ID。
+        如果不存在，则查找“标题 #N”的变体版本，并返回最新的一个。
+        如果既存在完全匹配的标题，也存在编号变体，
+        则返回最新的编号变体（即最新的续接会话）。
         """
-        # First try exact match
+        # 首先尝试完全匹配
         exact = self.get_session_by_title(title)
 
         # Also search for numbered variants: "title #2", "title #3", etc.
@@ -3260,44 +3260,44 @@ class SessionDB:
         search_query: str = None,
         compact_rows: bool = False,
     ) -> List[Dict[str, Any]]:
-        """List sessions with preview (first user message) and last active timestamp.
+        """列出会话，包含预览内容（首条用户消息）及最后活动时间戳。
 
-        Returns dicts with keys: id, source, model, title, started_at, ended_at,
-        message_count, preview (first 60 chars of first user message),
-        last_active (timestamp of last message).
+        返回字典结构，包含以下键名：
+        id, source, model, title, started_at, ended_at,
+        message_count, preview（首条用户消息的前 60 个字符）,
+        last_active（最后一条消息的时间戳）。
 
-        Uses a single query with correlated subqueries instead of N+2 queries.
+        采用单条关联子查询（correlated subquery），而非 N+2 次独立查询。
 
-        By default, child sessions (subagent runs, compression continuations)
-        are excluded.  Pass ``include_children=True`` to include them.
+        默认情况下排除子会话（如 Subagent 运行记录、压缩续接会话）。
+        传入 ``include_children=True`` 可包含这些子会话。
 
-        With ``project_compression_tips=True`` (default), sessions that are
-        roots of compression chains are projected forward to their latest
-        continuation — one logical conversation = one list entry, showing the
-        live continuation's id/message_count/title/last_active. This prevents
-        compressed continuations from being invisible to users while keeping
-        delegate subagents and branches hidden. Pass ``False`` to return the
-        raw root rows (useful for admin/debug UIs).
+        当设置 ``project_compression_tips=True``（默认值）时，
+        作为压缩链根节点的会话将向前投影至其最新的续接节点 ——
+        即“1 个逻辑对话 = 1 个列表条目”，
+        并展示实时续接节点的 id / message_count / title / last_active。
+        这既能避免已压缩的续接会话对用户不可见，
+        又能保持委托的 Subagent 及分支处于隐藏状态。
+        传入 ``False`` 则返回原始根节点行数据（适用于管理员/调试 UI）。
 
-        Pass ``order_by_last_active=True`` to sort by most-recent activity
-        instead of original conversation start time. For compression chains,
-        the "most-recent activity" is taken from the live tip (not the root),
-        so an old conversation that was compressed and continued recently
-        surfaces in the correct slot. Ordering is computed at SQL level via
-        a recursive CTE that walks compression-continuation edges, so LIMIT
-        and OFFSET still apply efficiently.
+        传入 ``order_by_last_active=True`` 可按最新活动时间排序，
+        而非按原始对话的开始时间排序。
+        对于压缩链，其“最新活动时间”取自实时的末端节点（而非根节点），
+        因此近期被压缩并继续的旧对话能够呈现在正确的排序位置上。
+        排序在 SQL 层面通过递归 CTE 实现（该 CTE 负责遍历压缩续接的边关系），
+        从而使 LIMIT 和 OFFSET 依然能够高效生效。
 
-        ``search_query`` matches case-insensitive substrings against each
-        surfaced row's title and id (and, like ``id_query``, every title/id in
-        its forward compression chain). A punctuation-stripped variant is also
-        matched so e.g. ``an94`` finds ``AN-94``. Only honored in the
-        ``order_by_last_active`` path.
+        ``search_query`` 对各展示行的 title 和 id 进行不区分大小写的子串匹配
+        （与 ``id_query`` 类似，亦会匹配其后续压缩链中的所有 title / id）。
+        同时也会使用去除标点符号的变体进行匹配，
+        例如输入 ``an94`` 可匹配到 ``AN-94``。
+        仅在 ``order_by_last_active`` 路径中生效。
 
-        Pass ``compact_rows=True`` for dashboard and picker callers that only
-        need lightweight metadata. This omits the ``system_prompt`` blob from
-        the SELECT so SQLite never copies it out of the B-tree page — a
-        significant I/O saving on large databases where the blob routinely
-        runs to tens of kilobytes per row.
+        对于仅需要轻量级元数据的仪表盘或选择器等调用方，
+        可传入 ``compact_rows=True``。
+        这将在 SELECT 语句中忽略 ``system_prompt`` 大文本块，
+        使 SQLite 无需将其从 B-Tree 页面中复制出来 ——
+        在大型数据库（该文本块通常单行可达数十 KB）中，能够节省大量 I/O 资源。
         """
         where_clauses = []
         params = []
@@ -3997,21 +3997,21 @@ class SessionDB:
         limit: Optional[int] = None,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        """Load messages for a session in insertion order.
+        """按插入顺序加载会话中的消息。
 
-        By default only active messages are returned. Pass
-        ``include_inactive=True`` to load soft-deleted rows (e.g. for
-        audit / debug views of rewound history). See
-        :meth:`rewind_to_message` for the soft-delete mechanic.
+        默认情况下仅返回活动状态（active）的消息。传入
+        ``include_inactive=True`` 可加载已软删除（soft-deleted）的行（例如用于
+        审计/调试已被回退的历史记录视图）。有关软删除机制，
+        请参阅 :meth:`rewind_to_message`。
 
-        Ordered by AUTOINCREMENT id (true insertion order) rather than
-        timestamp — see c03acca50 for the WSL2 clock-regression rationale.
+        按 AUTOINCREMENT（自增）ID 排序（即真正的插入顺序），
+        而非按时间戳排序 —— 关于 WSL2 时钟倒退问题的原因说明，请参阅 c03acca50。
 
-        When ``limit`` is provided, returns at most ``limit`` messages
-        starting from ``offset`` (0-based, in insertion order). Enables
-        pagination for the API endpoint to avoid loading entire transcripts.
-        ``offset`` alone (without ``limit``) also pages — SQLite requires a
-        LIMIT clause for OFFSET, so it's emitted as ``LIMIT -1`` (unbounded).
+        当指定 ``limit`` 时，将从 ``offset``（从 0 开始，按插入顺序）
+        开始最多返回 ``limit`` 条消息。这为 API 端点提供了分页功能，
+        以避免加载整个对话转录（transcript）。
+        仅传入 ``offset``（不带 ``limit``）同样支持分页 —— SQLite 的 OFFSET 语法
+        必须配合 LIMIT 子句，因此这种情况下会生成为 ``LIMIT -1``（无上限）。
         """
         active_clause = "" if include_inactive else " AND active = 1"
         sql = (
@@ -4046,24 +4046,24 @@ class SessionDB:
         around_message_id: int,
         window: int = 5,
     ) -> Dict[str, Any]:
-        """Load a window of messages anchored on a specific message id.
+        """加载以特定消息 ID 为锚点的消息窗口。
 
-        Returns a dict with:
-          - ``window``: up to ``window`` messages before the anchor, the anchor
-            itself, and up to ``window`` messages after, ordered by id ascending.
-          - ``messages_before``: count of messages strictly before the anchor
-            still in the session (== window unless we hit the start).
-          - ``messages_after``: count of messages strictly after the anchor
-            still in the session (== window unless we hit the end).
+        返回一个字典，包含以下字段：
+          - ``window``: 最多包含锚点前的 ``window`` 条消息、锚点消息本身、
+            以及最多包含锚点后的 ``window`` 条消息，按 ID 升序排列。
+          - ``messages_before``: 会话中严格位于锚点之前的剩余消息数量
+            （除非触及开头，否则等于 window）。
+          - ``messages_after``: 会话中严格位于锚点之后的剩余消息数量
+            （除非触及结尾，否则等于 window）。
 
-        Used by ``session_search`` for both the discovery shape (anchored on the
-        FTS5 match) and the scroll shape (anchored on any message id). The
-        ``messages_before`` / ``messages_after`` counts let the caller detect
-        session boundaries: when either is less than ``window``, the agent has
-        reached one end of the session.
+        由 ``session_search`` 用于探索模式（以 FTS5 匹配点为锚点）
+        和滚动模式（以任意消息 ID 为锚点）。
+        通过 ``messages_before`` / ``messages_after`` 的数量，
+        调用方可以检测会话边界：当其中任一数值小于 ``window`` 时，
+        说明 Agent 已触及会话的一端。
 
-        Returns an empty window when ``around_message_id`` is not a real id in
-        ``session_id`` — callers decide how to surface that.
+        当 ``around_message_id`` 不是 ``session_id`` 中的真实 ID 时，
+        返回一个空窗口 —— 由调用方决定如何呈现该情况。
         """
         if window < 0:
             window = 0
@@ -4126,31 +4126,29 @@ class SessionDB:
         bookend: int = 3,
         keep_roles: Optional[Tuple[str, ...]] = ("user", "assistant"),
     ) -> Dict[str, Any]:
-        """Return an anchored window plus session bookends.
+        """返回以锚点为中心的窗口消息以及会话的首尾片段（Bookends）。
 
-        Built on top of ``get_messages_around``. Three slices:
+        基于 ``get_messages_around`` 构建。包含三个数据切片：
 
-          - ``window``: messages immediately surrounding the anchor. Filtered
-            to ``keep_roles`` (tool-response noise dropped by default), EXCEPT
-            the anchor itself is always preserved regardless of role.
-          - ``bookend_start``: first ``bookend`` user/assistant messages of the
-            session — but only those whose id is strictly before the window's
-            first message id. Empty when the window already overlaps the
-            session head. Empty-content messages (tool-call-only assistant
-            turns) are skipped so they don't crowd out actual prose openings.
-          - ``bookend_end``: last ``bookend`` user/assistant messages of the
-            session, same non-overlap rule at the tail.
+          - ``window``: 紧邻锚点周围的消息。根据 ``keep_roles`` 进行过滤
+            （默认丢弃工具响应产生的噪声），但无论角色为何，
+            锚点消息本身始终予以保留。
+          - ``bookend_start``: 会话开头的首批 ``bookend`` 条 user/assistant 消息 ——
+            但仅包含 ID 严格早于窗口第一条消息 ID 的消息。
+            当窗口已与会话头部重叠时为空。
+            会跳过空内容消息（仅包含工具调用的 assistant 轮次），
+            以免占用实际正文开头的空间。
+          - ``bookend_end``: 会话结尾的末批 ``bookend`` 条 user/assistant 消息，
+            尾部同样适用不重叠规则。
 
-        Bookends let an FTS5 hit anywhere in a long session yield the goal
-        (opening) and the resolution (closing) on a single call — without
-        loading the whole transcript.
+        首尾片段（Bookends）使得长会话中任意位置的 FTS5 命中，
+        都能通过单次调用获取目标（开端）和结果（总结）——
+        而无需加载整个转录文本。
 
-        Returns ``{"window": [], "messages_before": 0, "messages_after": 0,
-        "bookend_start": [], "bookend_end": []}`` when the anchor isn't in
-        the session.
+        当锚点不在会话中时，返回 ``{"window": [], "messages_before": 0, "messages_after": 0,
+        "bookend_start": [], "bookend_end": []}``。
 
-        ``keep_roles=None`` disables role filtering (raw window + raw
-        bookends).
+        设置 ``keep_roles=None`` 可禁用角色过滤（返回未过滤的原始窗口 + 原始首尾片段）。
         """
         if bookend < 0:
             bookend = 0
@@ -4183,10 +4181,10 @@ class SessionDB:
         window_min_id = window_rows[0]["id"]
         window_max_id = window_rows[-1]["id"]
 
-        # Fetch bookends only when there's room outside the window. SQL filters
-        # by id range, role, and non-empty content — tool-call-only assistant
-        # turns (content='' with tool_calls populated) are excluded so they
-        # don't crowd out actual prose openings/closings.
+        # 仅在窗口之外尚有空间时才获取首尾片段（Bookends）。
+        # SQL 会按 ID 范围、角色以及非空内容进行过滤 ——
+        # 排除仅包含工具调用的 assistant 轮次（ content='' 且 populated 了 tool_calls ），
+        # 以免它们占用实际正文的开端/结尾空间。
         bookend_start_rows: List[Any] = []
         bookend_end_rows: List[Any] = []
         if bookend > 0:
@@ -4649,30 +4647,28 @@ class SessionDB:
 
     @staticmethod
     def _sanitize_fts5_query(query: str) -> str:
-        """Sanitize user input for safe use in FTS5 MATCH queries.
+        """对用户输入进行净化，以便安全地用于 FTS5 MATCH 查询中。
 
-        FTS5 has its own query syntax where characters like ``"``, ``(``, ``)``,
-        ``+``, ``*``, ``{``, ``}``, the column-filter operator ``:`` and bare
-        boolean operators (``AND``, ``OR``, ``NOT``) have special meaning.
-        Passing raw user input directly to MATCH can cause
-        ``sqlite3.OperationalError``.
+        FTS5 拥有自身的查询语法，其中诸如 ``"``、``(``、``)``、
+        ``+``、``*``、``{``、``}`` 等字符、列过滤运算符 ``:``，
+        以及裸布尔运算符（``AND``、``OR``、``NOT``）均具有特殊含义。
+        将未处理的用户原始输入直接传给 MATCH 可能会引发 ``sqlite3.OperationalError``。
 
-        Strategy:
-        - Preserve properly paired quoted phrases (``"exact phrase"``)
-        - Strip unmatched FTS5-special characters that would cause errors
-        - Wrap unquoted hyphenated and dotted terms in quotes so FTS5
-          matches them as exact phrases instead of splitting on the
-          hyphen/dot (e.g. ``chat-send``, ``P2.2``, ``my-app.config.ts``)
+        处理策略：
+        - 保留匹配成对的引用短语（如 ``"exact phrase"``）
+        - 剥离未成对且会导致错误的 FTS5 特殊字符
+        - 将未加引号且带连字符或句点的术语用引号包裹，
+          使 FTS5 将其作为精准短语匹配，而非在连字符/句点处进行切分
+          （例如 ``chat-send``、``P2.2``、``my-app.config.ts``）
         """
-        # Cap user-controlled FTS input before any regex processing. Search
-        # queries do not need to be arbitrarily large, and bounding them keeps
-        # sanitizer/runtime behavior predictable under adversarial input.
+        # 在进行任何正则表达式处理之前，对用户可控的 FTS 输入设置上限。
+        # 搜索查询词无需过长，对其设定界限可以在遭遇对抗性输入时，
+        # 保持净化器和运行时的行为可预测。
         query = query[:MAX_FTS5_QUERY_CHARS]
 
-        # Step 1: Extract balanced double-quoted phrases and protect them
-        # from further processing via numbered placeholders. Do this with a
-        # single linear scan rather than a regex so pathological quote runs
-        # cannot induce backtracking.
+        # 步骤 1：提取成对的双引号短语，并通过编号占位符予以保护，
+        # 以防后续处理对其造成影响。通过单次线性扫描而非正则表达式来实现，
+        # 从而防止病态的引号序列引发回溯（Backtracking）。
         _quoted_parts: list = []
         pieces: list[str] = []
         i = 0
@@ -4695,32 +4691,35 @@ class SessionDB:
 
         sanitized = "".join(pieces)
 
-        # Step 2: Strip remaining (unmatched) FTS5-special characters.  ``:`` is
-        # FTS5's column-filter operator (``col:term``); since the FTS table has a
-        # single ``content`` column, an unquoted colon query like ``TODO: fix``
-        # parses as ``column:term`` and raises "no such column" — swallowed at
-        # the execute site into zero results.  Strip it like the others.
+        # 步骤 2：剥离剩余（未成对的）FTS5 特殊字符。
+        # ``:`` 是 FTS5 的列过滤运算符（``col:term``）；
+        # 由于 FTS 表仅包含单个 ``content`` 列，
+        # 类似 ``TODO: fix`` 这样未加引号的冒号查询，
+        # 会被解析为 ``column:term`` 并抛出“无此列”异常 ——
+        # 这在执行处会被静默吞掉，导致返回空结果。
+        # 因此需要像其他特殊字符一样将其剥离。
         sanitized = re.sub(r'[+{}():\"^]', " ", sanitized)
 
-        # Step 3: Collapse repeated * (e.g. "***") into a single one,
-        # and remove leading * (prefix-only needs at least one char before *)
+        # 步骤 3：将重复的 *（例如 "***"）收缩为一个，
+        # 并移除开头的 *（前缀通配符要求在 * 前至少包含一个字符）
         sanitized = re.sub(r"\*+", "*", sanitized)
         sanitized = re.sub(r"(^|\s)\*", r"\1", sanitized)
 
-        # Step 4: Remove dangling boolean operators at start/end that would
-        # cause syntax errors (e.g. "hello AND" or "OR world")
+        # 步骤 4：移除开头或结尾处悬空（孤立）的布尔运算符，
+        # 避免导致语法错误（例如 "hello AND" 或 "OR world"）
         sanitized = re.sub(r"(?i)^(AND|OR|NOT)\b\s*", "", sanitized.strip())
         sanitized = re.sub(r"(?i)\s+(AND|OR|NOT)\s*$", "", sanitized.strip())
 
-        # Step 5: Wrap unquoted dotted and/or hyphenated terms in double
-        # quotes.  FTS5's tokenizer splits on dots and hyphens, turning
-        # ``chat-send`` into ``chat AND send`` and ``P2.2`` into ``p2 AND 2``.
-        # Quoting preserves phrase semantics.  A single pass avoids the
-        # double-quoting bug that would occur if dotted, hyphenated and underscored
-        # patterns were applied sequentially (e.g. ``my-app.config``).
+        # 步骤 5：将未加引号且带有句点和/或连字符的术语用双引号包裹。
+        # FTS5 的分词器会在句点和连字符处进行切分，
+        # 将 ``chat-send`` 转为 ``chat AND send``，
+        # 将 ``P2.2`` 转为 ``p2 AND 2``。
+        # 加引号可以保留短语原有的语义。
+        # 采用单次遍历的方式，可避免依次对含句点、连字符和下划线的模式逐个应用时
+        # 所产生的重复加引号（Double-quoting）Bug（例如处理 ``my-app.config``）。
         sanitized = re.sub(r"\b(\w+(?:[._-]\w+)+)\b", r'"\1"', sanitized)
 
-        # Step 6: Restore preserved quoted phrases
+        # 步骤 6：还原之前保留的带引号短语
         for i, quoted in enumerate(_quoted_parts):
             sanitized = sanitized.replace(f"\x00Q{i}\x00", quoted)
 
@@ -4768,33 +4767,32 @@ class SessionDB:
         sort: str = None,
         include_inactive: bool = False,
     ) -> List[Dict[str, Any]]:
-        """
-        Full-text search across session messages using FTS5.
+        """使用 FTS5 对会话消息进行全文检索。
 
-        Supports FTS5 query syntax:
-          - Simple keywords: "docker deployment"
-          - Phrases: '"exact phrase"'
-          - Boolean: "docker OR kubernetes", "python NOT java"
-          - Prefix: "deploy*"
+        支持 FTS5 查询语法：
+          - 简单关键字：“docker deployment”
+          - 短语：“"exact phrase"”
+          - 布尔逻辑：“docker OR kubernetes”，“python NOT java”
+          - 前缀匹配：“deploy*”
 
-        Returns matching messages with session metadata, content snippet,
-        and surrounding context (1 message before and after the match).
+        返回匹配的消息，并附带会话元数据、内容片段
+        以及周边上下文（匹配点前后各 1 条消息）。
 
-        ``sort`` controls temporal ordering:
-          - ``None`` (default): FTS5 BM25 relevance only. Time-neutral.
-          - ``"newest"``: order by message timestamp DESC, then by rank.
-          - ``"oldest"``: order by message timestamp ASC, then by rank.
+        ``sort`` 用于控制时间排序：
+          - ``None``（默认）：仅按 FTS5 BM25 相关性排序，时间中立。
+          - ``"newest"``：按消息时间戳降序（DESC）排列，其次按相关性排名（rank）。
+          - ``"oldest"``：按消息时间戳升序（ASC）排列，其次按相关性排名（rank）。
 
-        The short-CJK LIKE fallback already orders by timestamp DESC and
-        ignores ``sort``. The trigram CJK path honours ``sort`` like the main
-        FTS5 path.
+        针对短 CJK（中日韩文本）的 LIKE 备用路径已按时间戳降序（DESC）排列，
+        并会忽略 ``sort``。
+        针对三字元（trigram）的 CJK 路径则与主 FTS5 路径一样遵循 ``sort``。
 
-        Rewound (``active=0``, ``compacted=0``) rows are excluded by default —
-        the user took those back. Compaction-archived rows (``active=0``,
-        ``compacted=1``) ARE included by default: they were summarized away from
-        the live context but remain part of the conversation's record, so the
-        pre-compaction transcript stays discoverable after in-place compaction
-        (#38763). Pass ``include_inactive=True`` to search every row regardless.
+        已被撤回的行数据（``active=0``, ``compacted=0``）默认会被排除 ——
+        因为这些是用户主动撤回的内容。
+        因压缩而归档的行数据（``active=0``, ``compacted=1``）默认**包含**在内：
+        它们虽然已从实时上下文总结抽离，但仍属于对话记录的一部分，
+        使得原位压缩（in-place compaction）后的压缩前转录文本依然可被检索（#38763）。
+        传入 ``include_inactive=True`` 可搜索所有行数据，无论其状态如何。
         """
         if not self._fts_enabled:
             return []
@@ -4806,9 +4804,9 @@ class SessionDB:
         if not query:
             return []
 
-        # Normalise sort. Anything not in the allowed set falls back to None
-        # (FTS5 rank-only) so callers can pass through user input without
-        # validation.
+        # 规范化排序方式。任何不在允许集合中的值都会退回为 None
+        # （仅限 FTS5 rank），
+        # 方便调用方无需事先校验即可直接传递用户输入。
         if isinstance(sort, str):
             sort_norm = sort.strip().lower()
             if sort_norm not in ("newest", "oldest"):
@@ -4816,8 +4814,8 @@ class SessionDB:
         else:
             sort_norm = None
 
-        # ORDER BY shared across the main FTS5 path and trigram CJK path.
-        # With sort set, timestamp is primary and rank is the tiebreaker.
+        # 跨主 FTS5 路径和 trigram CJK 路径共享的 ORDER BY 子句。
+        # 设置排序后，timestamp 为主排序依据，rank 为平局决胜项。
         if sort_norm == "newest":
             order_by_sql = "ORDER BY m.timestamp DESC, rank"
         elif sort_norm == "oldest":
@@ -4829,9 +4827,9 @@ class SessionDB:
         where_clauses = ["messages_fts MATCH ?"]
         params: list = [query]
         if not include_inactive:
-            # Live rows (active=1) AND compaction-archived rows (compacted=1)
-            # are discoverable; only rewind/undo rows (active=0, compacted=0)
-            # are hidden. See archive_and_compact() / #38763.
+            # 活动行（active=1）与压缩归档行（compacted=1）
+            # 均可被检索；只有倒带/撤销行（active=0, compacted=0）
+            # 会被隐藏。参见 archive_and_compact() / #38763。
             where_clauses.append("(m.active = 1 OR m.compacted = 1)")
 
         if source_filter is not None:
@@ -4872,24 +4870,25 @@ class SessionDB:
             LIMIT ? OFFSET ?
         """
 
-        # CJK queries bypass the unicode61 FTS5 table.  The default tokenizer
-        # splits CJK characters into individual tokens, so "大别山项目" becomes
-        # "大 AND 别 AND 山 AND 项 AND 目" — producing false positives and
-        # missing exact phrase matches.
+        # CJK 查询会绕过 unicode61 FTS5 表。
+        # 默认分词器会将 CJK 字符切分为独立的 token，
+        # 导致“大别山项目”变成“大 AND 别 AND 山 AND 项 AND 目”——
+        # 这会产生假阳性（误报）并遗漏精准的短语匹配。
         #
-        # For queries with 3+ CJK characters, we use the trigram FTS5 table
-        # (indexed substring matching with ranking and snippets).  For shorter
-        # CJK queries (1-2 chars), trigram can't match (it needs ≥9 UTF-8
-        # bytes = 3 CJK chars), so we fall back to LIKE.
+        # 对于包含 3 个及以上 CJK 字符的查询，我们使用 trigram FTS5 表
+        # （支持带有排名和片段提取功能的索引子串匹配）。
+        # 对于较短的 CJK 查询（1-2 个字符），trigram 无法匹配
+        # （它需要至少 9 个 UTF-8 字节，即 3 个 CJK 字符），因此我们会回退使用 LIKE。
         is_cjk = self._contains_cjk(query)
         if is_cjk:
             raw_query = query.strip('"').strip()
             cjk_count = self._count_cjk(raw_query)
 
-            # Per-token CJK length check (#20494): trigram needs >=3 CJK chars
-            # per token. A query like "广西 OR 桂林 OR 漓江" has cjk_count=6
-            # (>=3) but each individual token is only 2 chars — trigram returns 0.
-            # Route to LIKE when any non-operator CJK token is <3 CJK chars.
+            # 逐 Token 的 CJK 长度校验（#20494）：
+            # trigram 需要每个 Token 包含 >=3 个 CJK 字符。
+            # 像 "广西 OR 桂林 OR 漓江" 这样的查询，虽然 cjk_count=6（>=3），
+            # 但其中的每个独立 Token 都只有 2 个字符 —— trigram 会返回 0 个结果。
+            # 因此，当任意非运算符 CJK Token 的长度小于 3 个 CJK 字符时，路由至 LIKE。
             _tokens_for_check = [
                 t for t in raw_query.split()
                 if t.upper() not in {"AND", "OR", "NOT"} and self._contains_cjk(t)
@@ -4900,9 +4899,9 @@ class SessionDB:
 
             _trigram_succeeded = False
             if cjk_count >= 3 and not _any_short_cjk and self._trigram_available:
-                # Trigram FTS5 path — quote each non-operator token to handle
-                # FTS5 special chars (%, *, etc.) while preserving boolean
-                # operators (AND, OR, NOT) for multi-term queries.
+                # Trigram FTS5 路径 —— 为每个非运算符 Token 加引号，
+                # 以处理 FTS5 特殊字符（如 %、* 等），
+                # 同时保留多词查询中的布尔运算符（AND、OR、NOT）。
                 tokens = raw_query.split()
                 parts = []
                 for tok in tokens:
@@ -4954,11 +4953,10 @@ class SessionDB:
                         matches = [dict(row) for row in tri_cursor.fetchall()]
                         _trigram_succeeded = True
             if not _trigram_succeeded:
-                # Short / mixed CJK query, trigram unavailable, or trigram
-                # <3 CJK chars. Fall back to LIKE substring search.
-                # For multi-token OR queries (e.g. "广西 OR 桂林 OR 漓江"),
-                # build one LIKE condition per non-operator token so each term
-                # is matched independently (#20494).
+                # 较短/混合的 CJK 查询、trigram 不可用，或单 Token 的 CJK 字符数 < 3。
+                # 回退使用 LIKE 子串搜索。
+                # 对于多 Token 的 OR 查询（例如 "广西 OR 桂林 OR 漓江"），
+                # 为每个非运算符 Token 构建一个 LIKE 条件，从而独立匹配每个词（#20494）。
                 non_op_tokens = [
                     t for t in raw_query.split()
                     if t.upper() not in {"AND", "OR", "NOT"}
@@ -5010,8 +5008,8 @@ class SessionDB:
                 else:
                     matches = [dict(row) for row in cursor.fetchall()]
 
-        # Add surrounding context (1 message before + after each match).
-        # Done outside the lock so we don't hold it across N sequential queries.
+        # 添加上下文（每个匹配项的前后各 1 条消息）。
+        # 在锁之外执行此操作，以免在进行 N 次顺序查询时一直占用锁。
         for match in matches:
             try:
                 with self._lock:
@@ -5072,7 +5070,7 @@ class SessionDB:
             except Exception:
                 match["context"] = []
 
-        # Remove full content from result (snippet is enough, saves tokens)
+        # 从结果中移除完整内容（摘要已足够，以节省 token）
         for match in matches:
             match.pop("content", None)
 

@@ -56,17 +56,18 @@ _BUNDLE_FIRST_SKILL_BLOCK = "\n\n[Loaded as part of the "
 
 
 def extract_user_instruction_from_skill_message(content: Any) -> Optional[str]:
-    """Recover the user's instruction from a slash-skill-expanded turn.
+    """从经过斜杠技能展开的对话轮次中恢复用户指令。
 
-    Returns:
-        - The original string unchanged when it is NOT skill scaffolding
-          (a normal user message passes straight through).
-        - The extracted user instruction when the scaffolding carried one.
-        - ``None`` when the content is skill scaffolding with no user
-          instruction (i.e. a bare ``/skill`` invocation). Callers that feed
-          memory providers should skip the turn in that case — there is no
-          user content worth storing.
-    """
+        返回值：
+            - 当内容并非技能脚手架时，原样返回输入字符串；
+              普通用户消息会直接透传。
+            - 当脚手架中包含用户指令时，返回提取出的用户指令。
+            - 当内容属于技能脚手架，但不包含用户指令时，返回 ``None``；
+              例如，仅调用 ``/skill`` 而未附带任何内容。
+
+              在这种情况下，向记忆提供方传递内容的调用方应跳过该轮，
+              因为其中没有值得存储的用户内容。
+        """
     if not isinstance(content, str):
         return None
 

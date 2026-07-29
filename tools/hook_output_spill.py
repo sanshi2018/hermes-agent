@@ -166,26 +166,25 @@ def spill_if_oversized(
     source: str = "hook",
     config: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Spill ``text`` to disk if it exceeds the configured cap.
+    """若 ``text`` 超过配置的上限，则将其转储至磁盘。
 
-    Returns either ``text`` unchanged (when under the cap, disabled, or
-    empty) or a preview string with a filesystem path pointing at the
-    full content.
+    返回未经修改的 ``text``（未超限、功能禁用或内容为空时），
+    或者返回带有指向完整内容的文件系统路径的预览字符串。
 
-    Parameters
+    参数
     ----------
     text:
-        The raw injected-context string from a hook. Non-string inputs
-        are coerced with ``str()``.
+        来自 Hook 的原始注入上下文字符串。
+        非字符串类型的输入将通过 ``str()`` 强行转换。
     session_id:
-        Used to group spill files by conversation. Falls back to
-        ``"no-session"`` if missing.
+        用于按对话对转储文件进行分组。
+        若缺失则退回到 ``"no-session"``。
     source:
-        Human-readable label used in the preview header (``"hook"``,
-        ``"plugin hook"``, ``"shell hook"``, etc.). Free-form.
+        在预览标题中使用的易读标签
+        （例如 ``"hook"``、``"plugin hook"``、``"shell hook"`` 等）。格式不限。
     config:
-        Optional override for tests; normally resolved from
-        ``config.yaml``.
+        用于测试的可选覆盖项；
+        通常从 ``config.yaml`` 中解析。
     """
     if text is None:
         return ""

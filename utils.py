@@ -144,21 +144,22 @@ def atomic_json_write(
     mode: int | None = None,
     **dump_kwargs: Any,
 ) -> None:
-    """Write JSON data to a file atomically.
+    """原子化地将 JSON 数据写入文件。
 
-    Uses temp file + fsync + os.replace to ensure the target file is never
-    left in a partially-written state. If the process crashes mid-write,
-    the previous version of the file remains intact.
+    使用“临时文件 + fsync + os.replace”机制，
+    以确保目标文件绝不会处于仅写入一部分的状态。
+    若进程在写入中途崩溃，文件的历史版本将保持完好。
 
-    Args:
-        path: Target file path (will be created or overwritten).
-        data: JSON-serializable data to write.
-        indent: JSON indentation (default 2).
-        mode: Optional final permission mode. When set, the temp file is
-            created and replaced with this mode, avoiding chmod-after-write
-            TOCTOU exposure for secret-bearing files.
-        **dump_kwargs: Additional keyword args forwarded to json.dump(), such
-            as default=str for non-native types.
+    参数：
+        path: 目标文件路径（将被创建或覆盖）。
+        data: 要写入的可 JSON 序列化的数据。
+        indent: JSON 缩进格数（默认为 2）。
+        mode: 可选的最终权限模式。当设置此参数时，
+            临时文件将以此模式创建并被替换，
+            从而避免涉及敏感信息的文件在“写入后再修改权限（chmod-after-write）”时
+            面临检查到使用时间差（TOCTOU）的安全风险。
+        **dump_kwargs: 转发给 json.dump() 的其他关键字参数，
+            例如针对非原生类型的 default=str。
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

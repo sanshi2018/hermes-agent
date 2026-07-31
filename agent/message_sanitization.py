@@ -279,23 +279,23 @@ def _repair_tool_call_arguments(raw_args: str, tool_name: str = "?") -> str:
 
 
 def close_interrupted_tool_sequence(messages: list, final_response: Any = None) -> bool:
-    """Append a synthetic assistant turn when an interrupted tail is a tool result.
+    """当被中断的尾部消息为工具结果 (tool result) 时，追加一个合成的 assistant 轮次。
 
-    A turn cut short by ``/stop`` can leave the transcript ending on a raw
-    ``tool`` message (a tool finished, or its execution was cancelled, but the
-    model never streamed a closing assistant turn). Persisting that tail means
-    the next user message lands as ``… tool → user`` — a role-alternation
-    violation that strict providers (Gemini, Claude) react to by hallucinating
-    a continuation of the user's message and ignoring prior context, which
-    reads to the user as "lost context" (#48879).
+    被 ``/stop`` 截断的轮次可能会将对话记录 (transcript) 停留在原始的 ``tool`` 消息上
+    （工具已执行完毕，或其执行被取消，但模型从未流式传输最终的闭合 assistant 轮次）。
+    持久化该尾部意味着下一条用户消息接入时会变成 ``… tool → user``
+    —— 这违反了角色交替 (role-alternation) 规则，
+    严格遵循协议的提供商（如 Gemini、Claude）对此做出的反应是产生幻觉，
+    错误地对用户消息进行续写并忽略先前的上下文，
+    给用户的直观感受就是“丢失了上下文”(#48879)。
 
-    ``finalize_turn`` closes this on the happy interrupt path, but the
-    retry/backoff/error interrupt aborts in ``conversation_loop`` ``return``
-    early and never reach it — this shared helper closes the sequence on all of
-    them. ``final_response`` is usually empty on an interrupt, so an explicit
-    placeholder is used rather than an empty-content assistant turn.
+    ``finalize_turn`` 会在正常的中断流程中对此进行闭合，
+    但重试/退避/错误中断会在 ``conversation_loop`` 中提前 ``return`` 退出而无法到达该逻辑
+    —— 本共享辅助函数可以在所有这些路径上闭合该序列。
+    中断时 ``final_response`` 通常为空，
+    因此使用明确的占位符，而非内容为空的 assistant 轮次。
 
-    Mutates ``messages`` in place. Returns True if a closing turn was appended.
+    原地方案 (in place) 修改 ``messages``。如果追加了闭合轮次，则返回 True。
     """
     if not messages:
         return False

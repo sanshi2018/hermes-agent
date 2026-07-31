@@ -237,12 +237,12 @@ def _append_subdir_hint_to_multimodal(value: Dict[str, Any], hint: str) -> None:
 
 
 def _extract_file_mutation_targets(tool_name: str, args: Dict[str, Any]) -> List[str]:
-    """Return the file paths a ``write_file`` or ``patch`` call is targeting.
+    """返回 ``write_file`` 或 ``patch`` 调用所针对的文件路径。
 
-    For ``write_file`` and ``patch`` in replace mode this is just ``args["path"]``.
-    For ``patch`` in V4A patch mode we parse the patch content for
-    ``*** Update File:`` / ``*** Add File:`` / ``*** Delete File:`` headers so
-    the verifier can track each file in a multi-file patch separately.
+    对于 ``write_file`` 以及处于替换模式的 ``patch``，该路径即为 ``args["path"]``。
+    对于处于 V4A 补丁模式的 ``patch``，我们会解析补丁内容中的
+    ``*** Update File:`` / ``*** Add File:`` / ``*** Delete File:`` 标头，
+    以便验证器能够单独跟踪多文件补丁中的每一个文件。
     """
     if tool_name not in _FILE_MUTATING_TOOLS:
         return []

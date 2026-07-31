@@ -566,22 +566,19 @@ class MemoryManager:
         session_id: str = "",
         messages: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
-        """Sync a completed turn to all providers.
+        """将已完成的轮次同步至所有提供者。
 
-        Runs on a background worker thread, NOT inline on the
-        turn-completion path. A provider's ``sync_turn`` may make a
-        blocking network/daemon call (a misconfigured Hindsight daemon
-        was observed blocking ~298s before failing); doing that inline
-        held ``run_conversation`` open long after the user saw their
-        response, so every interface (CLI, TUI, gateway) kept the agent
-        marked "running" for minutes and any follow-up message triggered
-        an aggressive interrupt. Dispatching off-thread means a slow or
-        broken provider can never stall the turn — the sync simply
-        completes (or fails, logged) in the background.
+        在后台工作线程中运行，而不是在轮次完成路径上同步内联运行。
+        提供者的 ``sync_turn`` 可能会发起阻塞性的网络/守护进程调用
+        （曾观察到配置错误的 Hindsight 守护进程在失败前阻塞了约 298 秒）；
+        如果内联执行该操作，会在用户看到响应后很长时间内继续占用 ``run_conversation``，
+        导致每个界面（CLI、TUI、网关）将智能体数分钟一直标记为“运行中”，
+        且任何后续消息都会触发激进的中断。
+        通过离线线程进行调度，意味着缓慢或故障的提供者绝不会卡住轮次 ——
+        同步操作只需在后台完成（或失败时记录日志）即可。
 
-        Writes are serialized through a single worker so turn N lands
-        before turn N+1; provider implementations don't need their own
-        ordering guarantees.
+        写入操作会通过单个工作线程进行序列化，以确保轮次 N 在轮次 N+1 之前送达；
+        提供者的实现无需自行保证顺序。
         """
         providers = list(self._providers)
         if not providers:
@@ -619,14 +616,13 @@ class MemoryManager:
     # -- Background dispatch -------------------------------------------------
 
     def _submit_background(self, fn) -> None:
-        """Run ``fn`` on the manager's background worker.
+        """在管理器（manager）的后台工作线程上运行 ``fn``。
 
-        The executor is created lazily and shared across calls. If the
-        executor can't be created or has already been shut down, ``fn``
-        runs inline as a last-resort fallback — losing the async benefit
-        but never losing the write itself. ``fn`` must do its own
-        per-provider error handling; this wrapper only guards executor
-        plumbing.
+        执行器（executor）采用延迟创建的方式，并在多次调用间共享。
+        如果无法创建执行器或执行器已被关闭，``fn`` 将作为保底方案进行内联运行 ——
+        虽然会失去异步优势，但绝不会丢失写入操作本身。
+        ``fn`` 必须自行处理针对各个提供者（provider）的错误；
+        本包装器（wrapper）仅负责保障执行器管道（plumbing）的正常运行。
         """
         executor = self._get_sync_executor()
         if executor is None:

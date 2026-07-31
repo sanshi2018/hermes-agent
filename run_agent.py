@@ -325,18 +325,18 @@ def _qwen_portal_headers() -> dict:
 
 
 def _safe_session_filename_component(session_id: str) -> str:
-    """Return a stable, path-safe filename component for a session ID.
+    """为会话 ID（session ID）返回一个稳定且路径安全的文件名组件。
 
-    Session IDs can originate from untrusted input (e.g. the
-    ``X-Hermes-Session-Id`` API header) and are otherwise interpolated raw
-    into on-disk artifact filenames under ``~/.hermes/sessions/``.  Without
-    sanitization, a traversal-shaped ID such as ``../../../../etc/pwned``
-    would let a caller write the session snapshot / request dump outside the
-    sessions directory.  This collapses every non ``[A-Za-z0-9_-]`` character
-    to ``_`` (so no path separators or ``.`` survive), caps the length, and —
-    when sanitization changed the string — appends a short content hash so two
-    distinct IDs that sanitize to the same component don't collide.  The
-    result is always a single, traversal-free path segment.
+    会话 ID 可以来源于不可信的输入
+    （例如 ``X-Hermes-Session-Id`` API 请求头），
+    否则它们会被直接插值拼接到 ``~/.hermes/sessions/`` 下的磁盘产物文件名中。
+    如果不进行清洗，像 ``../../../../etc/pwned`` 这种路径遍历形状的 ID
+    将允许调用方将会话快照 / 请求转储文件写入 sessions 目录之外。
+    本函数会将所有非 ``[A-Za-z0-9_-]`` 的字符收缩替换为 ``_``
+    （以此消除所有的路径分隔符与 ``.`` 符号），限制其长度，
+    并且 —— 当清洗操作改变了原字符串时 —— 会追加一段简短的内容哈希，
+    以确保清洗后生成相同组件的两个不同 ID 不会发生碰撞。
+    其输出结果始终是一个独立的、无路径遍历风险的路径片段。
     """
     raw = str(session_id or "").strip()
     sanitized = re.sub(r"[^\w-]", "_", raw).strip("._")
@@ -1601,13 +1601,13 @@ class AIAgent:
         review_memory: bool = False,
         review_skills: bool = False,
     ) -> None:
-        """Spawn the background memory/skill review thread.
+        """衍生（Spawn）后台记忆/技能审查线程。
 
-        Thin wrapper — the heavy lifting lives in
-        ``agent.background_review.spawn_background_review_thread`` which
-        returns the thread target.  ``threading.Thread`` is constructed
-        here so existing tests that patch ``run_agent.threading.Thread``
-        keep working.
+        浅层封装（Thin wrapper）—— 核心逻辑位于
+        ``agent.background_review.spawn_background_review_thread`` 中，
+        该函数会返回线程的执行目标（target）。
+        此处构建 ``threading.Thread``，是为了使那些对
+        ``run_agent.threading.Thread`` 进行打补丁（patch）的既有测试能够继续正常工作。
         """
         from agent.background_review import spawn_background_review_thread
         from tools.thread_context import propagate_context_to_thread
@@ -1617,8 +1617,8 @@ class AIAgent:
             review_memory=review_memory,
             review_skills=review_skills,
         )
-        # Carry the active profile into the review thread so MEMORY.md / skill
-        # review writes land in the right profile (#54937).
+        # 将当前激活的配置方案（active profile）带入审查线程中，
+        # 以便 MEMORY.md / 技能审查的写入操作能落入正确的配置方案中（参见 #54937）。
         t = threading.Thread(
             target=propagate_context_to_thread(target), daemon=True, name="bg-review"
         )
@@ -1674,35 +1674,36 @@ class AIAgent:
                     msg["timestamp"] = timestamp
 
     def _persist_session(self, messages: List[Dict], conversation_history: List[Dict] = None):
-        """Save session state to both JSON log and SQLite on any exit path.
+        """无论以何种退出路径结束，均将会话状态同时保存至 JSON 日志和 SQLite 中。
 
-        Ensures conversations are never lost, even on errors or early returns.
+        确保对话绝不会丢失，即便是遇到错误或提前返回的情况。
 
-        Trailing empty-response scaffolding is dropped from the live list in
-        place (it is ephemeral junk the real transcript should shed). The
-        persist user-message *override* is NOT applied here — it is resolved
-        inside ``_flush_messages_to_session_db`` and written only to the DB row,
-        never mutating the live message list used by the API call (#48677 is
-        thus closed for every persist caller, not just this one).
+        尾部空响应的骨架逻辑（scaffolding）会在原地方案（in place）中从实时消息列表中丢弃
+        （因为它是临时垃圾数据，真实的对话记录应当将其甩掉）。
+        此处**不会**应用持久化用户消息的*覆盖（override）*操作
+        —— 该操作会在 ``_flush_messages_to_session_db`` 内部进行解析，
+        且仅写入数据库行中，绝不会修改 API 调用所使用的实时消息列表
+        （因此，#48677 问题针对每一个持久化调用方都得到了解决，而不仅限于当前调用方）。
         """
-        # Scaffolding removal mutates the live list (desired — ephemeral
-        # retry/failure sentinels must not survive into the real transcript).
+        # 清理骨架逻辑会原地方案（in place）修改实时消息列表
+        # （这是符合预期的 —— 临时的重试/失败哨兵标示决不能存留在真实的对话记录中）。
         self._drop_trailing_empty_response_scaffolding(messages)
         self._session_messages = messages
         self._save_session_log(messages)
         self._flush_messages_to_session_db(messages, conversation_history)
 
     def _drop_trailing_empty_response_scaffolding(self, messages: List[Dict]) -> None:
-        """Remove private empty-response retry/failure scaffolding from transcript tails.
+        """从对话记录（transcript）尾部移除私有的空响应重试/失败骨架逻辑。
 
-        Also rewinds past any trailing tool-result / assistant(tool_calls) pair
-        that the failed iteration left hanging. Without this, the tail ends at
-        a raw ``tool`` message and the next user turn lands as
-        ``...tool, user, user`` — a protocol-invalid sequence that most
-        providers silently reject (returns empty content), causing the
-        empty-retry loop to fire forever. (issue number to be backfilled once filed)
+        同时，还会倒回并清理失败迭代所遗留的尾部
+        “tool-result / assistant(tool_calls)”消息对。
+        如果不进行此清理，尾部将停留在一条原始的 ``tool`` 消息上，
+        导致下一个用户轮次接入时变为 ``...tool, user, user`` 序列
+        —— 这是一种违反协议的序列，大多数提供商都会隐式拒绝（返回空内容），
+        从而引发空重试循环无限触发。
+        （待提交 issue 后补填对应的 issue 编号）
         """
-        # Pass 1: strip the flagged scaffolding messages themselves.
+        # 第一轮处理：清理已被标记的骨架消息本身。
         dropped_scaffolding = False
         while (
             messages
@@ -1715,12 +1716,12 @@ class AIAgent:
             messages.pop()
             dropped_scaffolding = True
 
-        # Pass 2: if we stripped scaffolding, rewind through any trailing
-        # tool-result messages plus the assistant(tool_calls) message that
-        # produced them. This preserves role alternation so the next user
-        # message follows a user or assistant message, not an orphan tool
-        # result. Only runs when scaffolding was actually present — normal
-        # conversation tails (real tool loops mid-progress) are untouched.
+        # 第二轮处理：如果已清理骨架消息，则倒回并剔除所有尾部的
+        # tool-result 消息以及生成它们的 assistant(tool_calls) 消息。
+        # 这能保持角色（role）的交替顺序，确保下一条用户消息
+        # 接在 user 或 assistant 消息之后，而非孤立的 tool 结果之后。
+        # 该步骤仅在确实存在骨架消息时运行 —— 正常的对话尾部
+        # （进行中的真实工具循环）将保持原样，不受影响。
         if not dropped_scaffolding:
             return
 
@@ -1732,11 +1733,11 @@ class AIAgent:
         ):
             messages.pop()
 
-        # Drop the assistant message that issued the tool calls, if the tail
-        # now ends in an assistant-with-tool_calls (the pair that owned the
-        # just-popped tool results). Without this, the tail is
-        # ``assistant(tool_calls=...)`` with no tool answers, which some
-        # providers also reject.
+        # 如果尾部当前停留在带有 tool_calls 的 assistant 消息上
+        # （即属于刚刚被弹出（pop）的工具结果的匹配消息），
+        # 则剔除该发起了工具调用的 assistant 消息。
+        # 如果不进行此剔除，尾部将变成没有工具应答的 ``assistant(tool_calls=...)``，
+        # 部分提供商同样会拒绝这种格式。
         if (
             messages
             and isinstance(messages[-1], dict)
@@ -1951,13 +1952,12 @@ class AIAgent:
         return convert_to_trajectory_format(self, messages, user_query, completed)
 
     def _save_trajectory(self, messages: List[Dict[str, Any]], user_query: str, completed: bool):
-        """
-        Save conversation trajectory to JSONL file.
-        
-        Args:
-            messages (List[Dict]): Complete message history
-            user_query (str): Original user query
-            completed (bool): Whether the conversation completed successfully
+        """将对话轨迹保存至 JSONL 文件。
+
+        参数：
+            messages (List[Dict]): 完整的消息历史记录
+            user_query (str): 用户原始查询
+            completed (bool): 对话是否已成功完成
         """
         if not self.save_trajectories:
             return
@@ -2522,16 +2522,16 @@ class AIAgent:
 
     @staticmethod
     def _redact_message_content(content):
-        """Apply secret redaction to message content (str or list-of-parts).
+        """对消息内容（字符串或多部分列表）应用敏感信息（密钥）脱敏处理。
 
-        Handles both plain-string content and the OpenAI/Anthropic multimodal
-        shape where ``content`` is a list of ``{"type": "text", "text": ...}``
-        / ``{"type": "image_url", ...}`` / ``{"type": "input_text", "content": ...}``
-        parts. Image / binary parts are left untouched; only text fields are
-        passed through ``redact_sensitive_text``.
+        既支持纯字符串内容，也支持 OpenAI/Anthropic 的多模态格式 ——
+        即 ``content`` 为包含 ``{"type": "text", "text": ...}``、
+        ``{"type": "image_url", ...}`` 或 ``{"type": "input_text", "content": ...}``
+        等部分的列表。图像/二进制部分保持不变；
+        仅有文本字段会通过 ``redact_sensitive_text`` 进行处理。
 
-        Respects ``HERMES_REDACT_SECRETS`` via ``redact_sensitive_text`` —
-        when disabled the helper is effectively a no-op.
+        通过 ``redact_sensitive_text`` 遵循 ``HERMES_REDACT_SECRETS`` 配置
+        —— 当禁用时，该辅助函数实际上等同于空操作（no-op）。
         """
         if content is None:
             return content
@@ -2551,19 +2551,18 @@ class AIAgent:
         return content
 
     def _save_session_log(self, messages: List[Dict[str, Any]] = None):
-        """Optional per-session JSON snapshot writer.
+        """可选的单会话（per-session）JSON 快照写入器。
 
-        Gated by ``sessions.write_json_snapshots`` (default False).  state.db
-        is the canonical message store; this writer exists only for users
-        whose external tooling consumes ``~/.hermes/sessions/session_{sid}.json``
-        directly.  When the flag is off this is a fast no-op.
+        由 ``sessions.write_json_snapshots`` 配置项进行控制（默认为 False）。
+        state.db 是规范的（权威）消息存储库；
+        此写入器仅服务于那些外部工具直接消费 ``~/.hermes/sessions/session_{sid}.json`` 的用户。
+        当该标记关闭时，此逻辑为快速的空操作（no-op）。
 
-        When enabled, rewrites the snapshot after every persistence point with
-        the full message list (assistant content normalized via
-        ``_clean_session_content`` to convert REASONING_SCRATCHPAD to think
-        tags).  The truncation guard ("don't overwrite a larger log with
-        fewer messages") is preserved so resume + branch don't clobber a
-        fuller existing snapshot.
+        启用后，在每次持久化节点都会使用完整的消息列表重写快照
+        （助手内容会通过 ``_clean_session_content`` 进行规范化处理，
+        将 REASONING_SCRATCHPAD 转换为 think 标签）。
+        此处保留了截断保护机制（“不要用更少的消息覆盖更大的日志”），
+        因此恢复（resume）与分支（branch）操作不会破坏内容更完整的现有快照。
         """
         if not getattr(self, "_session_json_enabled", False):
             return
@@ -2571,12 +2570,12 @@ class AIAgent:
         if not messages:
             return
 
-        # Re-derive the target path each call so /branch and /compress
-        # session-id changes land in the right file without any re-point
-        # bookkeeping at the call sites.  Sanitize the session ID into a
-        # single traversal-free path segment — session IDs can come from
-        # untrusted input (X-Hermes-Session-Id header) and must not escape
-        # the sessions directory.
+        # 每次调用时均重新推导目标路径，
+        # 从而使 /branch 和 /compress 导致的 session-id 变更能写入正确的文件，
+        # 而无需在调用端进行任何重新指向（re-point）的状态维护。
+        # 将 session ID 清洗为单层且无路径遍历风险的路径片段
+        # —— session ID 可能来源于不可信的输入（如 X-Hermes-Session-Id 请求头），
+        # 绝不能跳出 sessions 目录。
         try:
             safe_sid = _safe_session_filename_component(self.session_id)
             log_file = self.logs_dir / f"session_{safe_sid}.json"
@@ -2586,26 +2585,27 @@ class AIAgent:
         try:
             cleaned = []
             for msg in messages:
-                # Mirror the SQLite flush: ephemeral recovery scaffolding is
-                # internal retry state, never durable transcript content.
+                # 镜像 SQLite 的刷新逻辑：临时的恢复骨架（scaffolding）
+                # 属于内部重试状态，绝不属于持久化的对话记录内容。
                 if _is_ephemeral_scaffolding(msg):
                     continue
                 if msg.get("role") == "assistant" and msg.get("content"):
                     msg = dict(msg)
                     msg["content"] = self._clean_session_content(msg["content"])
-                # Defence-in-depth: redact credentials from every message
-                # content before persistence. Catches PATs / API keys / Bearer
-                # tokens that may have leaked into assistant responses, tool
-                # output, or user paste. Respects HERMES_REDACT_SECRETS via
-                # redact_sensitive_text — no-op when disabled. (#19798, #19845)
+                # 纵深防御：在持久化之前，对每条消息的内容
+                # 进行凭据脱敏处理。
+                # 捕获可能泄漏到助手响应、工具输出或用户粘贴内容中的
+                # PAT（个人访问令牌）/ API 密钥 / Bearer 令牌。
+                # 通过 redact_sensitive_text 遵循 HERMES_REDACT_SECRETS 配置
+                # —— 当禁用时为无操作（no-op）。（#19798, #19845）
                 if "content" in msg:
                     msg = dict(msg)
                     msg["content"] = self._redact_message_content(msg.get("content"))
                 cleaned.append(msg)
 
-            # Guard: never overwrite a larger session log with fewer messages.
-            # Protects against data loss when a resumed agent starts with
-            # partial history and would otherwise clobber the full JSON log.
+            # 防护机制：绝不使用消息数量较少的记录覆盖更大的会话日志。
+            # 防止被恢复的 Agent 从部分历史记录启动时，
+            # 意外覆盖并摧毁完整的 JSON 日志，从而造成数据丢失。
             if log_file.exists():
                 try:
                     existing = json.loads(log_file.read_text(encoding="utf-8"))
@@ -2729,13 +2729,12 @@ class AIAgent:
         self._interrupt_thread_signal_pending = False
         if self._execution_thread_id is not None:
             _set_interrupt(False, self._execution_thread_id)
-        # Also clear any concurrent-tool worker thread bits.  Tracked
-        # workers normally clear their own bit on exit, but an explicit
-        # clear here guarantees no stale interrupt can survive a turn
-        # boundary and fire on a subsequent, unrelated tool call that
-        # happens to get scheduled onto the same recycled worker tid.
-        # `getattr` fallback covers test stubs that build AIAgent via
-        # object.__new__ and skip __init__.
+        # 同时也清除任何并发工具工作线程（worker thread）的状态位。
+        # 受跟踪的工作线程通常会在退出时自行清除其状态位，
+        # 但在此处进行显式的清除，可以确保过期的中断标志不会跨越轮次边界存留下来，
+        # 从而避免在后续碰巧被调度到同一个已复用的工作线程 ID（tid）的无关工具调用中误触发。
+        # 使用 `getattr` 备用方案是为了兼容那些通过 object.__new__ 构建 AIAgent
+        # 且跳过了 __init__ 过程的测试存根（test stubs）。
         _tracker = getattr(self, "_tool_worker_threads", None)
         _tracker_lock = getattr(self, "_tool_worker_threads_lock", None)
         if _tracker is not None and _tracker_lock is not None:
@@ -2746,10 +2745,9 @@ class AIAgent:
                     _set_interrupt(False, _wtid)
                 except Exception:
                     pass
-        # A hard interrupt supersedes any pending /steer — the steer was
-        # meant for the agent's next tool-call iteration, which will no
-        # longer happen. Drop it instead of surprising the user with a
-        # late injection on the post-interrupt turn.
+        # 强行中断（hard interrupt）会取代任何挂起的 /steer 指令 ——
+        # 因为该 steer 本是针对智能体的下一次工具调用迭代，而该迭代将不再发生。
+        # 将其丢弃，以避免在中断后的下一轮中因延迟注入而给用户带来意外。
         _steer_lock = getattr(self, "_pending_steer_lock", None)
         if _steer_lock is not None:
             with _steer_lock:
@@ -2850,12 +2848,13 @@ class AIAgent:
                 state.pop(path, None)
 
     def _file_mutation_verifier_enabled(self) -> bool:
-        """Check whether the per-turn file-mutation verifier footer is on.
+        """检查每轮文件变更验证器（file-mutation verifier）的页脚指示是否已开启。
 
-        Config path: ``display.file_mutation_verifier`` (bool, default True).
-        ``HERMES_FILE_MUTATION_VERIFIER`` env var overrides config.  Exposed
-        as a method so tests can patch a single seam without reaching into
-        the private ``_turn_failed_file_mutations`` state dict.
+        配置路径：``display.file_mutation_verifier``（布尔值，默认为 True）。
+        环境变量 ``HERMES_FILE_MUTATION_VERIFIER`` 会覆盖此配置。
+
+        将其暴露为一个方法，以便测试可以针对单个接缝（seam）进行打补丁（patch），
+        而无需直接访问私有的 ``_turn_failed_file_mutations`` 状态字典。
         """
         try:
             import os as _os
@@ -2890,16 +2889,14 @@ class AIAgent:
 
     @classmethod
     def _neutralize_footer_paths(cls, text: str) -> str:
-        """Wrap bare file paths in backticks so they aren't auto-delivered.
+        """使用反引号包裹裸文件路径，防止其被自动发送。
 
-        The gateway's ``extract_local_files`` scans response text for bare
-        absolute/home paths ending in a deliverable extension and uploads
-        any that exist on disk as native attachments — but it explicitly
-        skips paths inside inline-code (`` `...` ``) spans.  Backticking
-        every path the footer renders defeats that auto-detection while
-        keeping the path fully human-readable.  Paths already wrapped in a
-        backtick (the negative lookbehind excludes a preceding `` ` ``) are
-        left untouched so we never double-wrap.
+        网关的 ``extract_local_files`` 会扫描响应文本中以可发送扩展名结尾的
+        裸绝对路径/主目录路径，并将磁盘上存在的任何对应文件作为原生附件上传 ——
+        但它会显式跳过行内代码（`` `...` ``）跨度内的路径。使用反引号包裹页脚
+        渲染的每个路径，既能防止触发该自动检测，又能保持路径对人类完全可读。
+        对于已被反引号包裹的路径（通过否定后行断言排除前导的 `` ` ``），
+        则保持原样以避免重复包裹。
         """
         if not text:
             return text
@@ -2907,20 +2904,23 @@ class AIAgent:
 
     @classmethod
     def _format_file_mutation_failure_footer(cls, failed: Dict[str, Dict[str, Any]]) -> str:
-        """Render the per-turn failed-mutation dict as a user-facing footer.
+        """将每轮失败的变更字典渲染为面向用户的页脚。
 
-        Displays up to 10 paths with their first error preview, then a
-        count of any additional failures.  Returns an empty string when
-        the dict is empty so callers can concatenate unconditionally.
+        最多显示 10 个文件路径及其对应的首个错误预览，随后展示额外失败
+        项的数量。当字典为空时返回空字符串，以便调用方可以无条件地进行
+        字符串拼接。
 
-        Every file path that reaches the user-facing text — both the bullet
-        path and any path echoed inside the tool's error preview — is
-        backtick-wrapped via ``_neutralize_footer_paths`` so the gateway's
-        bare-path media extractor can never auto-attach a protected file
-        (e.g. ``~/.hermes/config.yaml``) to a messaging channel (#35584).
+        所有进入面向用户文本中的文件路径 —— 无论是列表中的路径，还是在
+        工具错误预览中重复出现的路径 —— 都会通过 ``_neutralize_footer_paths``
+        使用反引号进行包裹。这样可以防止网关的裸路径媒体提取器将受保护
+        的文件（例如 ``~/.hermes/config.yaml``）自动附加到消息通道中
+        （参见 #35584）。
         """
         if not failed:
             return ""
+        # "⚠️ 文件变更验证器："
+        # f"尽管上述表述可能另有所指，但本轮中仍有 {len(failed)} 个文件未被修改。"
+        # "请运行 `git status` 或 `read_file` 以进行确认。"
         lines = [
             "⚠️ File-mutation verifier: "
             f"{len(failed)} file(s) were NOT modified this turn despite any "
@@ -2941,9 +2941,9 @@ class AIAgent:
         remaining = len(failed) - shown
         if remaining > 0:
             lines.append(f"  • … and {remaining} more")
-        # Neutralize any path the preview text echoed (the bullet path is
-        # already backticked above; the lookbehind keeps it from being
-        # double-wrapped).
+        # 对预览文本中重复出现的任何路径进行中和处理
+        # （上方已使用反引号包裹了列表项路径；
+        # 这里的后行断言可防止其被重复包裹）。
         return cls._neutralize_footer_paths("\n".join(lines))
 
     def _turn_completion_explainer_enabled(self) -> bool:
@@ -3366,39 +3366,36 @@ class AIAgent:
         interrupted: bool,
         messages: list | None = None,
     ) -> None:
-        """Mirror a completed turn into external memory providers.
+        """将一个已完成的轮次镜像同步到外部记忆提供者中。
 
-        Called at the end of ``run_conversation`` with the cleaned user
-        message (``original_user_message``) and the finalised assistant
-        response.  The external memory backend gets both ``sync_all`` (to
-        persist the exchange) and ``queue_prefetch_all`` (to start
-        warming context for the next turn) in one shot.
+        在 ``run_conversation`` 结束时被调用，传入清理后的用户消息
+        （``original_user_message``）和最终确定的助手响应。
+        外部记忆后端会一次性同时执行 ``sync_all``（用以持久化本次对话）
+        以及 ``queue_prefetch_all``（用以开始为下一轮预热上下文）。
 
-        Uses ``original_user_message`` rather than ``user_message``
-        because the latter may carry injected skill content that bloats
-        or breaks provider queries.
+        使用 ``original_user_message`` 而非 ``user_message``，
+        是因为后者可能包含了注入的技能内容，从而导致提供者查询出现膨胀或失败。
 
-        Interrupted turns are skipped entirely (#15218).  A partial
-        assistant output, an aborted tool chain, or a mid-stream reset
-        is not durable conversational truth — mirroring it into an
-        external memory backend pollutes future recall with state the
-        user never saw completed.  The prefetch is gated on the same
-        flag: the user's next message is almost certainly a retry of
-        the same intent, and a prefetch keyed on the interrupted turn
-        would fire against stale context.
+        被中断的轮次将被完全跳过（参见 #15218）。
+        部分生成的助手输出、被中止的工具链或中途重置，
+        都不属于可持久化的真实对话内容 —— 将其镜像同步到外部记忆后端中，
+        会用用户从未看到其完成的状态去污染未来的召回。
+        预取（prefetch）操作同样受此标记限制：
+        用户的下一条消息几乎可以确定是对同一意图的重试，
+        而基于被中断轮次发起的预取则会针对陈旧的上下文触发。
 
-        Normal completed turns still sync as before.  The whole body is
-        wrapped in ``try/except Exception`` because external memory
-        providers are strictly best-effort — a misconfigured or offline
-        backend must not block the user from seeing their response.
+        正常完成的轮次仍照常同步。
+        整个主体函数被包裹在 ``try/except Exception`` 中，
+        因为外部记忆提供者严格遵循尽力而为（best-effort）原则 ——
+        配置错误或处于离线状态的后端绝不能阻止用户查看其响应。
         """
         if interrupted:
             return
         if not (self._memory_manager and final_response and original_user_message):
             return
-        # Multimodal turns carry content as a list of typed parts; providers
-        # expect plain strings, so flatten to text first (newline-joined for
-        # memory, vs the default space-join used for log/trajectory previews).
+        # 多模态轮次（multimodal turns）包含的内容形式为一系列带有类型的部件列表；
+        # 提供者（providers）需要的是纯文本字符串，因此需要先将其展平为文本
+        # （用于记忆时采用换行符连接，而用于日志/轨迹预览时默认采用空格连接）。
         user_text = _summarize_user_message_for_log(original_user_message, sep="\n")
         response_text = _summarize_user_message_for_log(final_response, sep="\n")
         if not (user_text and response_text):

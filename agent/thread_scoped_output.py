@@ -124,11 +124,12 @@ def _ensure_installed(attr: str, sink: TextIO) -> "_ThreadRoutingStream":
 
 @contextlib.contextmanager
 def thread_scoped_silence() -> Iterator[None]:
-    """Silence ``stdout``/``stderr`` for the *current thread only*.
+    """仅对“当前线程”静默 ``stdout``/``stderr``。
 
-    Other threads keep writing to the real streams.  Use this around a worker
-    thread's body instead of ``contextlib.redirect_stdout(devnull)`` when the
-    process is multi-threaded and another thread must keep its console output.
+    其他线程将继续写入真实流。
+    当进程为多线程且其他线程必须保留其控制台输出时，
+    请在工作线程的主体逻辑周围使用此机制，
+    而非使用 ``contextlib.redirect_stdout(devnull)``。
     """
     sink = open(os.devnull, "w", encoding="utf-8")
     ident = threading.get_ident()

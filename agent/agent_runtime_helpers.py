@@ -72,24 +72,38 @@ def agent_runtime_owns_post_tool_hook(agent: Any, function_name: str) -> bool:
 
 
 def convert_to_trajectory_format(agent, messages: List[Dict[str, Any]], user_query: str, completed: bool) -> List[Dict[str, Any]]:
+    """将内部消息格式转换为用于保存的轨迹（trajectory）格式。
+
+    参数：
+        messages (List[Dict]): 内部消息历史记录
+        user_query (str): 用户原始查询
+        completed (bool): 对话是否已成功完成
+
+    返回：
+        List[Dict]: 轨迹格式的消息列表
     """
-    Convert internal message format to trajectory format for saving.
-    
-    Args:
-        messages (List[Dict]): Internal message history
-        user_query (str): Original user query
-        completed (bool): Whether the conversation completed successfully
-        
-    Returns:
-        List[Dict]: Messages in trajectory format
-    """
-    # Normalize multimodal tool results — trajectories are text-only, so
-    # replace image-bearing tool messages with their text_summary to avoid
-    # embedding ~1MB base64 blobs into every saved trajectory.
+    # 规范化多模态工具结果 —— 轨迹仅包含纯文本，
+    # 因此将带有图像的工具消息替换为其 text_summary（文本摘要），
+    # 以避免在每个保存的轨迹中嵌入约 1MB 的 base64 数据块。
     messages = [_trajectory_normalize_msg(m) for m in messages]
     trajectory = []
     
     # Add system message with tool definitions
+    # system_msg = (
+    #     "你是一个支持函数调用的 AI 模型。"
+    #     "在 <tools> </tools> XML 标签内为你提供了函数签名。"
+    #     "你可以调用一个或多个函数来协助处理用户的查询。"
+    #     "如果可用工具与协助处理用户查询无关，只需以自然对话语言进行回复。"
+    #     "请勿对传入函数的值做任何主观假设。"
+    #     "在调用并执行函数后，函数结果将通过 <tool_response> </tool_response> XML 标签提供给你。"
+    #     "以下是可用工具：\n"
+    #     f"<tools>\n{agent._format_tools_for_system_message()}\n</tools>\n"
+    #     "对于每次函数调用，需返回一个 JSON 对象，每个对象应符合以下 Pydantic 模型的 JSON Schema：\n"
+    #     "{'title': 'FunctionCall', 'type': 'object', 'properties': {'name': {'title': 'Name', 'type': 'string'}, "
+    #     "'arguments': {'title': 'Arguments', 'type': 'object'}}, 'required': ['name', 'arguments']}\n"
+    #     "每次函数调用都必须包含在 <tool_call> </tool_call> XML 标签内。\n"
+    #     "示例：\n<tool_call>\n{'name': <函数名>,'arguments': <参数字典>}\n</tool_call>"
+    # )
     system_msg = (
         "You are a function calling AI model. You are provided with function signatures within <tools> </tools> XML tags. "
         "You may call one or more functions to assist with the user query. If available tools are not relevant in assisting "
@@ -114,10 +128,10 @@ def convert_to_trajectory_format(agent, messages: List[Dict[str, Any]], user_que
         "from": "human",
         "value": user_query
     })
-    
-    # Skip the first message (the user query) since we already added it above.
-    # Prefill messages are injected at API-call time only (not in the messages
-    # list), so no offset adjustment is needed here.
+
+    # 跳过第一条消息（即用户查询），因为我们上面已经添加过了。
+    # 预填（prefill）消息仅在发起 API 调用时注入
+    # （并不在 messages 列表内），因此此处无需调整偏移量。
     i = 1
     
     while i < len(messages):

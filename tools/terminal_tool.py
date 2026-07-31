@@ -1692,29 +1692,28 @@ def cleanup_all_environments():
 
 
 def cleanup_vm(task_id: str, *, force_remove: bool = False):
-    """Manually clean up a specific environment by task_id.
+    """根据 task_id 手动清理指定的环境。
 
-    *force_remove* (default False) is forwarded to backends that accept it
-    — currently only ``DockerEnvironment``. The default of False matches
-    session-lifecycle semantics: this function is called from
-    ``AIAgent.close()`` (TUI session close, gateway session teardown) and the
-    per-turn cleanup branch for non-persistent envs, both of which should
-    honor the user's persist-mode preference. Stopping the container here
-    would defeat the "ONE long-lived container shared across sessions"
-    contract — exactly the bug Ben reported when the container was killed
-    on every TUI session close.
+    *force_remove*（默认为 False）会转发给支持该参数的后端
+    —— 目前仅有 ``DockerEnvironment``。
+    False 的默认值符合会话生命周期的语义：
+    此函数会在 ``AIAgent.close()``（TUI 会话关闭、网关会话销毁）
+    以及非持久化环境的单轮清理分支中被调用，
+    这两者都应当尊重用户的持久化模式偏好。
+    若在此处停止容器，将破坏“跨会话共享单个长生命周期容器”的约定
+    —— 这正是 Ben 汇报过的 Bug（当时每次 TUI 会话关闭都会杀死容器）。
 
-    Pass ``force_remove=True`` for actual user-initiated teardown
-    (e.g. ``/reset``-style flows that haven't been wired yet, or future
-    "destroy my sandbox" commands).
+    对于真正由用户发起的销毁操作
+    （例如尚未接入的 ``/reset`` 风格流程，或未来的“销毁我的沙盒”命令），
+    请传递 ``force_remove=True``。
 
-    The idle reaper passes the env through ``env.cleanup()`` directly (not
-    via this function), so persist-mode idle envs are similarly no-op'd —
-    only the orphan reaper at next startup reclaims them.
+    空闲回收程序会直接通过 ``env.cleanup()`` 处理环境（而不通过此函数），
+    因此处于持久化模式的空闲环境同样会执行空操作（no-op）
+    —— 只有下次启动时的孤立资源回收程序（orphan reaper）才会回收它们。
     """
-    # Remove from tracking dicts while holding the lock, but defer the
-    # actual (potentially slow) env.cleanup() call to outside the lock
-    # so other tool calls aren't blocked.
+    # 在持有锁的同时从追踪字典中移除，
+    # 但将实际（可能较慢）的 env.cleanup() 调用延迟到锁释放后执行，
+    # 以免阻塞其他工具调用。
     env = None
     with _env_lock:
         env = _active_environments.pop(task_id, None)

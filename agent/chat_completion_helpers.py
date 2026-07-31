@@ -1961,15 +1961,15 @@ def handle_max_iterations(agent, messages: list, api_call_count: int) -> str:
 
 
 def cleanup_task_resources(agent, task_id: str) -> None:
-    """Clean up VM and browser resources for a given task.
+    """清理指定任务的虚拟机（VM）与浏览器资源。
 
-    Skips ``cleanup_vm`` when the active terminal environment is marked
-    persistent (``persistent_filesystem=True``) so that long-lived sandbox
-    containers survive between turns. The idle reaper in
-    ``terminal_tool._cleanup_inactive_envs`` still tears them down once
-    ``terminal.lifetime_seconds`` is exceeded. Non-persistent backends are
-    torn down per-turn as before to prevent resource leakage (the original
-    intent of this hook for the Morph backend, see commit fbd3a2fd).
+    当活跃的终端环境被标记为持久化（``persistent_filesystem=True``）时，
+    将跳过 ``cleanup_vm``，
+    以使长生命周期的沙盒容器能在不同轮次（turns）之间保留。
+    一旦超出 ``terminal.lifetime_seconds``，
+    ``terminal_tool._cleanup_inactive_envs`` 中的空闲回收程序仍会将其销毁。
+    非持久化的后端仍像以前一样按轮次销毁，
+    以防止资源泄露（这也是该钩子针对 Morph 后端的初始设计意图，参见 commit fbd3a2fd）。
     """
     try:
         if is_persistent_env(task_id):

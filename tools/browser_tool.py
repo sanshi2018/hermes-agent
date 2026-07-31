@@ -4237,26 +4237,28 @@ def _cleanup_old_recordings(max_age_hours=72):
 # ============================================================================
 
 def cleanup_browser(task_id: Optional[str] = None) -> None:
-    """
-    Clean up browser session(s) for a task.
+    """清理指定任务的浏览器会话（一个或多个）。
 
-    Called automatically when a task completes or when inactivity timeout is reached.
-    Closes both the agent-browser/Browserbase session and Camofox sessions.
+    当任务完成或达到无操作超时阈值时会自动被调用。
+    同时关闭 agent-browser/Browserbase 会话与 Camofox 会话。
 
-    When ``task_id`` is a bare task identifier (no ``::local`` suffix), reaps
-    BOTH the cloud/primary session AND any hybrid-routing local sidecar that
-    may have been spawned for LAN/localhost URLs in the same task.  When
-    ``task_id`` already carries a ``::local`` suffix (called from the inactivity
-    cleanup loop against a specific session key), reaps only that one.
+    当 ``task_id`` 为纯任务标识符（不带 ``::local`` 后缀）时，
+    会同时回收云端/主会话，
+    以及在该任务中可能为了访问局域网/本地主机（LAN/localhost）URL
+    而创建的混合路由本地 Sidecar。
+    当 ``task_id`` 已带有 ``::local`` 后缀时
+    （即在针对特定会话键的无操作清理循环中被调用），
+    则仅回收该特定的会话。
 
-    Args:
-        task_id: Task identifier (or explicit session key)
+    参数：
+        task_id: 任务标识符（或明确的会话键）
     """
     if task_id is None:
         task_id = "default"
 
-    # Expand to the full set of session keys to reap. For a bare task_id
-    # that includes the cloud/primary key + the local sidecar if one exists.
+    # 展开需要回收的完整会话键（session key）集合。
+    # 对于纯 task_id，包含云端/主键，
+    # 以及可能存在的本地 Sidecar（如果存在的话）。
     if _is_local_sidecar_key(task_id):
         session_keys = [task_id]
         bare_task_id = task_id[: -len(_LOCAL_SUFFIX)]
@@ -4271,10 +4273,10 @@ def cleanup_browser(task_id: Optional[str] = None) -> None:
     for session_key in session_keys:
         _cleanup_single_browser_session(session_key)
 
-    # Drop stale last-active ownership. Cleaning a bare task drops its binding;
-    # cleaning a sidecar drops the binding only if that sidecar was still the
-    # recorded owner. This prevents a later click/snapshot from resurrecting a
-    # cleaned sidecar on about:blank while preserving a primary-session binding.
+    # 丢弃过期的“最后活跃”归属权。清理纯任务标识符会丢弃其绑定；
+    # 清理 Sidecar 则仅在该 Sidecar 仍为记录的归属者时才会丢弃绑定。
+    # 这可以防止后续的点击/快照在 about:blank 上复活已清理的 Sidecar，
+    # 同时保留主会话（primary-session）的绑定。
     if _is_local_sidecar_key(task_id):
         if _last_active_session_key.get(bare_task_id) == task_id:
             _last_active_session_key.pop(bare_task_id, None)
@@ -4283,15 +4285,16 @@ def cleanup_browser(task_id: Optional[str] = None) -> None:
 
 
 def _cleanup_single_browser_session(task_id: str) -> None:
-    """Internal: reap a single browser session by its exact session key."""
-    # Stop the CDP supervisor for this task FIRST so we close our WebSocket
-    # before the backend tears down the underlying CDP endpoint.
+    """内部方法：通过确切的会话键（session key）回收单个浏览器会话。"""
+    # 首先停止此任务的 CDP 监督程序（supervisor），
+    # 以便在后端销毁底层 CDP 端点之前
+    # 先关闭我们的 WebSocket 连接。
     _stop_cdp_supervisor(task_id)
 
-    # Also clean up Camofox session if running in Camofox mode.
-    # Skip full close when managed persistence is enabled — the browser
-    # profile (and its session cookies) must survive across agent tasks.
-    # The inactivity reaper still frees idle resources.
+    # 如果运行在 Camofox 模式下，也清理 Camofox 会话。
+    # 当启用托管持久化（managed persistence）时，跳过完全关闭操作
+    # —— 浏览器配置文件（及其会话 Cookie）必须在多个 Agent 任务之间保持存续。
+    # 无操作回收程序（inactivity reaper）仍会释放空闲资源。
     if _is_camofox_mode():
         try:
             from tools.browser_camofox import camofox_close, camofox_soft_cleanup

@@ -29,14 +29,15 @@ def has_incomplete_scratchpad(content: str) -> bool:
 
 def save_trajectory(trajectory: List[Dict[str, Any]], model: str,
                     completed: bool, filename: str = None):
-    """Append a trajectory entry to a JSONL file.
+    """追加一条轨迹条目至 JSONL 文件。
 
-    Args:
-        trajectory: The ShareGPT-format conversation list.
-        model: Model name for metadata.
-        completed: Whether the conversation completed successfully.
-        filename: Override output filename. Defaults to trajectory_samples.jsonl
-                  or failed_trajectories.jsonl based on ``completed``.
+    参数：
+        trajectory: ShareGPT 格式的对话列表。
+        model: 用于元数据的模型名称。
+        completed: 对话是否已成功完成。
+        filename: 覆盖输出文件名。
+                  默认为根据 ``completed`` 的值设为 trajectory_samples.jsonl
+                  或 failed_trajectories.jsonl。
     """
     if filename is None:
         filename = "trajectory_samples.jsonl" if completed else "failed_trajectories.jsonl"

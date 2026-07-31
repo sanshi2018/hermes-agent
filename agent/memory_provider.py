@@ -122,14 +122,14 @@ class MemoryProvider(ABC):
         session_id: str = "",
         messages: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
-        """Persist a completed turn to the backend.
+        """将已完成的轮次持久化存储到后端。
 
-        Called after each turn. Should be non-blocking — queue for
-        background processing if the backend has latency.
+        在每个轮次结束后被调用。应当是非阻塞的 —— 如果后端存在延迟，
+        请将其放入队列以进行后台处理。
 
-        ``messages`` is the OpenAI-style conversation message list as of the
-        completed turn, including any assistant tool calls and tool results.
-        Providers that do not need raw turn context can ignore it.
+        ``messages`` 是截至该已完成轮次为止、符合 OpenAI 格式的对话消息列表，
+        包含任何助手的工具调用以及工具执行结果。
+        不需要原始轮次上下文的提供者（providers）可以忽略此参数。
         """
 
     @abstractmethod

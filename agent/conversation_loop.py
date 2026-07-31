@@ -5314,10 +5314,10 @@ def run_conversation(
                 # session resume (avoids consecutive user messages).
                 messages.append({"role": "assistant", "content": final_response})
                 break
-    
-    # Post-loop turn finalization extracted to agent/turn_finalizer.finalize_turn
-    # (god-file decomposition Phase 1 step 4). Behavior-neutral: the assembled
-    # result dict is returned exactly as before.
+
+    # 循环结束后的轮次收尾逻辑已被提取至 agent/turn_finalizer.finalize_turn
+    # （巨型文件解耦第一阶段第 4 步）。保持行为中立：组装好的
+    # 结果字典将与此前完全一致地返回。
     from agent.turn_finalizer import finalize_turn
     return finalize_turn(
         agent,

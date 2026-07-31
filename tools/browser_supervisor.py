@@ -283,20 +283,20 @@ class SupervisorSnapshot:
 
 
 class CDPSupervisor:
-    """One supervisor per (task_id, cdp_url) pair.
+    """每个 (task_id, cdp_url) 对对应一个监督程序（supervisor）。
 
-    Lifecycle:
-      * ``start()`` — kicked off by ``SupervisorRegistry.get_or_start``; spawns
-        a daemon thread running its own asyncio loop, connects the WebSocket,
-        attaches to the first page target, enables domains, starts
-        auto-attaching to child targets.
-      * ``snapshot()`` — sync, thread-safe, called from tool handlers.
-      * ``respond_to_dialog(action, ...)`` — sync bridge; schedules a coroutine
-        on the supervisor's loop and waits (with timeout) for the CDP ack.
-      * ``stop()`` — cancels task, closes WebSocket, joins thread.
+    生命周期：
+      * ``start()`` — 由 ``SupervisorRegistry.get_or_start`` 触发；
+        启动一个运行独立 asyncio 循环的守护线程，连接 WebSocket，
+        挂载到首个页面目标（page target），启用各个域（domains），
+        并开始自动挂载到子目标。
+      * ``snapshot()`` — 同步且线程安全，从工具句柄（tool handlers）中调用。
+      * ``respond_to_dialog(action, ...)`` — 同步桥接方法；
+        在监督程序的循环上调度协程，并等待 CDP 的确认回复（含超时机制）。
+      * ``stop()`` — 取消任务、关闭 WebSocket 并等待线程结束（join thread）。
 
-    All CDP I/O lives on the supervisor's own loop. External callers never
-    touch the loop directly; they go through the sync API above.
+    所有 CDP I/O 操作均在监督程序独立的循环中进行。
+    外部调用方绝不直接操作该循环，而是通过上述同步 API 进行交互。
     """
 
     def __init__(
@@ -1418,10 +1418,10 @@ class CDPSupervisor:
 
 
 class _SupervisorRegistry:
-    """Process-global (task_id → supervisor) map with idempotent start/stop.
+    """进程全局的 (task_id → supervisor) 映射，具备幂等的 start/stop 操作。
 
-    One instance, exposed as ``SUPERVISOR_REGISTRY``. Safe to call from any
-    thread — mutations go through ``_lock``.
+    作为 ``SUPERVISOR_REGISTRY`` 导出的单例。
+    支持在任意线程中安全调用 —— 所有修改操作均由 ``_lock`` 进行保护。
     """
 
     def __init__(self) -> None:
@@ -1442,10 +1442,11 @@ class _SupervisorRegistry:
         dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S,
         start_timeout: float = 15.0,
     ) -> CDPSupervisor:
-        """Idempotently ensure a supervisor is running for ``(task_id, cdp_url)``.
+        """以幂等方式确保针对 ``(task_id, cdp_url)`` 的监督程序 (supervisor) 正在运行。
 
-        If a supervisor exists for this task but was bound to a different
-        ``cdp_url``, the old one is stopped and a fresh one is started.
+        如果该任务已存在监督程序，
+        但绑定到了不同的 ``cdp_url``，
+        则会停止旧程序并启动一个新的程序。
         """
         with self._lock:
             existing = self._by_task.get(task_id)

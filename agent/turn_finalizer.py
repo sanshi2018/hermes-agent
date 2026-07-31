@@ -44,10 +44,10 @@ def finalize_turn(
     _turn_exit_reason,
     _pending_verification_response=None,
 ):
-    """Run the post-loop finalization and return the turn ``result`` dict.
+    """执行循环结束后的清理收尾工作，并返回轮次 (turn) 的 ``result`` 字典。
 
-    Lifted verbatim from ``run_conversation`` (the region after the main agent
-    loop). See module docstring.
+    此部分直接逐字提取自 ``run_conversation``（主 Agent 循环之后的区域）。
+    具体请参阅模块文档字符串 (module docstring)。
     """
     from agent.conversation_loop import logger
 
@@ -70,19 +70,20 @@ def finalize_turn(
     iteration_limit_fallback = False
     preserved_verification_fallback = False
     if continuation_budget_exhausted:
-        # A verification/continuation gate deliberately withheld a composed
-        # answer, then consumed the remaining budget before producing a newer
-        # one. Preserve that exact answer instead of replacing it with another
-        # fallible model call. The explicit pending value is the provenance
-        # guard: unrelated error/recovery exits can never enter this branch.
+        # 验证/延续门控机制此前刻意保留了一个已生成的回答，
+        # 随后的消耗用尽了剩余预算，未能生成更新的回答。
+        # 此处直接保留该回答，而不是使用另一个可能出错的模型调用来替换它。
+        # 明确的挂起值（pending value）起到了出处保护作用：
+        # 无关的错误或恢复退出流程绝不可能进入此分支。
         final_response = _pending_verification_response
         _turn_exit_reason = f"max_iterations_reached({api_call_count}/{agent.max_iterations})"
         iteration_limit_fallback = True
         preserved_verification_fallback = True
     elif final_response is None and budget_fallback_eligible:
-        # Budget exhausted — ask the model for a summary via one extra
-        # API call with tools stripped.  _handle_max_iterations injects a
-        # user message and makes a single toolless request.
+        # 预算已耗尽 —— 在剥离工具（tools）的前提下，
+        # 通过额外发起一次 API 调用来让模型生成总结。
+        # _handle_max_iterations 会注入一条用户消息，
+        # 并执行单次不携带工具的请求。
         _turn_exit_reason = f"max_iterations_reached({api_call_count}/{agent.max_iterations})"
         agent._emit_status(
             f"⚠️ Iteration budget exhausted ({api_call_count}/{agent.max_iterations}) "
@@ -97,15 +98,16 @@ def finalize_turn(
         iteration_limit_fallback = True
 
     if iteration_limit_fallback:
-        # If running as a kanban worker, signal the dispatcher that the
-        # worker could not complete (rather than treating it as a
-        # protocol violation). This applies whether the user-facing fallback
-        # came from the summary call or an explicitly pending continuation;
-        # both exhausted the task budget and must advance the failure circuit.
+        # 如果作为看板工作节点（kanban worker）运行，
+        # 则向调度器（dispatcher）发送该 worker 无法完成的信号
+        # （而不是将其视为协议违规）。
+        # 无论面向用户的降级处理是来自总结调用，
+        # 还是来自明确挂起的延续逻辑，该规则均适用；
+        # 这两种情况都耗尽了任务预算，因此必须触发失败电路演进。
         #
-        # We route through ``_record_task_failure(outcome="timed_out")``
-        # rather than ``kanban_block`` so this counts toward the dispatcher's
-        # consecutive-failure circuit breaker (#29747 gap 2).
+        # 我们通过 ``_record_task_failure(outcome="timed_out")`` 进行路由，
+        # 而不是使用 ``kanban_block``，
+        # 这样才能将其计入调度器的连续失败熔断机制（参见 #29747 gap 2）。
         _kanban_task = os.environ.get("HERMES_KANBAN_TASK")
         if _kanban_task:
             try:
@@ -156,21 +158,25 @@ def finalize_turn(
         )
     )
 
-    # Post-loop cleanup must never lose the response.  Trajectory save,
-    # resource teardown, and session persistence all touch fallible
-    # surfaces — file I/O / JSON serialization (_save_trajectory), remote
-    # VM/browser teardown over the network (_cleanup_task_resources), and
-    # SQLite writes (_persist_session).  A raise from any of them used to
-    # propagate straight out of run_conversation, discarding the partial
-    # final_response the caller is waiting for (subprocess wrappers saw an
-    # empty stdout with no traceback — #8049).  Each step is now guarded
-    # independently so one failure can't skip the others, and any errors
-    # are surfaced on the result dict via ``cleanup_errors`` rather than
-    # killing the turn.
+    # 循环后的清理逻辑绝不能丢失响应。
+    # 轨迹保存、资源销毁以及会话持久化等环节，均涉及易出错的操作 ——
+    # 包括文件 I/O 与 JSON 序列化（_save_trajectory）、
+    # 跨网络的远程虚拟机/浏览器销毁（_cleanup_task_resources），
+    # 以及 SQLite 写入（_persist_session）。
+    #
+    # 此前，其中任何一步引发异常都会直接抛出 run_conversation 之外，
+    # 从而丢弃调用方正在等待的局部 final_response
+    # （导致子进程封装层只能捕获到没有任何 Traceback 的空标准输出 —— #8049）。
+    #
+    # 现在，每个步骤都已被独立防护：
+    # 某一步的失败不会跳过后续步骤，
+    # 且任何错误都会通过 ``cleanup_errors`` 呈现在结果字典中，
+    # 而不会直接终止当前轮次（turn）。
     _cleanup_errors = []
 
-    # Save trajectory if enabled.  ``user_message`` may be a multimodal
-    # list of parts; the trajectory format wants a plain string.
+    # 若已启用，则保存运行轨迹。
+    # ``user_message`` 可能是一个包含多模态组件的列表；
+    # 而轨迹格式要求提供纯字符串。
     try:
         agent._save_trajectory(messages, _summarize_user_message_for_log(user_message), completed)
     except Exception as _save_err:
@@ -179,47 +185,48 @@ def finalize_turn(
 
     # Clean up VM and browser for this task after conversation completes
     try:
+        # TODO KEY 关闭vm sandBox browser下一轮的关键
         agent._cleanup_task_resources(effective_task_id)
     except Exception as _cleanup_err:
         _cleanup_errors.append(f"cleanup_task_resources: {_cleanup_err}")
         logger.error("finalize_turn: _cleanup_task_resources failed: %s", _cleanup_err, exc_info=True)
 
-    # Persist session to both JSON log and SQLite only after private retry
-    # scaffolding has been removed. Otherwise a later user "continue" turn
-    # can replay assistant("(empty)") / recovery nudges and fall into the
-    # same empty-response loop again.
+    # 只有在移除私有重试（private retry）骨架逻辑之后，
+    # 才将会话持久化写入 JSON 日志和 SQLite。
+    # 否则，后续用户的“继续（continue）”轮次
+    # 可能会重放 assistant("(empty)") 或恢复提示语，
+    # 从而再次陷入相同的空响应循环中。
     try:
         agent._drop_trailing_empty_response_scaffolding(messages)
 
-        # When the turn was interrupted and the last message is a tool
-        # result, append a synthetic assistant message to close the
-        # tool-call sequence. Without this, the session persists a
-        # ``tool → user`` alternation that strict providers (Gemini,
-        # Claude) reject, causing them to hallucinate a continuation of
-        # the user's message on the next turn (#48879).
+        # 当当前轮次（turn）被中断且最后一条消息是工具执行结果（tool result）时，
+        # 追加一条合成的 assistant 消息来结束该工具调用序列。
+        # 如果不进行此补全，会话持久化后将留存 ``tool → user`` 的交替关系，
+        # 严格遵循协议的提供商（如 Gemini、Claude）会拒绝这种格式，
+        # 从而导致它们在下一轮对话中对用户消息的续写产生幻觉（#48879）。
         #
-        # ``_drop_trailing_empty_response_scaffolding`` only rewinds the
-        # tool tail when an empty-response scaffolding flag is present; a
-        # clean ``/stop`` interrupt after a successful tool sets no such
-        # flag, so the tool result survives as the tail and we close it
-        # here instead. On an interrupt ``final_response`` is typically
-        # empty, so fall back to an explicit placeholder rather than
-        # persisting an empty-content assistant turn.
+        # ``_drop_trailing_empty_response_scaffolding`` 仅在存在空响应骨架标记时，
+        # 才会倒回并清理工具尾部；
+        # 而成功执行工具后的正常 ``/stop`` 中断不会设置此类标记，
+        # 因此工具结果会保留在尾部，我们需要在此处对其进行闭合。
+        # 在发生中断时，``final_response`` 通常为空，
+        # 因此会降级使用明确的占位符，而不是持久化一个内容为空的 assistant 轮次。
         if interrupted:
             from agent.message_sanitization import close_interrupted_tool_sequence
             close_interrupted_tool_sequence(messages, final_response)
 
-        # Some recovery/fallback paths return a real final_response without
-        # adding a closing assistant message to the transcript (e.g. the
-        # partial-stream and prior-turn-content recovery ``break`` sites in
-        # ``conversation_loop``). If persisted as-is, the durable session can
-        # end at a tool/user message even though the caller — and the gateway
-        # platform — already saw a completed assistant response. The next turn
-        # then replays a user-only backlog and the model re-answers every
-        # "unanswered" message. Close the durable turn at the source, at the
-        # single chokepoint every recovery ``break`` flows through, so the
-        # invariant "delivered final_response ⇒ assistant row in transcript"
-        # holds regardless of which path produced it. (#43849 / #44100)
+        # 某些恢复/降级路径会返回一个真实的 final_response，
+        # 但不会向对话记录（transcript）中添加闭合的 assistant 消息
+        # （例如 ``conversation_loop`` 中部分流（partial-stream）
+        # 以及前一轮内容（prior-turn-content）恢复时的 ``break`` 位置）。
+        # 如果原样进行持久化，持久化会话（durable session）可能会停留在 tool/user 消息处，
+        # 哪怕调用方 —— 以及网关平台 —— 已经看到了完成的 assistant 响应。
+        # 随后在下一轮对话中，系统会重放仅包含 user 的积压消息，
+        # 导致模型对每一条“未解答的”消息重新进行回答。
+        # 因此，需要在源头（即所有恢复 ``break`` 流程都会经过的单一关口）闭合该持久化轮次，
+        # 从而确保无论是由哪条路径生成的响应，
+        # 都能满足“已交付 final_response ⇒ 对话记录中存在对应的 assistant 行”这一不变性（invariant）。
+        # （#43849 / #44100）
         if final_response and not interrupted:
             try:
                 _tail_role = messages[-1].get("role") if messages else None
@@ -227,16 +234,19 @@ def finalize_turn(
                 _tail_role = None
             if _tail_role != "assistant":
                 messages.append({"role": "assistant", "content": final_response})
-
+        # TODO KEY 存储message到db
         agent._persist_session(messages, conversation_history)
     except Exception as _persist_err:
         _cleanup_errors.append(f"persist_session: {_persist_err}")
         logger.error("finalize_turn: _persist_session failed: %s", _persist_err, exc_info=True)
 
-    # ── Turn-exit diagnostic log ─────────────────────────────────────
-    # Always logged at INFO so agent.log captures WHY every turn ended.
-    # When the last message is a tool result (agent was mid-work), log
-    # at WARNING — this is the "just stops" scenario users report.
+    # ── 回合退出诊断日志 ─────────────────────────────────────
+    # 始终以 INFO 级别记录，
+    # 以便 agent.log 能够捕获每个回合结束的原因。
+    #
+    # 当最后一条消息是工具结果时（表明智能体正处于工作的中途），
+    # 则以 WARNING 级别进行记录 ——
+    # 这正是用户所报告的“突然停止”的场景。
     _last_msg_role = messages[-1].get("role") if messages else None
     _last_tool_name = None
     if _last_msg_role == "tool":
@@ -277,21 +287,25 @@ def finalize_turn(
     else:
         logger.info(_diag_msg, *_diag_args)
 
-    # File-mutation verifier footer.
-    # If one or more ``write_file`` / ``patch`` calls failed during this
-    # turn and were never superseded by a successful write to the same
-    # path, append an advisory footer to the assistant response.  This
-    # catches the specific case — reported by Ben Eng (#15524-adjacent)
-    # — where a model issues a batch of parallel patches, half of them
-    # fail with "Could not find old_string", and the model summarises
-    # the turn claiming every file was edited.  The user then has to
-    # manually run ``git status`` to catch the lie.  With this footer
-    # the truth is surfaced on every turn, so over-claiming is
-    # structurally impossible past the model.
+    # 文件修改验证器页脚。
     #
-    # Gate: only applied when a real text response exists for this
-    # turn and the user didn't interrupt.  Empty/interrupted turns
-    # already have other surface text that shouldn't be augmented.
+    # 如果在本回合中，一个或多个 ``write_file`` / ``patch`` 调用失败，
+    # 并且随后没有对同一路径成功执行写入操作来覆盖它们，
+    # 则在助手的回复末尾追加一个提示性页脚。
+    #
+    # 此举旨在捕获一种特定情况（由 Ben Eng 报告，与 #15524 相关）——
+    # 即模型发出了一批并行的'/patch'操作，
+    # 其中一半因“找不到旧字符串 (Could not find old_string)”而失败，
+    # 但模型在总结本回合时，却声称每个文件都已编辑成功。
+    # 随后用户不得不手动运行 ``git status`` 来戳穿这个谎言。
+    #
+    # 有了这个页脚，每个回合都会直接呈现真实情况，
+    # 从而在结构上杜绝了模型过度夸大事实的可能性。
+    #
+    # 限制条件：仅当本回合存在实质性的文本回复，
+    # 且用户未进行打断时才会应用。
+    # 空回合或被打断的回合已经包含了其他的表层文本，
+    # 不应再对其进行内容追加。
     if final_response and not interrupted:
         try:
             _failed = getattr(agent, "_turn_failed_file_mutations", None) or {}
@@ -302,22 +316,20 @@ def finalize_turn(
         except Exception as _ver_err:
             logger.debug("file-mutation verifier footer failed: %s", _ver_err)
 
-    # Turn-completion explainer.
-    # When a turn ends abnormally after substantive work — empty content
-    # after retries, a partial/truncated stream, a still-pending tool
-    # result, or an iteration/budget limit — the user otherwise gets a
-    # blank or fragmentary response box with no consolidated reason why
-    # the agent stopped (#34452).  Surface a single user-visible
-    # explanation derived from ``_turn_exit_reason``, mirroring the
-    # file-mutation verifier footer pattern above.
+    # 对“轮次完成（Turn-completion）”原因的说明。
+    # 当一个轮次在执行了实质性工作后异常结束 —— 例如重试后内容仍为空、
+    # 响应流截断/部分缺失、工具结果仍在等待中、或者超出了迭代/预算限制 ——
+    # 如果不加以处理，用户只会看到一个空白或碎片化的响应框，
+    # 无法了解智能体停止工作的综合原因（参见 #34452）。
+    # 此处借鉴上方文件变更验证器页脚的模式，向用户展示由 ``_turn_exit_reason``
+    # 推导出的单一可视化说明。
     #
-    # Gate carefully so healthy turns stay quiet:
-    #   - ``text_response(...)`` exits never produce an explanation
-    #     (handled inside the formatter), so a terse ``Done.`` is silent.
-    #   - We only ACT when there is no genuinely usable reply this turn:
-    #     an empty response, the "(empty)" terminal sentinel, or a
-    #     suspiciously short partial fragment with no terminating
-    #     punctuation (e.g. "The").  A real short answer keeps its text.
+    # 严格控制触发条件，确保正常轮次保持简洁静默：
+    #   - 经由 ``text_response(...)`` 退出时绝不生成说明
+    #     （在格式化器内部处理），因此简短的“Done.”是无感的。
+    #   - 我们仅在本轮没有真正可用回复时才采取动作：
+    #     响应为空、出现终止标记 "(empty)"、或者仅有极短且缺少末尾标点
+    #     的碎片片段（例如 "The"）。对于正常的简短回答，则保留其原有文本。
     if not interrupted:
         try:
             if agent._turn_completion_explainer_enabled():
@@ -361,10 +373,10 @@ def finalize_turn(
 
     _response_transformed = False
 
-    # Plugin hook: transform_llm_output
-    # Fired once per turn after the tool-calling loop completes.
-    # Plugins can transform the LLM's output text before it's returned.
-    # First hook to return a string wins; None/empty return leaves text unchanged.
+    # 插件钩子：transform_llm_output
+    # 在工具调用循环完成后，每轮触发一次。
+    # 插件可以在 LLM 的输出文本被返回之前对其进行转换。
+    # 第一个返回字符串的钩子将胜出；返回 None 或空值则保持文本不变。
     if final_response and not interrupted:
         try:
             from hermes_cli.plugins import invoke_hook as _invoke_hook
@@ -383,10 +395,10 @@ def finalize_turn(
         except Exception as exc:
             logger.warning("transform_llm_output hook failed: %s", exc)
 
-    # Plugin hook: post_llm_call
-    # Fired once per turn after the tool-calling loop completes.
-    # Plugins can use this to persist conversation data (e.g. sync
-    # to an external memory system).
+    # 插件钩子：post_llm_call
+    # 在工具调用循环完成后，每轮触发一次。
+    # 插件可以使用此钩子来持久化对话数据
+    # （例如同步到外部记忆系统中）。
     if final_response and not interrupted:
         try:
             from hermes_cli.plugins import invoke_hook as _invoke_hook
@@ -404,15 +416,14 @@ def finalize_turn(
         except Exception as exc:
             logger.warning("post_llm_call hook failed: %s", exc)
 
-    # Extract reasoning from the CURRENT turn only.  Walk backwards
-    # but stop at the user message that started this turn — anything
-    # earlier is from a prior turn and must not leak into the reasoning
-    # box (confusing stale display; #17055).  Within the current turn
-    # we still want the *most recent* non-empty reasoning: many
-    # providers (Claude thinking, DeepSeek v4, Codex Responses) emit
-    # reasoning on the tool-call step and leave the final-answer step
-    # with reasoning=None, so picking only the last assistant would
-    # silently drop legitimate same-turn reasoning.
+    # 仅提取来自“当前”轮次的推理内容（reasoning）。
+    # 向后遍历，但止于触发本轮次的用户消息 ——
+    # 任何早于该消息的内容均来自先前的轮次，切勿泄漏至推理框中
+    # （以免造成陈旧信息的展示混淆；参见 #17055）。
+    # 在当前轮次内，我们仍希望获取“最新”的非空推理内容：
+    # 许多提供者（如 Claude thinking、DeepSeek v4、Codex Responses）
+    # 会在工具调用步骤中输出推理，而在最终回答步骤中留下 reasoning=None；
+    # 因此，若仅选择最后一个助手消息，将会无意间丢弃同轮次中合规的推理内容。
     last_reasoning = None
     for msg in reversed(messages):
         if msg.get("role") == "user":
@@ -458,14 +469,15 @@ def finalize_turn(
     }
     if agent._tool_guardrail_halt_decision is not None:
         result["guardrail"] = agent._tool_guardrail_halt_decision.to_metadata()
-    # Surface any post-loop cleanup failures so the caller can distinguish a
-    # clean turn from one whose trajectory/session/resource teardown raised
-    # (the response is still returned either way — #8049).
+    # 暴露循环结束后的所有清理失败信息，以便调用方区分
+    # 正常结束的轮次与那些在轨迹/会话/资源销毁时引发异常的轮次
+    # （无论属于哪种情况，响应都会照常返回 —— 参见 #8049）。
     if _cleanup_errors:
         result["cleanup_errors"] = _cleanup_errors
-    # If a /steer landed after the final assistant turn (no more tool
-    # batches to drain into), hand it back to the caller so it can be
-    # delivered as the next user turn instead of being silently lost.
+    # 如果在最后一个助手轮次之后收到了 /steer 指令
+    # （即已经没有可以继续处理的工具批次），
+    # 则将其交还给调用方，以便作为下一个用户轮次发送，
+    # 而不是静默丢弃。
     _leftover_steer = agent._drain_pending_steer()
     if _leftover_steer:
         result["pending_steer"] = _leftover_steer
@@ -481,7 +493,8 @@ def finalize_turn(
     # Clear stream callback so it doesn't leak into future calls
     agent._stream_callback = None
 
-    # Check skill trigger NOW — based on how many tool iterations THIS turn used.
+    # 立即检查技能触发条件 ——
+    # 基于本轮次（THIS turn）已使用的工具迭代次数。
     _should_review_skills = False
     if (agent._skill_nudge_interval > 0
             and agent._iters_since_skill >= agent._skill_nudge_interval
@@ -489,7 +502,8 @@ def finalize_turn(
         _should_review_skills = True
         agent._iters_since_skill = 0
 
-    # External memory provider: sync the completed turn + queue next prefetch.
+    # TODO KEY 外部memory provider
+    # 外部记忆提供者：同步已完成的轮次，并对下一次预取进行排队。
     agent._sync_external_memory_for_turn(
         original_user_message=original_user_message,
         final_response=final_response,
@@ -497,10 +511,11 @@ def finalize_turn(
         messages=messages,
     )
 
-    # Background memory/skill review — runs AFTER the response is delivered
-    # so it never competes with the user's task for model attention.
+    # 后台记忆/技能审查 —— 在响应交付后运行，
+    # 因此绝不会与用户的任务竞争模型的注意力。
     if final_response and not interrupted and (_should_review_memory or _should_review_skills):
         try:
+            # TODO KEY 后台审查线程
             agent._spawn_background_review(
                 messages_snapshot=list(messages),
                 review_memory=_should_review_memory,
@@ -509,16 +524,16 @@ def finalize_turn(
         except Exception:
             pass  # Background review is best-effort
 
-    # Note: Memory provider on_session_end() + shutdown_all() are NOT
-    # called here — run_conversation() is called once per user message in
-    # multi-turn sessions. Shutting down after every turn would kill the
-    # provider before the second message. Actual session-end cleanup is
-    # handled by the CLI (atexit / /reset) and gateway (session expiry /
-    # _reset_session).
+    # 注意：此处切勿调用记忆提供者（Memory provider）的 on_session_end()
+    # 与 shutdown_all() —— 在多轮对话会话中，每收到一条用户消息，
+    # run_conversation() 都会被调用一次。如果在每个轮次结束后就进行关闭，
+    # 会导致提供者在第二条消息到达之前就被销毁。
+    # 实际的会话结束清理工作是由 CLI（atexit / /reset）
+    # 以及网关（会话过期 / _reset_session）来负责处理的。
 
-    # Plugin hook: on_session_end
-    # Fired at the very end of every run_conversation call.
-    # Plugins can use this for cleanup, flushing buffers, etc.
+    # 插件钩子：on_session_end
+    # 在每次 run_conversation 调用的最末端触发。
+    # 插件可以使用此钩子来进行清理工作、刷新缓冲区等操作。
     try:
         from hermes_cli.plugins import invoke_hook as _invoke_hook
         _invoke_hook(

@@ -121,12 +121,12 @@ def yaml_load(content: str):
 
 
 def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
-    """Parse YAML frontmatter from a markdown string.
+    """从 Markdown 字符串中解析 YAML Frontmatter（前置元数据）。
 
-    Uses yaml with CSafeLoader for full YAML support (nested metadata, lists)
-    with a fallback to simple key:value splitting for robustness.
+    优先使用配置了 CSafeLoader 的 yaml 模块，以获得完整的 YAML 支持（如嵌套元数据、列表）；
+    同时提供降级机制（退而使用简单的 key:value 拆分方式），以保证解析的鲁棒性。
 
-    Returns:
+    返回：
         (frontmatter_dict, remaining_body)
     """
     frontmatter: Dict[str, Any] = {}
@@ -173,10 +173,10 @@ def skill_matches_platform_list(platforms: Any) -> bool:
         mapped = PLATFORM_MAP.get(normalized, normalized)
         if current.startswith(mapped):
             return True
-        # Termux runs a Linux userland on Android. Accept linux-tagged
-        # skills regardless of whether sys.platform is "linux" (pre-3.13
-        # Termux) or "android" (Python 3.13+ Termux, and any other
-        # Android runtime).
+        # Termux 在 Android 上运行了一个 Linux 用户地带（Userland）。
+        # 无论 sys.platform 是 "linux"（Python 3.13 之前的 Termux）
+        # 还是 "android"（Python 3.13+ 的 Termux，以及其他任意 Android 运行时），
+        # 均接受带有 linux 标签的 skill。
         if running_in_termux and mapped == "linux":
             return True
         # Explicit termux/android tags match a Termux session too.
@@ -186,24 +186,25 @@ def skill_matches_platform_list(platforms: Any) -> bool:
 
 
 def skill_matches_platform(frontmatter: Dict[str, Any]) -> bool:
-    """Return True when the skill is compatible with the current OS.
+    """当 Skill 与当前操作系统兼容时返回 True。
 
-    Skills declare platform requirements via a top-level ``platforms`` list
-    in their YAML frontmatter::
+    Skill 通过其 YAML Frontmatter（前置元数据）顶层的 ``platforms`` 列表
+    来声明平台需求：
 
-        platforms: [macos]          # macOS only
-        platforms: [macos, linux]   # macOS and Linux
+        platforms: [macos]          # 仅限 macOS
+        platforms: [macos, linux]   # macOS 和 Linux
 
-    If the field is absent or empty the skill is compatible with **all**
-    platforms (backward-compatible default).
+    如果该字段缺失或为空，则代表该 Skill 兼容 **所有** 平台
+    （向后兼容的默认行为）。
 
-    Termux note: on Termux/Android, ``sys.platform`` is ``"linux"`` on
-    older Pythons but became ``"android"`` on Python 3.13+. Termux is a
-    Linux userland riding on the Android kernel, so skills tagged
-    ``linux`` are treated as compatible in Termux regardless of which
-    ``sys.platform`` value Python reports. Individual Linux commands
-    inside a skill may still misbehave (no systemd, BusyBox utils, no
-    apt/dnf, etc.) but that is on the skill, not on platform gating.
+    Termux 说明：在 Termux/Android 上，对于较旧版本的 Python，
+    ``sys.platform`` 为 ``"linux"``；但在 Python 3.13+ 上变为了 ``"android"``。
+    由于 Termux 是运行在 Android 内核上的 Linux 用户地带（Userland），
+    因此在 Termux 中，带有 ``linux`` 标签的 Skill 均会被视为兼容，
+    而无需考虑 Python 所报告的具体 ``sys.platform`` 值。
+    Skill 内部的某些具体 Linux 命令仍可能出现异常
+    （无 systemd、使用 BusyBox 工具链、缺少 apt/dnf 等），
+    但这属于 Skill 本身的问题，不属于平台准入控制（Platform Gating）的范畴。
     """
     return skill_matches_platform_list(frontmatter.get("platforms"))
 
@@ -224,22 +225,21 @@ _ENV_DETECT_CACHE: Dict[str, bool] = {}
 
 
 def _detect_environment(env: str) -> bool:
-    """Return True when the named runtime environment is currently active.
+    """当指定的运行时环境当前处于激活状态时返回 True。
 
-    Cached per process. Unknown env names return True (fail-open: never hide a
-    skill because of a tag we don't understand).
+    按进程缓存。未知的环境名称将返回 True
+    （默认通过/ Fail-Open 策略：切勿因为无法识别的标签而隐藏 Skill）。
     """
     if env in _ENV_DETECT_CACHE:
         return _ENV_DETECT_CACHE[env]
 
     result = True
     if env == "kanban":
-        # Kanban is "active" either as a dispatcher-spawned worker (the
-        # dispatcher sets ``HERMES_KANBAN_TASK`` / ``HERMES_KANBAN_BOARD`` in the
-        # worker env) or as an orchestrator profile that has opted into the
-        # kanban toolset. Mirror the same signals the kanban tools themselves
-        # gate on (``tools/kanban_tools.py``) so the offer filter agrees with
-        # tool availability.
+        # Kanban 处于“激活”状态的依据，要么是作为由调度程序（Dispatcher）派生的 Worker 进程
+        # （调度程序会在 Worker 的环境变量中设置 ``HERMES_KANBAN_TASK`` / ``HERMES_KANBAN_BOARD``），
+        # 要么是作为已选择启用 Kanban 工具集的编排器配置文件（Orchestrator Profile）。
+        # 此处镜像了 Kanban 工具本身（``tools/kanban_tools.py``）所使用的判别信号，
+        # 从而确保推荐过滤器（Offer Filter）与工具的可用性保持一致。
         if os.getenv("HERMES_KANBAN_TASK") or os.getenv("HERMES_KANBAN_BOARD"):
             result = True
         else:
@@ -270,26 +270,26 @@ def _detect_environment(env: str) -> bool:
 
 
 def skill_matches_environment(frontmatter: Dict[str, Any]) -> bool:
-    """Return True when the skill is relevant to the current runtime environment.
+    """当 Skill 与当前运行时环境相关时返回 True。
 
-    Skills may declare an ``environments`` list in their YAML frontmatter::
+    Skill 可以在其 YAML Frontmatter（前置元数据）中声明一个 ``environments`` 列表：
 
-        environments: [kanban]        # only relevant when kanban is active
-        environments: [s6]            # only relevant inside the s6 Docker image
-        environments: [docker]        # only relevant inside any container
+        environments: [kanban]        # 仅在 kanban 激活时相关
+        environments: [s6]            # 仅在 s6 Docker 镜像内部相关
+        environments: [docker]        # 仅在任意容器内部相关
 
-    If the field is absent or empty the skill is relevant in **all**
-    environments (backward-compatible default).
+    如果该字段缺失或为空，则代表该 Skill 在 **所有** 环境中均相关
+    （向后兼容的默认行为）。
 
-    This is an OFFER-time filter: it controls whether a skill shows up in the
-    skills index / autocomplete / slash-command list. It is intentionally NOT
-    enforced by ``skill_view`` or ``--skills`` preloading — an explicit load is
-    explicit consent, and load-bearing force-loads (e.g. a dispatcher pinning
-    a task to a specialist skill via ``--skills``) must always succeed
-    regardless of how the offer surfaces filter the skill.
+    这是一个“主动推荐”阶段（OFFER-time）的过滤器：它控制 Skill 是否会显示在
+    skills 索引、自动补全或斜杠命令列表中。
+    出于设计考虑，它**不会**被 ``skill_view`` 或 ``--skills`` 预加载所强制约束 ——
+    显式加载即代表明确授权，并且带有关键逻辑的强制加载
+    （例如调度程序通过 ``--skills`` 将任务绑定到特定的专业 Skill）
+    必须始终成功，而无需理会推荐界面对该 Skill 的过滤状态。
 
-    A skill matches when ANY of its declared environments is currently active
-    (OR semantics, mirroring ``platforms``). Unknown env tags fail open.
+    当 Skill 声明的任意一个环境当前处于激活状态时，即视为匹配
+    （采用“或”逻辑语义，与 ``platforms`` 保持一致）。未知的环境标签默认通过（Fail Open）。
     """
     environments = frontmatter.get("environments")
     if not environments:

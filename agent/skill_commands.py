@@ -1,7 +1,7 @@
-"""Shared slash command helpers for skills.
+"""Skill 相关的共享斜杠命令（slash command）辅助函数。
 
-Shared between CLI (cli.py) and gateway (gateway/run.py) so both surfaces
-can invoke skills via /skill-name commands.
+在 CLI（cli.py）和 Gateway（gateway/run.py）之间共享，
+以便两个界面均可通过 /skill-name 命令调用 Skill。
 """
 
 import json
@@ -27,22 +27,24 @@ _SKILL_INVALID_CHARS = re.compile(r"[^a-z0-9-]")
 _SKILL_MULTI_HYPHEN = re.compile(r"-{2,}")
 
 # ---------------------------------------------------------------------------
-# Skill-scaffolding markers and the canonical extractor.
+# Skill 脚手架标记与规范提取器。
 #
-# When a user invokes a /skill (or /bundle), Hermes expands the turn into a
-# model-facing message that embeds the full skill body plus scaffolding. That
-# expanded text is what flows into the agent loop — and into memory providers
-# via MemoryManager. Providers that store or embed the raw user turn (mem0,
-# openviking, hindsight, retaindb, byterover, honcho, supermemory) would
-# otherwise capture the entire skill body instead of what the user actually
-# asked. ``extract_user_instruction_from_skill_message`` recovers just the
-# user's instruction so memory stays clean.
+# 当用户调用 /skill（或 /bundle）时，Hermes 会将该轮对话展开为一条
+# 面向模型的消息，其中嵌入了完整的 Skill 正文以及脚手架内容。
+# 该展开后的文本会传入 Agent 循环 —— 并通过 MemoryManager 进入各个内存提供商。
+# 如果不作处理，存储或向量化原始用户对话的内存提供商
+# （如 mem0, openviking, hindsight, retaindb, byterover, honcho, supermemory）
+# 将会捕获整个 Skill 正文，而不是用户实际提出的问题。
+# ``extract_user_instruction_from_skill_message`` 可以精准还原出用户的原始指令，
+# 从而保持内存库的干净纯净。
 #
-# These markers MUST stay byte-identical to the builders below
-# (``_build_skill_message`` here, ``build_bundle_invocation_message`` in
-# agent/skill_bundles.py). They are co-located with the single-skill builder
-# on purpose, and the bundle markers are asserted against the bundle builder in
-# tests/openviking_plugin/test_openviking.py::test_skill_markers_match_hermes_scaffolding.
+# 这些标记在字节层面上必须与下方的构建函数保持完全一致
+# （即此处的 ``_build_skill_message``，以及 agent/skill_bundles.py 中的
+# ``build_bundle_invocation_message``）。
+# 将它们与单 Skill 构建函数存放在同一位置是刻意为之的；
+# 同时，Bundle 标记会在单元测试
+# tests/openviking_plugin/test_openviking.py::test_skill_markers_match_hermes_scaffolding
+# 中与 Bundle 构建函数进行断言比对。
 # ---------------------------------------------------------------------------
 _SKILL_INVOCATION_PREFIX = "[IMPORTANT: The user has invoked the "
 _SINGLE_SKILL_MARKER = "The full skill content is loaded below.]"
@@ -84,8 +86,9 @@ def extract_user_instruction_from_skill_message(content: Any) -> Optional[str]:
 
 
 def _extract_single_skill_user_instruction(message: str) -> Optional[str]:
-    # Single-skill format appends the user instruction after the skill body, so
-    # the last occurrence is the user-provided one; the body may quote this text.
+    # 单 Skill 格式会在 Skill 正文之后追加用户指令，
+    # 因此最后一次出现的才是用户输入的内容；
+    # 正文中可能引用了这段文本。
     marker_idx = message.rfind(_SINGLE_SKILL_INSTRUCTION)
     if marker_idx < 0:
         return None
@@ -99,8 +102,8 @@ def _extract_single_skill_user_instruction(message: str) -> Optional[str]:
 
 
 def _extract_bundle_user_instruction(message: str) -> Optional[str]:
-    # Bundle format puts the user instruction before the loaded skills, so the
-    # first occurrence is the user-provided one.
+    # Bundle 格式会将用户指令放置在加载的 Skill 之前，
+    # 因此第一次出现的才是用户输入的内容。
     marker_idx = message.find(_BUNDLE_USER_INSTRUCTION)
     if marker_idx < 0:
         return None
@@ -114,16 +117,16 @@ def _extract_bundle_user_instruction(message: str) -> Optional[str]:
 
 
 def _resolve_skill_commands_platform() -> Optional[str]:
-    """Return the current platform scope used for disabled-skill filtering.
+    """返回用于禁用 Skill 过滤的当前平台作用域（Platform Scope）。
 
-    Used to detect when the active platform has shifted so
-    :func:`get_skill_commands` can drop a stale cache that was populated
-    for a different platform's ``skills.platform_disabled`` view (#14536).
+    用于检测当前活跃的平台是否已发生切换，
+    以便 :func:`get_skill_commands` 可以丢弃为其他平台的 ``skills.platform_disabled``
+    视图所填充的过期缓存（#14536）。
 
-    Resolves from (in order) ``HERMES_PLATFORM`` env var and
-    ``HERMES_SESSION_PLATFORM`` from the gateway session context. Returns
-    ``None`` when no platform scope is active (e.g. classic CLI, RL
-    rollouts, standalone scripts).
+    解析优先级依次为：``HERMES_PLATFORM`` 环境变量，
+    以及来自网关会话上下文的 ``HERMES_SESSION_PLATFORM``。
+    当没有活跃的平台作用域时（例如：传统的 CLI、RL rollouts、独立脚本等），
+    则返回 ``None``。
     """
     try:
         from gateway.session_context import get_session_env
@@ -319,10 +322,10 @@ def _build_skill_message(
 
 
 def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
-    """Scan ~/.hermes/skills/ and return a mapping of /command -> skill info.
+    """扫描 ~/.hermes/skills/ 并返回 /command -> skill 信息的映射表。
 
-    Returns:
-        Dict mapping "/skill-name" to {name, description, skill_md_path, skill_dir}.
+    返回：
+        字典（Dict），将 "/skill-name" 映射至 {name, description, skill_md_path, skill_dir}。
     """
     global _skill_commands, _skill_commands_platform
     _skill_commands_platform = _resolve_skill_commands_platform()
@@ -367,9 +370,9 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
                                 description = line[:80]
                                 break
                     seen_names.add(name)
-                    # Normalize to hyphen-separated slug, stripping
-                    # non-alnum chars (e.g. +, /) to avoid invalid
-                    # Telegram command names downstream.
+                    # 规范化为连字符分隔的标识符（Slug），
+                    # 剥离非字母数字字符（例如 +、/），
+                    # 以避免在下游生成无效的 Telegram 命令名称。
                     cmd_name = name.lower().replace(' ', '-').replace('_', '-')
                     cmd_name = _SKILL_INVALID_CHARS.sub('', cmd_name)
                     cmd_name = _SKILL_MULTI_HYPHEN.sub('-', cmd_name).strip('-')
@@ -404,37 +407,37 @@ def get_skill_commands() -> Dict[str, Dict[str, Any]]:
 
 
 def reload_skills() -> Dict[str, Any]:
-    """Re-scan the skills directory and return a diff of what changed.
+    """重新扫描 Skill 目录并返回变更的差异比对（Diff）。
 
-    Rescans ``~/.hermes/skills/`` and any ``skills.external_dirs`` so the
-    slash-command map (``agent.skill_commands._skill_commands``) reflects
-    skills added or removed on disk.
+    重新扫描 ``~/.hermes/skills/`` 以及所有 ``skills.external_dirs``，
+    使斜杠命令映射表（``agent.skill_commands._skill_commands``）
+    能够反映磁盘上新增或删除的 Skill。
 
-    This does NOT invalidate the skills system-prompt cache. Skills are
-    called by name via ``/skill-name``, ``skills_list``, or ``skill_view``
-    — they don't need to be in the system prompt for the model to use them.
-    Keeping the prompt cache intact preserves prefix caching across the
-    reload, so a user invoking ``/reload-skills`` pays no cache-reset cost.
+    此操作**不会**使 Skill 的系统提示词（System Prompt）缓存失效。
+    Skill 是通过 ``/skill-name``、``skills_list`` 或 ``skill_view`` 按名称调用的 ——
+    模型使用它们时，并不需要将其置于系统提示词中。
+    保持提示词缓存完好，可以在重新加载过程中保留前缀缓存（Prefix Caching），
+    从而使用户在调用 ``/reload-skills`` 时无需承担缓存重置的成本。
 
-    Returns:
-        Dict with keys::
+    返回：
+        包含以下键的字典（Dict）：
 
             {
               "added":      [{"name": str, "description": str}, ...],
               "removed":    [{"name": str, "description": str}, ...],
-              "unchanged":  [skill names present before and after],
-              "total":      total skill count after rescan,
-              "commands":   total /slash-skill count after rescan,
+              "unchanged":  [重新扫描前后均存在的 skill 名称],
+              "total":      重新扫描后的 skill 总数,
+              "commands":   重新扫描后的 /slash-skill 总数,
             }
 
-        ``description`` is the skill's full SKILL.md frontmatter
-        ``description:`` field — the same string the system prompt renders
-        as ``    - name: description`` for pre-existing skills.
+        ``description`` 为 Skill 文件的完整 SKILL.md Frontmatter 中的
+        ``description:`` 字段 —— 与已有 Skill 在系统提示词中渲染为
+        ``    - name: description`` 的字符串相同。
     """
-    # Snapshot pre-reload state (name -> description) from the current
-    # slash-command cache. Using dicts lets the post-rescan diff carry
-    # descriptions for newly-visible or just-removed skills without a
-    # second disk walk.
+
+    # 从当前的斜杠命令缓存中快照重新加载之前的状态（name -> description）。
+    # 使用字典可以让重新扫描后的差异比对直接携带
+    # 新显示或刚删除 Skill 的描述，而无需第二次遍历磁盘。
     def _snapshot(cmds: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
         out: Dict[str, str] = {}
         for slash_key, info in cmds.items():
@@ -444,8 +447,9 @@ def reload_skills() -> Dict[str, Any]:
 
     before = _snapshot(_skill_commands)
 
-    # Rescan the skills dir. ``scan_skill_commands`` resets
-    # ``_skill_commands = {}`` internally and repopulates it.
+    # 重新扫描 Skill 目录。
+    # ``scan_skill_commands`` 会在内部重置 ``_skill_commands = {}``
+    # 并重新对其进行填充。
     new_commands = scan_skill_commands()
 
     after = _snapshot(new_commands)

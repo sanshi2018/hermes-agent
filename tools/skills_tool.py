@@ -145,12 +145,11 @@ _SKILLS_DIR_AT_IMPORT = SKILLS_DIR
 
 
 def _skills_dir() -> Path:
-    """Return the active profile's skills directory at call time.
+    """返回在调用时活跃配置（Active Profile）下的 Skill 目录。
 
-    Some long-lived runtimes import this module before the active profile has
-    set HERMES_HOME. Keep the legacy SKILLS_DIR module attribute for tests and
-    external patchers, but when it has not been patched, resolve from the live
-    profile-scoped HERMES_HOME on every call.
+    一些长久运行的运行时（Runtimes）会在活跃配置设置 HERMES_HOME 之前导入此模块。
+    此处保留旧版 SKILLS_DIR 模块属性以兼容测试和外部补丁（External Patchers）；
+    但当其未被打补丁时，每次调用均会从当前活跃的配置作用域下的 HERMES_HOME 中动态解析。
     """
     configured = Path(SKILLS_DIR)
     if configured != _SKILLS_DIR_AT_IMPORT:
@@ -177,15 +176,14 @@ _secret_capture_callback = None
 
 
 def _skill_lookup_path_error(name: str) -> Optional[str]:
-    """Return an error if a local skill lookup *name* can escape search roots.
+    """如果本地 Skill 查询名称 *name* 能够越界跳出搜索根目录，则返回错误。
 
-    The skill ``name`` is joined onto each trusted search dir to build the
-    on-disk lookup path, so it must stay relative and free of ``..`` segments —
-    otherwise ``name="../outside"`` or an absolute path could select a skill
-    (and read files) outside the skills directory. Mirrors the ``file_path``
-    validation done later via ``tools.path_security``. We also reject Windows
-    drive paths (e.g. ``C:\\skills``), whose ``:`` would otherwise be misread as
-    a plugin namespace separator.
+    Skill 的名称 ``name`` 会与每个受信任的搜索目录进行拼接，
+    以构建磁盘上的查找路径，因此它必须保持为相对路径且不得包含 ``..`` 片段 ——
+    否则 ``name="../outside"`` 或绝对路径可能会选中 Skill 目录之外的 Skill
+    （并读取其中的文件）。此处的校验与后续通过 ``tools.path_security``
+    对 ``file_path`` 进行的校验相匹配。同时，我们还会拒绝 Windows 驱动器路径
+    （例如 ``C:\\skills``），否则其包含的 ``:`` 会被误读为插件命名空间的分隔符。
     """
     from tools.path_security import has_traversal_component
 
@@ -247,22 +245,25 @@ def set_secret_capture_callback(callback) -> None:
 
 
 def skill_matches_platform(frontmatter: Dict[str, Any]) -> bool:
-    """Check if a skill is compatible with the current OS platform.
+    """检查 Skill 是否与当前操作系统平台兼容。
 
-    Delegates to ``agent.skill_utils.skill_matches_platform`` — kept here
-    as a public re-export so existing callers don't need updating.
+    委派给 ``agent.skill_utils.skill_matches_platform`` 处理 ——
+    此处保留作为公共接口的重新导出（re-export），
+    以便现有的调用方无需更改。
     """
     from agent.skill_utils import skill_matches_platform as _impl
     return _impl(frontmatter)
 
 
 def skill_matches_environment(frontmatter: Dict[str, Any]) -> bool:
-    """Check if a skill is relevant to the current runtime environment.
+    """检查 Skill 是否与当前的运行时环境相关。
 
-    Delegates to ``agent.skill_utils.skill_matches_environment`` — kept here
-    as a public re-export so existing callers don't need updating. This is an
-    offer-time relevance gate (kanban/docker/s6), NOT a hard-compatibility gate;
-    explicit skill loads bypass it.
+    委派给 ``agent.skill_utils.skill_matches_environment`` 处理 ——
+    此处保留作为公共接口的重新导出（re-export），
+    以便现有的调用方无需更改。
+    这属于主动推荐时的相关性门禁（如 kanban/docker/s6），
+    而**非**强兼容性限制；
+    显式加载 Skill 可以绕过此限制。
     """
     from agent.skill_utils import skill_matches_environment as _impl
     return _impl(frontmatter)
@@ -550,10 +551,11 @@ def check_skills_requirements() -> bool:
 
 
 def _parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
-    """Parse YAML frontmatter from markdown content.
+    """从 Markdown 内容中解析 YAML Frontmatter（前置元数据）。
 
-    Delegates to ``agent.skill_utils.parse_frontmatter`` — kept here
-    as a public re-export so existing callers don't need updating.
+    委派给 ``agent.skill_utils.parse_frontmatter`` 处理 ——
+    此处保留作为公共接口的重新导出（re-export），
+    以便现有的调用方无需更改。
     """
     from agent.skill_utils import parse_frontmatter
     return parse_frontmatter(content)
@@ -964,26 +966,24 @@ def skill_view(
     task_id: str = None,
     preprocess: bool = True,
 ) -> str:
-    """
-    View the content of a skill or a specific file within a skill directory.
+    """查看某个 Skill 的内容或该 Skill 目录下的指定文件。
 
-    Args:
-        name: Name or path of the skill (e.g., "axolotl" or "03-fine-tuning/axolotl").
-            Qualified names like "plugin:skill" resolve to plugin-provided skills.
-        file_path: Optional path to a specific file within the skill (e.g., "references/api.md")
-        task_id: Optional task identifier used to probe the active backend
-        preprocess: Apply configured SKILL.md template and inline shell rendering
-            to main skill content. Internal slash/preload callers disable this
-            because they render the skill message themselves.
+    参数：
+        name: Skill 的名称或路径（例如 "axolotl" 或 "03-fine-tuning/axolotl"）。
+            形如 "plugin:skill" 的限定名称，将解析为由插件提供的 Skill。
+        file_path: Skill 内部指定文件的可选路径（例如 "references/api.md"）。
+        task_id: 用于探测当前活跃后端的可选任务标识符。
+        preprocess: 将已配置的 SKILL.md 模板与内联 Shell 渲染应用至主 Skill 内容。
+            内部斜杠命令/预加载调用方会禁用此功能，
+            因为它们会自行渲染 Skill 消息。
 
-    Returns:
-        JSON string with skill content or error message
+    返回：
+        包含 Skill 内容或错误信息的 JSON 字符串。
     """
     try:
-        # Validate before the ':' qualified-name dispatch so a Windows drive
-        # path (e.g. C:\skills\foo) can't be reinterpreted as a plugin
-        # namespace, and so a traversal/absolute name never reaches the
-        # search-dir join that builds direct_path below.
+        # 在进行带 ':' 的限定名称（qualified-name）分发之前执行校验，
+        # 以防 Windows 驱动器路径（例如 C:\skills\foo）被误解为插件命名空间（plugin namespace），
+        # 并确保路径遍历或绝对名称永远不会传给下方用于构建 direct_path 的搜索目录拼接逻辑。
         lookup_error = _skill_lookup_path_error(name)
         if lookup_error:
             return json.dumps(
@@ -996,9 +996,9 @@ def skill_view(
             )
 
         local_category_name: str | None = None
-        # ── Qualified name dispatch (plugin skills) ──────────────────
-        # Names containing ':' are routed to the plugin skill registry.
-        # Bare names fall through to the existing flat-tree scan below.
+        # ── 限定名称分发（插件 Skill）──────────────────
+        # 包含 ':' 的名称将被路由到插件 Skill 注册表。
+        # 纯名称（不含 ':'）则下沉转入下方的平铺树扫描流程。
         if ":" in name:
             from agent.skill_utils import is_valid_namespace, parse_qualified_name
             from hermes_cli.plugins import discover_plugins, get_plugin_manager
@@ -1065,8 +1065,8 @@ def skill_view(
 
         from agent.skill_utils import get_external_skills_dirs
 
-        # The categorized fall-through form (namespace/bare) joins onto each
-        # search dir too; re-validate it since `bare` is not namespace-checked.
+        # 分类后的回退形式（命名空间/纯名称）也会拼接至各个
+        # 搜索目录；请重新校验该路径，因为 `bare`（纯名称）未经过命名空间检查。
         if local_category_name:
             lookup_error = _skill_lookup_path_error(local_category_name)
             if lookup_error:
@@ -1098,12 +1098,12 @@ def skill_view(
         skill_dir = None
         skill_md = None
 
-        # Collision detection: collect ALL candidates across every dir using
-        # every lookup strategy (direct path, recursive by parent dir name,
-        # legacy flat <name>.md). If more than one matches, refuse and tell
-        # the caller — silent shadowing of a local skill by a same-named
-        # external skill is a real bug class (`/skills` shows one, agent
-        # loaded the other) so we surface it loudly instead of guessing.
+        # 碰撞检测：跨越所有目录，利用每一种查找策略
+        # （直接路径、按父目录名递归、旧版平铺 <name>.md）收集所有的候选项。
+        # 如果匹配到了多个候选，则拒绝处理并告知调用方 ——
+        # 同名的外部 Skill 静默遮蔽（Shadowing）本地 Skill 属于一种极其真实的 Bug 类型
+        # （例如 `/skills` 显示的是这一个，但 Agent 实际加载的却是另一个），
+        # 因此我们选择明确报错暴露问题，而非盲目进行猜测。
         from agent.skill_utils import iter_skill_index_files
 
         candidates: List[Tuple[Optional[Path], Path]] = []  # (skill_dir, skill_md)
@@ -1656,7 +1656,7 @@ if __name__ == "__main__":
 
     # Test viewing a skill
     print("\n📖 Viewing skill 'axolotl':")
-    result = json.loads(skill_view("axolotl"))
+    result = json.loads(skill_view("codex"))
     if result["success"]:
         print(f"Name: {result['name']}")
         print(f"Description: {result.get('description', 'N/A')[:100]}...")

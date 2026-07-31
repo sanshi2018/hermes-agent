@@ -81,14 +81,13 @@ class PlatformBackend(Mem0Backend):
 
 
 class SelfHostedBackend(Mem0Backend):
-    """Direct HTTP backend for a self-hosted Mem0 server (the FastAPI ``server/``).
+    """针对自托管 Mem0 服务器（FastAPI ``server/``）的直接 HTTP 后端。
 
-    mem0.MemoryClient can't be reused for self-hosted: it is hardwired to the
-    cloud API — ``Authorization: Token`` auth and a ``GET /v1/ping/`` validation
-    call in ``__init__`` that the self-hosted server does not expose (it would
-    404 before any real request). This client talks to that server directly,
-    using its actual contract: ``X-API-Key`` auth and the ``/memories`` /
-    ``/search`` routes.
+    mem0.MemoryClient 无法复用于自托管服务：它硬编码绑定到了云端 API ——
+    使用了 ``Authorization: Token`` 鉴权，并在 ``__init__`` 中进行了 ``GET /v1/ping/`` 校验调用，
+    而自托管服务器未提供该接口（在发起任何真实请求前就会返回 404）。
+    本客户端通过该服务器实际的协议约定与其直接通信：
+    使用 ``X-API-Key`` 鉴权以及 ``/memories`` / ``/search`` 路由。
     """
 
     def __init__(self, api_key: str, host: str, transport=None):

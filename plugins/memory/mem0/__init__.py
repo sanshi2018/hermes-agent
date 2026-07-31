@@ -1,33 +1,31 @@
-"""Mem0 memory plugin — MemoryProvider interface.
+"""Mem0 内存插件 — MemoryProvider 接口。
 
-Server-side LLM fact extraction, semantic search, and automatic deduplication
-via the Mem0 Platform API (cloud) or OSS (self-hosted) via Memory.
+通过 Mem0 Platform API（云端）或基于 Memory 的 OSS（自托管），
+在服务端实现大模型事实提取、语义搜索以及自动去重功能。
 
-Original PR #2933 by kartik-mem0, adapted to MemoryProvider ABC.
+原 PR #2933 由 kartik-mem0 提交，现已适配为 MemoryProvider 抽象基类（ABC）。
 
-Configuration
+配置项
 -------------
-Secret (lives in $HERMES_HOME/.env or the environment):
-  MEM0_API_KEY       — Mem0 Platform API key (required for platform mode)
-  MEM0_HOST          — Base URL of a self-hosted Mem0 server. When set, the
-                       plugin talks to that server directly over HTTP
-                       (X-API-Key auth) instead of the cloud API.
+密钥（存放在 $HERMES_HOME/.env 或系统环境变量中）：
+  MEM0_API_KEY       — Mem0 平台 API 密钥（平台模式必填）
+  MEM0_HOST          — 自托管 Mem0 服务器的基础 URL。设置后，插件将直接
+                       通过 HTTP（使用 X-API-Key 鉴权）与该服务器通信，
+                       而非调用云端 API。
 
-Behavioral settings (live in $HERMES_HOME/mem0.json, set via `hermes memory
-setup`):
-  mode               — Backend mode: "platform" (default) or "oss"
-  host               — Self-hosted Mem0 server URL (alt: MEM0_HOST env var).
-                       When set, routes to the self-hosted HTTP backend.
-  user_id            — Canonical user identifier. When set, it is applied
-                       uniformly across every gateway (CLI, Telegram, Slack,
-                       Discord, …) so the same human gets one merged memory
-                       store. When unset, the gateway-native id (e.g. Telegram
-                       numeric id, Discord snowflake) is used instead.
-  agent_id           — Agent identifier (default: hermes)
+行为设置（存放在 $HERMES_HOME/mem0.json 中，通过 `hermes memory setup` 进行配置）：
+  mode               — 后端模式："platform"（默认）或 "oss"
+  host               — 自托管 Mem0 服务器 URL（备选方案：MEM0_HOST 环境变量）。
+                       设置后，请求将路由至自托管的 HTTP 后端。
+  user_id            — 规范化的用户标识符。设置后，该标识符将统一应用于
+                       每一个网关（CLI、Telegram、Slack、Discord 等），
+                       从而使同一个用户共享一套合并后的内存库。
+                       若未设置，则默认使用网关原生 ID（如 Telegram 的数字 ID、
+                       Discord 的 Snowflake ID）。
+  agent_id           — Agent 标识符（默认值：hermes）
 
-The matching MEM0_MODE / MEM0_USER_ID / MEM0_AGENT_ID environment variables are
-still read as a backward-compatible fallback, but mem0.json is the canonical
-home for these non-secret settings.
+仍会读取对应的 MEM0_MODE / MEM0_USER_ID / MEM0_AGENT_ID 环境变量
+作为向后兼容的备用方案，但 mem0.json 才是这些非密钥设置的标准存储位置。
 """
 
 from __future__ import annotations
@@ -45,19 +43,20 @@ from tools.registry import tool_error
 
 logger = logging.getLogger(__name__)
 
-# Circuit breaker: after this many consecutive failures, pause API calls
-# for _BREAKER_COOLDOWN_SECS to avoid hammering a down server.
+# 熔断器：在连续失败达到此次数后，
+# 将暂停 API 调用 _BREAKER_COOLDOWN_SECS 秒，
+# 以避免对已宕机的服务器进行频繁请求（导致雪崩）。
 _BREAKER_THRESHOLD = 5
 _BREAKER_COOLDOWN_SECS = 120
 _PREFETCH_WAIT_SECS = 3
 
 _CLIENT_ERROR_TYPES = ("MemoryNotFoundError", "ValidationError")
 
-# Sentinel returned when neither MEM0_USER_ID nor a gateway-native id is
-# available. Treated as "no operator-configured user_id" by initialize() so
-# that legacy mem0.json files written by the setup wizard (which historically
-# wrote this exact placeholder) still allow gateway-native ids to flow
-# through instead of silently overriding them with the placeholder.
+# 当 MEM0_USER_ID 和网关原生 ID 都不可用时返回的哨兵值（Sentinel）。
+# initialize() 会将其视为“操作员未配置 user_id”，
+# 从而使设置向导生成的旧版 mem0.json 文件（历史上曾写入该特定占位符）
+# 仍能允许网关原生 ID 通过，
+# 而不是静默地用该占位符覆盖它们。
 _DEFAULT_USER_ID = "hermes-user"
 
 
@@ -75,11 +74,11 @@ def _is_client_error(exc: Exception) -> bool:
 # ---------------------------------------------------------------------------
 
 def _load_config() -> dict:
-    """Load config from env vars, with $HERMES_HOME/mem0.json overrides.
+    """从环境变量加载配置，并使用 $HERMES_HOME/mem0.json 中的值进行覆盖。
 
-    Environment variables provide defaults; mem0.json (if present) overrides
-    individual keys.  This avoids a silent failure when the JSON file exists
-    but is missing fields like ``api_key`` that the user set in ``.env``.
+    环境变量提供默认值；若存在 mem0.json，其中的配置会覆盖单个对应的键。
+    这可以避免当 JSON 文件存在，但缺少用户在 ``.env`` 中设置的字段（如 ``api_key``）时
+    发生静默失败。
     """
     from hermes_constants import get_hermes_home
 
@@ -90,9 +89,9 @@ def _load_config() -> dict:
         "agent_id": os.environ.get("MEM0_AGENT_ID", "hermes"),
         "oss": {},
     }
-    # Only carry user_id when the operator explicitly configured one (env or
-    # mem0.json). An absent key tells initialize() to fall back to the
-    # gateway-native id from kwargs instead of overriding it with a placeholder.
+    # 仅在操作员显式配置了 user_id（通过环境变量或 mem0.json）时才进行携带。
+    # 缺少该键值会告知 initialize() 退而使用来自 kwargs 的网关原生 ID，
+    # 而不是用占位符将其覆盖。
     env_user_id = os.environ.get("MEM0_USER_ID")
     if env_user_id:
         config["user_id"] = env_user_id
@@ -112,7 +111,76 @@ def _load_config() -> dict:
 # ---------------------------------------------------------------------------
 # Tool schemas
 # ---------------------------------------------------------------------------
-
+# SEARCH_SCHEMA = {
+#     "name": "mem0_search",
+#     "description": (
+#         "根据语义搜索用户的记忆；返回按相关性排序的事实。"
+#         "在回答任何可能依赖于你对用户了解（偏好、事实、历史、人员、"
+#         "项目、过去的决策）的问题之前，请使用此工具。"
+#         "对于多部分或多跳（multi-hop）问题，请调用多次 —— "
+#         "变换不同的措辞，并根据先前搜索到的结果展开进一步追问搜索；"
+#         "仅进行一次搜索往往是不够的。"
+#     ),
+#     "parameters": {
+#         "type": "object",
+#         "properties": {
+#             "query": {"type": "string", "description": "搜索的内容。"},
+#             "top_k": {"type": "integer", "description": "最大结果数量（默认值：10，最大值：50）。"},
+#             "rerank": {"type": "boolean", "description": "对结果重新按相关性排序（默认值：false，仅限平台模式）。"},
+#         },
+#         "required": ["query"],
+#     },
+# }
+#
+# ADD_SCHEMA = {
+#     "name": "mem0_add",
+#     "description": (
+#         "逐字保存关于用户的持久事实（不经过大模型额外提取）。"
+#         "一旦用户说出了值得在未来的对话轮次中复用的持久偏好、更正、"
+#         "决策或个人细节，请立即调用此工具 —— 不要等到被要求记住时才记录。"
+#         "请跳过短暂的闲聊以及你已经保存过的事实。"
+#     ),
+#     "parameters": {
+#         "type": "object",
+#         "properties": {
+#             "content": {"type": "string", "description": "要保存的事实。"},
+#         },
+#         "required": ["content"],
+#     },
+# }
+#
+# UPDATE_SCHEMA = {
+#     "name": "mem0_update",
+#     "description": (
+#         "通过 ID 替换已存在的记忆文本（ID 需从 mem0_search 的搜索结果中获取）。"
+#         "当已存储的事实发生变更或存在错误时使用 —— "
+#         "请在原位直接更正，而不是添加一条重复的记忆。"
+#     ),
+#     "parameters": {
+#         "type": "object",
+#         "properties": {
+#             "memory_id": {"type": "string", "description": "要更新的记忆 UUID。"},
+#             "text": {"type": "string", "description": "新的文本内容。"},
+#         },
+#         "required": ["memory_id", "text"],
+#     },
+# }
+#
+# DELETE_SCHEMA = {
+#     "name": "mem0_delete",
+#     "description": (
+#         "通过 ID 删除一条记忆（ID 需从 mem0_search 的搜索结果中获取）。"
+#         "当存储的事实已过时或用户明确要求你忘记它时使用；"
+#         "如果事实仅仅是发生了变更，请优先使用 mem0_update。"
+#     ),
+#     "parameters": {
+#         "type": "object",
+#         "properties": {
+#             "memory_id": {"type": "string", "description": "要删除的记忆 UUID。"},
+#         },
+#         "required": ["memory_id"],
+#     },
+# }
 SEARCH_SCHEMA = {
     "name": "mem0_search",
     "description": (
@@ -264,11 +332,11 @@ class Mem0MemoryProvider(MemoryProvider):
         post_setup(hermes_home, config)
 
     def _create_backend(self):
-        # Lazy-install the mem0 SDK on demand before either backend imports
-        # it. ensure() honors security.allow_lazy_installs (default true) and,
-        # on a sealed Docker venv, redirects the install to the durable
-        # target. On failure we fall through so the import inside the backend
-        # produces the canonical error, captured below.
+        # 在任何后端导入 mem0 SDK 之前，根据需要对其进行延迟安装（Lazy-install）。
+        # ensure() 会遵循 security.allow_lazy_installs（默认为 true）；
+        # 在受限的 Docker 虚拟环境中，会将安装重定向至持久化目标位置。
+        # 如果安装失败，程序将向下投射（fall through），
+        # 使得后端内部的导入操作产生规范的错误，并在下方被捕获。
         try:
             from tools.lazy_deps import ensure as _lazy_ensure
             _lazy_ensure("memory.mem0", prompt=False)
@@ -338,26 +406,27 @@ class Mem0MemoryProvider(MemoryProvider):
         self._mode = self._config.get("mode", "platform")
         self._api_key = self._config.get("api_key", "")
         self._host = self._config.get("host", "")
-        # Resolution order for user_id:
-        #   1. Operator-configured MEM0_USER_ID (env or $HERMES_HOME/mem0.json) —
-        #      the canonical principal, applied across every gateway so the same
-        #      human gets one merged memory store.
-        #   2. Gateway-native id from kwargs (Telegram numeric id, Discord
-        #      snowflake, etc.) — preserves per-platform isolation when no
-        #      override is configured.
-        #   3. Hardcoded fallback _DEFAULT_USER_ID (CLI with no auth).
-        # The literal _DEFAULT_USER_ID string is treated as unset so users who
-        # ran the setup wizard with the suggested default still get gateway-
-        # native ids instead of being silently bucketed together.
+        # user_id 的解析顺序：
+        #   1. 操作员配置的 MEM0_USER_ID（通过环境变量或 $HERMES_HOME/mem0.json）——
+        #      规范的主体（principal），应用于每一个网关，
+        #      使得同一个用户共享一套合并后的内存库。
+        #   2. 来自 kwargs 的网关原生 ID（Telegram 数字 ID、Discord Snowflake 等）——
+        #      在未配置重写参数时，保留各平台间的数据隔离。
+        #   3. 硬编码的备用值 _DEFAULT_USER_ID（无鉴权信息的 CLI）。
+        # 文本字面量 _DEFAULT_USER_ID 会被视为未设置，
+        # 因此使用推荐默认值运行过设置向导的用户，
+        # 仍能获取网关原生 ID，而不会被静默地归类合并在一起。
         configured = self._config.get("user_id")
         if configured == _DEFAULT_USER_ID:
             configured = None
         self._user_id = configured or kwargs.get("user_id") or _DEFAULT_USER_ID
         self._agent_id = self._config.get("agent_id", "hermes")
-        # Persisted rerank preference (setup wizard / mem0.json). Used as the
-        # DEFAULT for mem0_search when the model doesn't pass ``rerank``
-        # explicitly; per-call args still win. Platform-only feature — other
-        # backends accept-and-ignore the flag.
+        # 持久化的重排序（rerank）偏好设置（来自设置向导 / mem0.json）。
+        # 当模型未明确传递 ``rerank`` 参数时，
+        # 用作 mem0_search 的默认值（DEFAULT）；
+        # 每次调用的参数仍具有最高优先级。
+        # 此功能仅限平台（Platform）模式支持 ——
+        # 其他后端会接收但忽略该标志。
         _rr = self._config.get("rerank", False)
         self._rerank_default = (
             _rr.lower() in ("true", "1", "yes") if isinstance(_rr, str) else bool(_rr)
@@ -369,23 +438,25 @@ class Mem0MemoryProvider(MemoryProvider):
             self._atexit_registered = True
 
     def _read_filters(self) -> Dict[str, Any]:
-        # Scoped to user_id only — by design — so recall surfaces memories
-        # written from any gateway/agent under this principal. Writes attach
-        # agent_id (and metadata.channel) so per-agent / per-channel views are
-        # still possible at query time when needed; reads default to the wider
-        # cross-agent recall.
+        # 按照设计，仅作用于 user_id ——
+        # 这样便能召回在该主体下，来自任何网关/Agent 的记忆。
+        # 写入操作会附带 agent_id（以及 metadata.channel），
+        # 以便在需要时，仍可在查询阶段按 Agent / Channel 进行过滤；
+        # 读取操作则默认采用跨 Agent 的更大范围召回。
         return {"user_id": self._user_id}
 
     def _write_metadata(self) -> Dict[str, Any]:
-        # Tag every write with the gateway channel so the dashboard can offer
-        # per-channel filtered views without coupling identity to the channel.
+        # 为每次写入添加网关渠道（channel）标签，
+        # 这样仪表盘就能提供按渠道过滤的视图，
+        # 同时又不会将身份标识与特定渠道强行绑定。
         return {"channel": self._channel} if self._channel else {}
 
     def system_prompt_block(self) -> str:
-        # Mirror the precedence in _create_backend (oss > host > platform) so
-        # the label always names the backend that actually runs. Checking
-        # ``host`` first here would mislabel an ``oss``+``host`` config as
-        # self-hosted HTTP even though OSS wins the routing.
+        # 镜像 _create_backend 中的优先级关系（oss > host > platform），
+        # 从而确保标签始终能够准确命名实际运行的后端。
+        # 如果在这里优先检查 ``host``，
+        # 会将包含 ``oss``+``host`` 的配置误标记为自托管的 HTTP 模式，
+        # 即使在实际路由中 OSS 拥有更高的优先级。
         if self._mode == "oss":
             mode_label = "OSS (self-hosted)"
         elif self._host:

@@ -737,16 +737,16 @@ def feature_missing(feature: str) -> tuple[str, ...]:
 
 
 def ensure(feature: str, *, prompt: bool = True) -> None:
-    """Make sure all packages for ``feature`` are importable.
+    """确保 ``feature`` 所需的所有软件包均可导入。
 
-    If they're missing, attempts to install them in the active venv. Raises
-    :class:`FeatureUnavailable` if the user has disabled lazy installs or
-    if the install attempt fails.
+    如果缺少某些软件包，将尝试在当前激活的虚拟环境（venv）中进行安装。
+    如果用户禁用了延迟安装（lazy installs），
+    或者安装尝试失败，则抛出 :class:`FeatureUnavailable` 异常。
 
-    ``prompt``: when True (default) and stdin is a TTY, asks the user to
-    confirm before installing. Non-interactive callers (gateway, cron,
-    batch) get prompt=False and skip the confirmation — config flag is
-    the gate in that case.
+    ``prompt``: 当值为 True（默认）且标准输入（stdin）为终端 TTY 时，
+    会在安装前询问用户以进行确认。
+    非交互式调用者（网关 gateway、定时任务 cron、批处理 batch）的 prompt 值为 False，
+    会跳过确认步骤 —— 此时配置标志将作为唯一的把关门槛。
     """
     if feature not in LAZY_DEPS:
         raise FeatureUnavailable(

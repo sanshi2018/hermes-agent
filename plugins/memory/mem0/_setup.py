@@ -430,10 +430,12 @@ def _setup_selfhosted(hermes_home: str, config: dict, flags: dict[str, str]) -> 
 
 
 def _setup_oss(hermes_home: str, config: dict, flags: dict[str, str]) -> None:
-    """OSS mode setup — build config from flags or interactive prompts.
+    """OSS 模式设置 — 通过命令行标志或交互式提示构建配置。
 
-    Non-interactive when --mode was set explicitly via flags (post_setup already
-    resolved mode). Interactive only when mode was chosen via curses picker.
+    当通过标志显式指定了 --mode 时（post_setup 已解析模式），
+    为非交互式模式；
+    仅当通过 curses 选择器选中该模式时，
+    才进入交互式模式。
     """
     if not flags.get("_mode_from_flag"):
         _setup_oss_interactive(hermes_home, config)
@@ -942,12 +944,13 @@ def _check_min_dep_version() -> None:
 
 
 def post_setup(hermes_home: str, config: dict) -> None:
-    """Entry point called by hermes memory setup framework.
+    """由 hermes memory setup 框架调用的入口点。
 
-    Routes on --mode (platform / selfhosted / oss); with no flag it shows an
-    interactive picker with all three modes. Platform keeps the framework's
-    original schema-based onboarding; selfhosted points at an existing Mem0
-    server; oss builds a local SDK config.
+    根据 --mode 参数（platform / selfhosted / oss）进行路由；
+    如果不带任何标志，则会显示一个包含所有这三种模式的交互式选择器。
+    Platform 模式保留了框架原始基于模式（schema）的引导配置；
+    selfhosted 模式指向已有的 Mem0 服务器；
+    oss 模式则会构建本地 SDK 配置。
     """
     _check_min_dep_version()
     flags = parse_flags(sys.argv[1:])

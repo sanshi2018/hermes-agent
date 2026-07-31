@@ -1,34 +1,33 @@
-"""Abstract base class for pluggable memory providers.
+"""可插拔内存提供程序（Memory Provider）的抽象基类。
 
-Memory providers give the agent persistent recall across sessions.
-The MemoryManager enforces a one-external-provider limit to prevent
-tool schema bloat and conflicting memory backends.
+内存提供程序为 Agent 提供跨会话的持久化记忆能力。
+MemoryManager 强制限制最多只能启用一个外部提供程序，
+以防止工具 Schema 膨胀以及内存后端冲突。
 
-External providers (Honcho, Hindsight, Mem0, etc.) are registered
-and managed via MemoryManager. Only one external provider runs at a
-time.
+外部提供程序（如 Honcho、Hindsight、Mem0 等）通过
+MemoryManager 进行注册和管理。同一时间仅允许运行一个外部提供程序。
 
-Registration:
-  Plugins ship in plugins/memory/<name>/ and are activated via
-  the memory.provider config key.
+注册机制：
+  插件存放在 plugins/memory/<name>/ 目录中，
+  并通过配置项 memory.provider 进行激活。
 
-Lifecycle (called by MemoryManager, wired in run_agent.py):
-  initialize()          — connect, create resources, warm up
-  system_prompt_block()  — static text for the system prompt
-  prefetch(query)        — background recall before each turn
-  sync_turn(user, asst)  — async write after each turn
-  get_tool_schemas()     — tool schemas to expose to the model
-  handle_tool_call()     — dispatch a tool call
-  shutdown()             — clean exit
+生命周期（由 MemoryManager 调用，并挂载于 run_agent.py 中）：
+  initialize()          — 连接服务、创建资源、系统预热
+  system_prompt_block()  — 用于系统提示词（System Prompt）的静态文本
+  prefetch(query)        — 在每轮对话开始前进行后台记忆检索
+  sync_turn(user, asst)  — 在每轮对话结束后进行异步写入
+  get_tool_schemas()     — 暴露给模型的工具 Schema 列表
+  handle_tool_call()     — 分发并处理工具调用
+  shutdown()             — 安全退出 / 优雅关闭
 
-Optional hooks (override to opt in):
-  on_turn_start(turn, message, **kwargs) — per-turn tick with runtime context
-  on_session_end(messages)               — end-of-session extraction
-  on_session_switch(new_session_id, **kwargs) — mid-process session_id rotation
-  on_pre_compress(messages) -> str       — extract before context compression
-  on_memory_write(action, target, content, metadata=None) — mirror built-in memory writes
-  on_delegation(task, result, **kwargs)  — parent-side observation of subagent work
-  backup_paths() -> list[str]            — extra on-disk paths to include in `hermes backup`
+可选钩子函数（重写以启用相应功能）：
+  on_turn_start(turn, message, **kwargs) — 带有运行时上下文的单轮对话起始钩子
+  on_session_end(messages)               — 会话结束时的记忆提取
+  on_session_switch(new_session_id, **kwargs) — 运行过程中的 session_id 切换/轮换
+  on_pre_compress(messages) -> str       — 在上下文压缩前提取信息
+  on_memory_write(action, target, content, metadata=None) — 镜像/同步内置内存的写入操作
+  on_delegation(task, result, **kwargs)  — 父 Agent 侧对子 Agent 工作的观察/监听
+  backup_paths() -> list[str]            — 包含在 `hermes backup` 备份中的额外磁盘路径
 """
 
 from __future__ import annotations
@@ -46,40 +45,40 @@ class MemoryProvider(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """Short identifier for this provider (e.g. 'builtin', 'honcho', 'hindsight')."""
+        """该提供程序的简短标识符（例如：'builtin'、'honcho'、'hindsight'）。"""
 
-    # -- Core lifecycle (implement these) ------------------------------------
+        # -- 核心生命周期（需实现以下方法）------------------------------------
 
     @abstractmethod
     def is_available(self) -> bool:
-        """Return True if this provider is configured, has credentials, and is ready.
+        """如果该提供程序已正确配置、具备凭据且准备就绪，则返回 True。
 
-        Called during agent init to decide whether to activate the provider.
-        Should not make network calls — just check config and installed deps.
+        在 Agent 初始化期间被调用，用于决定是否激活该提供程序。
+        不应发起网络请求 —— 仅检查配置项和已安装的依赖项。
         """
 
     @abstractmethod
     def initialize(self, session_id: str, **kwargs) -> None:
-        """Initialize for a session.
+        """为会话进行初始化。
 
-        Called once at agent startup. May create resources (banks, tables),
-        establish connections, start background threads, etc.
+        在 Agent 启动时调用一次。可用于创建资源（如数据库/表）、
+        建立网络连接、启动后台线程等。
 
-        kwargs always include:
-          - hermes_home (str): The active HERMES_HOME directory path. Use this
-            for profile-scoped storage instead of hardcoding ``~/.hermes``.
-          - platform (str): "cli", "telegram", "discord", "cron", etc.
+        kwargs 始终包含：
+          - hermes_home (str): 当前启用的 HERMES_HOME 目录路径。请使用此路径
+            进行配置文件（Profile）作用域的存储，而不是硬编码为 ``~/.hermes``。
+          - platform (str): 运行平台，例如 "cli"、"telegram"、"discord"、"cron" 等。
 
-        kwargs may also include:
-          - agent_context (str): "primary", "subagent", "cron", or "flush".
-            Providers should skip writes for non-primary contexts (cron system
-            prompts would corrupt user representations).
-          - agent_identity (str): Profile name (e.g. "coder"). Use for
-            per-profile provider identity scoping.
-          - agent_workspace (str): Shared workspace name (e.g. "hermes").
-          - parent_session_id (str): For subagents, the parent's session_id.
-          - user_id (str): Platform user identifier (gateway sessions).
-          - user_id_alt (str): Optional alternate stable platform user identifier.
+        kwargs 还可能包含：
+          - agent_context (str): 上下文类型，例如 "primary"、"subagent"、"cron" 或 "flush"。
+            对于非主（non-primary）上下文，提供程序应跳过写入操作
+            （因为定时任务的系统提示词可能会损坏用户的记忆表示）。
+          - agent_identity (str): 配置文件（Profile）名称（例如 "coder"）。用于
+            按 Profile 对提供程序身份进行作用域划分。
+          - agent_workspace (str): 共享工作区名称（例如 "hermes"）。
+          - parent_session_id (str): 针对子 Agent，为其父级的 session_id。
+          - user_id (str): 平台用户标识符（适用于网关会话）。
+          - user_id_alt (str): 可选的备用稳定平台用户标识符。
         """
 
     def system_prompt_block(self) -> str:
@@ -107,13 +106,12 @@ class MemoryProvider(ABC):
         return ""
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
-        """Queue a background recall for the NEXT turn.
+        """为【下一轮对话】排队预加载后台记忆检索。
 
-        Called after each turn completes. The result will be consumed
-        by prefetch() on the next turn. Default is no-op — providers
-        that do background prefetching should override this.
+        在每轮对话完成后被调用。检索结果将在
+        下一轮对话中的 prefetch() 被消费使用。默认不执行任何操作（no-op）——
+        需要进行后台预检索的提供程序应当重写此方法。
         """
-
     def sync_turn(
         self,
         user_content: str,
@@ -134,26 +132,26 @@ class MemoryProvider(ABC):
 
     @abstractmethod
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
-        """Return tool schemas this provider exposes.
+        """返回该提供程序暴露的工具 Schema 列表。
 
-        Each schema follows the OpenAI function calling format:
+        每个 Schema 均遵循 OpenAI 的函数调用（Function Calling）格式：
         {"name": "...", "description": "...", "parameters": {...}}
 
-        Return empty list if this provider has no tools (context-only).
+        如果该提供程序不包含任何工具（仅提供上下文），则返回空列表。
         """
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
-        """Handle a tool call for one of this provider's tools.
+        """处理该提供程序旗下某个工具的调用。
 
-        Must return a JSON string (the tool result).
-        Only called for tool names returned by get_tool_schemas().
+        必须返回一个 JSON 字符串（即工具的执行结果）。
+        仅针对由 get_tool_schemas() 所返回的工具名称进行调用。
         """
         raise NotImplementedError(f"Provider {self.name} does not handle tool {tool_name}")
 
     def shutdown(self) -> None:
-        """Clean shutdown — flush queues, close connections."""
+        """安全退出 / 优雅关闭 —— 刷新缓冲区队列，关闭网络连接。"""
 
-    # -- Optional hooks (override to opt in) ---------------------------------
+    # -- 可选钩子函数（重写以启用相应功能）---------------------------------
 
     def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
         """在每轮对话开始时，使用用户消息调用。
@@ -186,50 +184,48 @@ class MemoryProvider(ABC):
         rewound: bool = False,
         **kwargs,
     ) -> None:
-        """Called when the agent switches session_id mid-process.
+        """当 Agent 在进程运行期间切换 session_id 时被调用。
 
-        Fires on ``/resume``, ``/branch``, ``/reset``, ``/new`` (CLI), the
-        gateway equivalents, and context compression — any path that
-        reassigns ``AIAgent.session_id`` without tearing the provider down.
+        在执行 ``/resume``、``/branch``、``/reset``、``/new``（CLI 命令）、
+        网关端等效操作以及上下文压缩时触发 —— 即任何在不销毁提供程序的前提下
+        重新分配 ``AIAgent.session_id`` 的路径。
 
-        Providers that cache per-session state in ``initialize()``
-        (``_session_id``, ``_document_id``, accumulated turn buffers,
-        counters) should update or reset that state here so subsequent
-        writes land in the correct session's record.
+        如果在 ``initialize()`` 中缓存了特定于会话的状态
+        （如 ``_session_id``、``_document_id``、累积的对话轮次缓冲区、计数器等），
+        提供程序应当在此处更新或重置这些状态，
+        以确保后续的写入操作能落入正确会话的记录中。
 
-        Parameters
+        参数
         ----------
         new_session_id:
-            The session_id the agent just switched to.
+            Agent 刚刚切换到的目标 session_id。
         parent_session_id:
-            The previous session_id, if meaningful — set for ``/branch``
-            (fork lineage), context compression (continuation lineage),
-            and ``/resume`` (the session we're leaving). Empty string
-            when no lineage applies.
+            先前的 session_id（如果该信息有意义）—— 适用于 ``/branch``（分叉血统/谱系关系）、
+            上下文压缩（延续血统/谱系关系）以及 ``/resume``（正在离开的会话）。
+            在无血统/谱系关联时为空字符串。
         reset:
-            ``True`` when this is a genuinely new conversation, not a
-            resumption of an existing one. Fired by ``/reset`` / ``/new``.
-            Providers should flush accumulated per-session buffers
-            (``_session_turns``, ``_turn_counter``, etc.) when this is
-            set. ``False`` for ``/resume`` / ``/branch`` / compression
-            where the logical conversation continues under the new id.
+            当这是一个全新的对话而非对现有对话的恢复时，该值为 ``True``。
+            由 ``/reset`` 或 ``/new`` 触发。
+            在此参数设为 ``True`` 时，提供程序应当刷新并清空已累积的单会话缓冲区
+            （如 ``_session_turns``、``_turn_counter`` 等）。
+            对于 ``/resume``、``/branch`` 或上下文压缩等逻辑对话在新的 ID 下继续进行的情况，
+            该值为 ``False``。
         rewound:
-            ``True`` if session_id is unchanged but the transcript was
-            truncated; providers caching per-turn document state should
-            invalidate.
+            如果 session_id 未发生改变但对话记录（transcript）被截断，该值为 ``True``；
+            缓存了单轮对话文档状态的提供程序应当将此类缓存标记为失效。
 
-        Default is no-op for backward compatibility.
+        为保持向下兼容性，默认不执行任何操作（no-op）。
         """
 
     def on_pre_compress(self, messages: List[Dict[str, Any]]) -> str:
-        """Called before context compression discards old messages.
+        """在上下文压缩丢弃旧消息之前被调用。
 
-        Use to extract insights from messages about to be compressed.
-        messages is the list that will be summarized/discarded.
+        可用于从即将被压缩的消息中提取关键信息/洞察。
+        messages 参数即是将要被总结或丢弃的消息列表。
 
-        Return text to include in the compression summary prompt so the
-        compressor preserves provider-extracted insights. Return empty
-        string for no contribution (backwards-compatible default).
+        返回希望包含在压缩总结提示词（Prompt）中的文本，
+        以便压缩器能够保留由提供程序提取出的关键洞察。
+        若无需补充任何内容，则返回空字符串（保持向下兼容的默认行为）。
         """
         return ""
 
@@ -247,40 +243,39 @@ class MemoryProvider(ABC):
         """
 
     def get_config_schema(self) -> List[Dict[str, Any]]:
-        """Return config fields this provider needs for setup.
+        """返回该提供程序进行安装/设置时所需的配置字段。
 
-        Used by 'hermes memory setup' to walk the user through configuration.
-        Each field is a dict with:
-          key:         config key name (e.g. 'api_key', 'mode')
-          description: human-readable description
-          secret:      True if this should go to .env (default: False)
-          required:    True if required (default: False)
-          default:     default value (optional)
-          choices:     list of valid values (optional)
-          url:         URL where user can get this credential (optional)
-          env_var:     explicit env var name for secrets (default: auto-generated)
+        供 'hermes memory setup' 命令使用，引导用户完成配置过程。
+        每个字段都是一个字典（dict），结构如下：
+          key:         配置键名（例如 'api_key', 'mode'）
+          description: 易于理解的文字描述
+          secret:      若该配置应保存至 .env 文件中则为 True（默认：False）
+          required:    若该项为必填项则为 True（默认：False）
+          default:     默认值（可选）
+          choices:     有效可选值列表（可选）
+          url:         用户获取该凭据的 URL 网址（可选）
+          env_var:     针对敏感信息（secrets）显式指定的环境变量名（默认：自动生成）
 
-        Return empty list if no config needed (e.g. local-only providers).
+        若无需任何配置（例如仅本地运行的提供程序），则返回空列表。
         """
         return []
 
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
-        """Write non-secret config to the provider's native location.
+        """将非敏感配置写入提供程序的原生位置。
 
-        Called by 'hermes memory setup' after collecting user inputs.
-        ``values`` contains only non-secret fields (secrets go to .env).
-        ``hermes_home`` is the active HERMES_HOME directory path.
+        由 'hermes memory setup' 命令在收集完用户输入后调用。
+        ``values`` 仅包含非敏感字段（敏感信息保存至 .env 文件中）。
+        ``hermes_home`` 为当前启用的 HERMES_HOME 目录路径。
 
-        Providers with native config files (JSON, YAML) should override
-        this to write to their expected location. Providers that use only
-        env vars can leave the default (no-op).
+        拥有原生配置文件（如 JSON、YAML）的提供程序应当重写此方法，
+        以将配置写入其预期的存储位置。仅使用环境变量的提供程序
+        保持默认实现即可（不执行任何操作）。
 
-        All new memory provider plugins MUST implement either:
-        - save_config() for native config file formats, OR
-        - use only env vars (in which case get_config_schema() fields
-          should all have ``env_var`` set and this method stays no-op).
+        所有新增的内存提供程序插件必须实现以下方案之一：
+        - 实现 save_config() 以支持原生配置文件格式；或
+        - 仅使用环境变量（此时 get_config_schema() 中的所有字段
+          都应设置 ``env_var`` 属性，且本方法保持默认的 no-op 状态）。
         """
-
     def on_memory_write(
         self,
         action: str,
@@ -288,32 +283,32 @@ class MemoryProvider(ABC):
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Called when the built-in memory tool writes an entry.
+        """当内置内存工具写入条目时被调用。
 
-        action: 'add', 'replace', or 'remove'
-        target: 'memory' or 'user'
-        content: the entry content
-        metadata: structured provenance for the write, when available. Common
-          keys include ``write_origin``, ``execution_context``, ``session_id``,
-          ``parent_session_id``, ``platform``, and ``tool_name``.
+        action: 操作类型，为 'add'（添加）、'replace'（替换）或 'remove'（移除）
+        target: 写入目标，为 'memory'（内存）或 'user'（用户）
+        content: 写入的条目内容
+        metadata: 写入操作的结构化出处/溯源信息（若可用）。常见键名包括：
+          ``write_origin``、``execution_context``、``session_id``、
+          ``parent_session_id``、``platform`` 以及 ``tool_name``。
 
-        Use to mirror built-in memory writes to your backend.
+        用于将内置内存的写入操作同步/镜像至你的后端。
         """
 
     def backup_paths(self) -> List[str]:
-        """Return extra on-disk paths this provider stores OUTSIDE HERMES_HOME.
+        """返回该提供程序存储在 HERMES_HOME 【之外】的额外磁盘路径。
 
-        ``hermes backup`` only walks HERMES_HOME, so any provider state kept
-        under ``~/.honcho``, ``~/.hindsight``, ``~/.openviking``, etc. is lost
-        across a backup/import cycle unless it's declared here.
+        ``hermes backup`` 仅会遍历 HERMES_HOME 目录，因此如果不在此处声明，
+        任何保存在 ``~/.honcho``、``~/.hindsight``、``~/.openviking`` 等路径下的
+        提供程序状态，都将在“备份/导入”循环中丢失。
 
-        Return a list of absolute path strings (files or directories). The
-        backup command resolves each, captures the ones that exist and live
-        under the user's home directory into a reserved ``_external/`` subtree
-        of the archive, and ``hermes import`` restores them to their original
-        locations. Paths outside the home directory are skipped for safety.
+        返回绝对路径字符串（文件或目录）组成的列表。
+        备份命令会解析每个路径，并将存在且位于用户主目录（home directory）下的路径
+        提取并存入归档文件中保留的 ``_external/`` 子树中；
+        随后的 ``hermes import`` 则会将它们还原至原始位置。
+        为了安全起见，主目录之外的路径将被忽略。
 
-        MUST be callable without ``initialize()`` and without network — resolve
-        from config/env only. Default returns an empty list (nothing external).
+        本方法【必须】可以在未调用 ``initialize()`` 且无网络连接的情况下被调用 ——
+        仅从配置或环境变量中解析。默认返回空列表（无外部路径）。
         """
         return []

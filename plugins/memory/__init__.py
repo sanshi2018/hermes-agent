@@ -181,13 +181,13 @@ def discover_memory_providers() -> List[Tuple[str, str, bool]]:
 
 
 def load_memory_provider(name: str) -> Optional["MemoryProvider"]:
-    """Load and return a MemoryProvider instance by name.
+    """根据名称加载并返回一个 MemoryProvider 实例。
 
-    Checks both bundled (``plugins/memory/<name>/``) and user-installed
-    (``$HERMES_HOME/plugins/<name>/``) directories.  Bundled takes
-    precedence on name collisions.
+    同时检查内置的（``plugins/memory/<name>/``）以及
+    用户安装的（``$HERMES_HOME/plugins/<name>/``）目录。
+    发生名称冲突时，内置提供程序享有优先权。
 
-    Returns None if the provider is not found or fails to load.
+    如果未找到该提供程序或加载失败，则返回 None。
     """
     provider_dir = find_provider_dir(name)
     if not provider_dir:
@@ -206,15 +206,15 @@ def load_memory_provider(name: str) -> Optional["MemoryProvider"]:
 
 
 def _load_provider_from_dir(provider_dir: Path) -> Optional["MemoryProvider"]:
-    """Import a provider module and extract the MemoryProvider instance.
+    """导入提供程序模块并提取 MemoryProvider 实例。
 
-    The module must have either:
-    - A register(ctx) function (plugin-style) — we simulate a ctx
-    - A top-level class that extends MemoryProvider — we instantiate it
+    该模块必须具备以下形式之一：
+    - 包含 register(ctx) 函数（插件风格）—— 我们会模拟传入一个 ctx
+    - 包含继承自 MemoryProvider 的顶层类 —— 我们会将其实例化
     """
     name = provider_dir.name
-    # Use a separate namespace for user-installed plugins so they don't
-    # collide with bundled providers in sys.modules.
+    # 为用户安装的插件使用独立的命名空间，
+    # 以避免它们与 sys.modules 中内置的提供程序发生名称冲突。
     _is_bundled = _MEMORY_PLUGINS_DIR in provider_dir.parents or provider_dir.parent == _MEMORY_PLUGINS_DIR
     module_name = f"plugins.memory.{name}" if _is_bundled else f"{_USER_NAMESPACE}.{name}"
     init_file = provider_dir / "__init__.py"
@@ -222,15 +222,16 @@ def _load_provider_from_dir(provider_dir: Path) -> Optional["MemoryProvider"]:
     if not init_file.exists():
         return None
 
-    # Check if already loaded.  A synthetic package shell registered by
-    # discover_plugin_cli_commands() for relative-import support has no
-    # __file__; only reuse modules that were actually loaded from disk.
+    # 检查是否已加载。
+    # 由 discover_plugin_cli_commands() 注册用于支持相对导入的
+    # 虚拟包外壳（Synthetic Package Shell）不包含 __file__ 属性；
+    # 此处仅复用真正从磁盘加载的模块。
     cached = sys.modules.get(module_name)
     if cached is not None and getattr(cached, "__file__", None):
         mod = cached
     else:
-        # Handle relative imports within the plugin
-        # First ensure the parent packages are registered
+        # 处理插件内部的相对导入
+        # 首先确保父级包已完成注册
         for parent in ("plugins", "plugins.memory"):
             if parent not in sys.modules:
                 parent_path = Path(__file__).parent

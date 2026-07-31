@@ -1,24 +1,24 @@
-"""MemoryManager — orchestrates memory providers for the agent.
+"""MemoryManager — 为 Agent 协调并管理内存提供程序。
 
-Single integration point in run_agent.py. Replaces scattered per-backend
-code with one manager that delegates to registered providers.
+它是 run_agent.py 中唯一的集成点。通过该统一的管理器
+将请求分发给各个已注册的提供程序，从而取代先前零散分布在各后端的代码。
 
-Only ONE external plugin provider is allowed at a time — attempting to
-register a second external provider is rejected with a warning.  This
-prevents tool schema bloat and conflicting memory backends.
+同一时间内仅允许启用【一个】外部插件提供程序 —— 尝试注册
+第二个外部提供程序将被拒绝并抛出警告。
+这可以有效地防止工具 Schema 膨胀以及内存后端发生冲突。
 
-Usage in run_agent.py:
+在 run_agent.py 中的用法：
     self._memory_manager = MemoryManager()
-    # Only ONE of these:
+    # 以下项仅可添加【一个】：
     self._memory_manager.add_provider(plugin_provider)
 
-    # System prompt
+    # 系统提示词 (System Prompt)
     prompt_parts.append(self._memory_manager.build_system_prompt())
 
-    # Pre-turn
+    # 每一轮对话开始前
     context = self._memory_manager.prefetch_all(user_message)
 
-    # Post-turn
+    # 每一轮对话结束后
     self._memory_manager.sync_all(user_msg, assistant_response)
     self._memory_manager.queue_prefetch_all(user_msg)
 """
@@ -372,11 +372,11 @@ class MemoryManager:
     # -- Registration --------------------------------------------------------
 
     def add_provider(self, provider: MemoryProvider) -> None:
-        """Register a memory provider.
+        """注册一个内存提供程序。
 
-        Built-in provider (name ``"builtin"``) is always accepted.
-        Only **one** external (non-builtin) provider is allowed — a second
-        attempt is rejected with a warning.
+        内置提供程序（名称为 ``"builtin"``）总是被允许接受。
+        仅允许启用 **一个** 外部（非内置）提供程序 —— 第二次
+        尝试注册将被拒绝并抛出警告。
         """
         is_builtin = provider.name == "builtin"
 
@@ -397,13 +397,12 @@ class MemoryManager:
 
         self._providers.append(provider)
 
-        # Core tool names are reserved — a memory provider must never register
-        # a tool that shadows a built-in (e.g. ``clarify``, ``delegate_task``).
-        # Built-ins always win, so such a tool is dropped at agent init and
-        # would otherwise linger in ``_tool_to_provider`` and hijack dispatch
-        # (#40466). Reject it here, at the door, so it never enters the routing
-        # table at all — matching the built-ins-always-win invariant used by
-        # the TTS/browser/search provider registries.
+        # 核心工具名称是保留的 —— 内存提供程序绝不能注册
+        # 与内置工具同名的工具（例如 ``clarify``、``delegate_task``）。
+        # 内置工具始终拥有最高优先级，因此此类同名工具会在 Agent 初始化时被丢弃，
+        # 否则它会滞留在 ``_tool_to_provider`` 中并劫持分发逻辑
+        # (#40466)。在此处（入口处）就拒绝注册，使其完全无法进入路由表 ——
+        # 这与 TTS/浏览器/搜索提供程序注册表所遵循的“内置工具始终优先”不变性保持一致。
         from toolsets import _HERMES_CORE_TOOLS
 
         _core_tool_names = set(_HERMES_CORE_TOOLS)
@@ -518,11 +517,12 @@ class MemoryManager:
         return "\n\n".join(parts)
 
     def queue_prefetch_all(self, query: str, *, session_id: str = "") -> None:
-        """Queue background prefetch on all providers for the next turn.
+        """为下一轮对话在所有提供程序上排队预加载后台检索。
 
-        Provider work is dispatched to a background worker so a slow or
-        wedged provider can never block the caller. See ``sync_all`` for
-        the full rationale (agent stuck "running" minutes after a turn).
+        提供程序的工作会被分发给后台工作线程（Worker），
+        因此某个响应缓慢或卡死（wedged）的提供程序绝不会阻塞调用方。
+        有关完整的原理解释（例如 Agent 在一轮对话结束后陷入“运行中”数分钟），
+        请参阅 ``sync_all``。
         """
         providers = list(self._providers)
         if not providers:
@@ -840,29 +840,28 @@ class MemoryManager:
         rewound: bool = False,
         **kwargs,
     ) -> None:
-        """Notify all providers that the agent's session_id has rotated.
+        """通知所有提供程序 Agent 的 session_id 已发生变更/轮换。
 
-        Fires on ``/resume``, ``/branch``, ``/reset``, ``/new``, and
-        context compression — any path that reassigns
-        ``AIAgent.session_id`` without tearing the provider down.
+        在执行 ``/resume``、``/branch``、``/reset``、``/new``
+        以及上下文压缩时触发 —— 即任何在不销毁提供程序的前提下
+        重新分配 ``AIAgent.session_id`` 的路径。
 
-        Providers keep running; they only need to refresh cached
-        per-session state so subsequent writes land in the correct
-        session's record. See ``MemoryProvider.on_session_switch`` for
-        the full contract.
+        提供程序将保持运行状态；它们仅需刷新已缓存的特定于会话的状态，
+        以确保后续的写入操作能落入正确会话的记录中。
+        有关完整的接口约定，请参阅 ``MemoryProvider.on_session_switch``。
 
-        ``rewound=True`` signals that session_id is unchanged but the
-        transcript was truncated; providers caching per-turn document
-        state should invalidate.
+        ``rewound=True`` 标志表示 session_id 未发生改变，
+        但对话记录（transcript）被截断了；
+        缓存了单轮对话文档状态的提供程序应当将此类缓存标记为失效。
         """
         if not new_session_id:
             return
-        # Only forward ``rewound`` when it's actually set. Passing it
-        # unconditionally would inject ``rewound=False`` into every
-        # provider's **kwargs for the common /resume, /branch, /new, and
-        # compression paths, polluting providers that capture extra kwargs
-        # (and breaking exact-dict assertions). The /undo path sets
-        # rewound=True explicitly; everyone else stays clean.
+        # 仅在实际设置了 `rewound` 时才进行传递。
+        # 如果无条件传递该参数，会在常见的 /resume、/branch、/new 以及压缩路径中，
+        # 向每个 provider 的 **kwargs 中注入 `rewound=False`。
+        # 这会污染那些捕获额外 kwargs 的 provider（并破坏精确字典断言）。
+        # /undo 路径会明确设置 `rewound=True`；
+        # 其他所有路径则保持干净（不带此参数）。
         if rewound:
             kwargs["rewound"] = True
         for provider in self._providers:
@@ -1115,11 +1114,11 @@ class MemoryManager:
             logger.debug("Memory sync executor drain wait failed: %s", e)
 
     def initialize_all(self, session_id: str, **kwargs) -> None:
-        """Initialize all providers.
+        """初始化所有提供程序。
 
-        Automatically injects ``hermes_home`` into *kwargs* so that every
-        provider can resolve profile-scoped storage paths without importing
-        ``get_hermes_home()`` themselves.
+        自动将 ``hermes_home`` 注入到 *kwargs* 中，
+        以便每个提供程序都能自行解析 Profile 作用域的存储路径，
+        而无需自行导入 ``get_hermes_home()``。
         """
         if "hermes_home" not in kwargs:
             from hermes_constants import get_hermes_home

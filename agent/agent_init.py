@@ -1372,11 +1372,9 @@ def init_agent(
                 agent._memory_store.load_from_disk()
         except Exception:
             pass  # Memory is optional -- don't break agent init
-    
 
-
-    # Memory provider plugin (external — one at a time, alongside built-in)
-    # Reads memory.provider from config to select which plugin to activate.
+    # 内存提供程序插件（外部插件 —— 同一时间内仅允许启用一个，与内置程序共存）
+    # 从配置中读取 memory.provider 项，以选择要激活的插件。
     agent._memory_manager = None
     if not skip_memory:
         try:

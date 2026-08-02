@@ -60,14 +60,14 @@ def reset_current_write_origin(token: contextvars.Token[str]) -> None:
 
 
 def get_current_write_origin() -> str:
-    """Return the active write origin.
+    """返回当前处于激活状态的写入来源（write origin）。
 
-    Default: "foreground" — any tool call made by a regular (non-review)
-    agent, from the CLI, the gateway, cron, or a subagent.
+    默认值："foreground" —— 任何由常规（非审查）Agent、
+    命令行界面（CLI）、网关（gateway）、定时任务（cron）或子 Agent 调用的工具。
 
-    "background_review" — the self-improvement review fork; only skills
-    created under this origin should be marked agent-created for curator
-    management.
+    "background_review" —— 自我改进的审查分支（review fork）；
+    仅在此来源下创建的 Skill 才会被标记为 Agent 创建，
+    以供 Curator 进行管理。
     """
     return _write_origin.get()
 

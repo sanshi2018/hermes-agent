@@ -13,13 +13,14 @@ logger = logging.getLogger(__name__)
 
 
 def validate_within_dir(path: Path, root: Path) -> Optional[str]:
-    """Ensure *path* resolves to a location within *root*.
+    """确保 *path* 解析后的路径位于 *root* 目录之内。
 
-    Returns an error message string if validation fails, or ``None`` if the
-    path is safe.  Uses ``Path.resolve()`` to follow symlinks and normalize
-    ``..`` components.
+    如果校验失败则返回错误信息字符串，
+    如果路径安全则返回 ``None``。
+    该函数使用 ``Path.resolve()`` 来解析符号链接（symlinks）
+    并规范化 ``..`` 路径组件。
 
-    Usage::
+    用法示例：
 
         error = validate_within_dir(user_path, allowed_root)
         if error:

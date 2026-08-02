@@ -89,24 +89,19 @@ def _restore_file_mode(path: Path, mode: "int | None") -> None:
 
 
 def atomic_replace(tmp_path: Union[str, Path], target: Union[str, Path]) -> str:
-    """Atomically move *tmp_path* onto *target*, preserving symlinks.
+    """以原子方式将 *tmp_path* 移动覆盖至 *target*，并保留符号链接（symlinks）。
 
-    ``os.replace(tmp, target)`` atomically swaps ``tmp`` into place at
-    ``target``.  When ``target`` is a symlink, the symlink itself is
-    replaced with a regular file — silently detaching managed deployments
-    that symlink ``config.yaml`` / ``SOUL.md`` / ``auth.json`` etc. from
-    ``~/.hermes/`` to a git-tracked profile package or dotfiles repo
-    (GitHub #16743).
+    `os.replace(tmp, target)` 会以原子方式将 `tmp` 替换至 `target` 的位置。
+    当 `target` 是一个符号链接时，该符号链接本身会被替换为一个普通文件——
+    这会静默断开托管部署中将 `config.yaml` / `SOUL.md` / `auth.json` 等文件
+    从 `~/.hermes/` 链接到 Git 托管的配置包或 dotfiles 仓库的符号链接（GitHub #16743）。
 
-    This helper resolves the symlink first so ``os.replace`` writes to
-    the real file in-place while the symlink survives.  For non-symlink
-    and non-existent paths the behavior is identical to a plain
-    ``os.replace`` call unless the rename fails with ``EXDEV`` or ``EBUSY``;
-    those cases fall back to copy/fsync/unlink for cross-device, bind-mount,
-    and busy-file deployments.
+    本函数会先解析符号链接，使 `os.replace` 直接对真实的源文件进行原位写入，
+    从而保留符号链接。对于非符号链接或不存在的路径，其行为与普通的 `os.replace` 调用一致；
+    除非重命名因 `EXDEV` 或 `EBUSY` 错误而失败，在这些情况下会降级使用“复制/fsync/取消链接”的方案，
+    以支持跨设备、绑定挂载（bind-mount）和文件繁忙等部署场景。
 
-    Returns the resolved real path used for the replace, so callers that
-    need to re-apply permissions can target it instead of the symlink.
+    返回用于替换的已解析真实路径，以便需要重新应用权限的调用方能够直接针对真实文件进行操作，而非针对符号链接。
     """
     target_str = str(target)
     real_path = os.path.realpath(target_str) if os.path.islink(target_str) else target_str

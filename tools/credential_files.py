@@ -30,8 +30,8 @@ from hermes_cli.config import cfg_get
 
 logger = logging.getLogger(__name__)
 
-# Session-scoped list of credential files to mount.
-# Backed by ContextVar to prevent cross-session data bleed in the gateway pipeline.
+# 挂载凭据文件的会话级（Session-scoped）列表。
+# 由 ContextVar 提供支持，以防止网关流水线中发生跨会话的数据泄露。
 _registered_files_var: ContextVar[Dict[str, str]] = ContextVar("_registered_files")
 
 
@@ -58,15 +58,15 @@ def register_credential_file(
     relative_path: str,
     container_base: str = "/root/.hermes",
 ) -> bool:
-    """Register a credential file for mounting into remote sandboxes.
+    """注册一个凭据文件，以便挂载到远程沙箱中。
 
-    *relative_path* is relative to ``HERMES_HOME`` (e.g. ``google_token.json``).
-    Returns True if the file exists on the host and was registered.
+    *relative_path* 是相对于 ``HERMES_HOME`` 的相对路径（例如 ``google_token.json``）。
+    如果该文件存在于主机上且已被成功注册，则返回 True。
 
-    Security: rejects absolute paths and path traversal sequences (``..``).
-    The resolved host path must remain inside HERMES_HOME so that a malicious
-    skill cannot declare ``required_credential_files: ['../../.ssh/id_rsa']``
-    and exfiltrate sensitive host files into a container sandbox.
+    安全性：拒绝绝对路径和路径穿越序列（``..``）。
+    解析后的主机路径必须严格保留在 HERMES_HOME 内部，
+    以防止恶意 Skill 声明 ``required_credential_files: ['../../.ssh/id_rsa']``，
+    从而将敏感的主机文件外泄至容器沙箱中。
     """
     hermes_home = _resolve_hermes_home()
 
@@ -80,8 +80,9 @@ def register_credential_file(
 
     host_path = hermes_home / relative_path
 
-    # Resolve symlinks and normalise ``..`` before the containment check so
-    # that traversal like ``../. ssh/id_rsa`` cannot escape HERMES_HOME.
+    # 在进行包含关系检查（containment check）之前，
+    # 先解析符号链接并规范化 ``..``，
+    # 以确保类似于 ``../.ssh/id_rsa`` 的路径穿越无法逃逸出 HERMES_HOME。
     from tools.path_security import validate_within_dir
 
     containment_error = validate_within_dir(host_path, hermes_home)
@@ -108,11 +109,12 @@ def register_credential_files(
     entries: list,
     container_base: str = "/root/.hermes",
 ) -> List[str]:
-    """Register multiple credential files from skill frontmatter entries.
+    """根据 Skill Frontmatter 中的条目注册多个凭据文件。
 
-    Each entry is either a string (relative path) or a dict with a ``path``
-    key.  Returns the list of relative paths that were NOT found on the host
-    (i.e. missing files).
+    每个条目可以是一个字符串（相对路径），
+    或者是包含 ``path`` 键的字典。
+    返回在主机上未找到的相对路径列表
+    （即缺失的文件列表）。
     """
     missing = []
     for entry in entries:

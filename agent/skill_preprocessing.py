@@ -41,10 +41,11 @@ def substitute_template_vars(
     skill_dir: Path | None,
     session_id: str | None,
 ) -> str:
-    """Replace ${HERMES_SKILL_DIR} / ${HERMES_SESSION_ID} in skill content.
+    """替换 Skill 内容中的 ${HERMES_SKILL_DIR} / ${HERMES_SESSION_ID}。
 
-    Only substitutes tokens for which a concrete value is available --
-    unresolved tokens are left in place so the author can spot them.
+    仅对提供了具体数值的标记（token）进行替换 ——
+    未被解析的标记将原样保留，
+    以便开发者/作者进行排查。
     """
     if not content:
         return content
@@ -108,10 +109,10 @@ def expand_inline_shell(
     skill_dir: Path | None,
     timeout: int,
 ) -> str:
-    """Replace every !`cmd` snippet in ``content`` with its stdout.
+    """将 ``content`` 中的每个 !`cmd` 片段替换为其标准输出（stdout）。
 
-    Runs each snippet with the skill directory as CWD so relative paths in
-    the snippet work the way the author expects.
+    运行每个代码片段时，将 Skill 目录设为当前工作目录（CWD），
+    以便片段中的相对路径能够按照开发者预期的机制生效。
     """
     if "!`" not in content:
         return content
@@ -131,7 +132,8 @@ def preprocess_skill_content(
     session_id: str | None = None,
     skills_cfg: dict | None = None,
 ) -> str:
-    """Apply configured SKILL.md template and inline-shell preprocessing."""
+    """应用已配置的 SKILL.md 模板，
+    并执行内联 Shell（inline-shell）预处理。"""
     if not content:
         return content
 

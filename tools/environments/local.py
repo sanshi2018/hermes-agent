@@ -277,37 +277,41 @@ _ACTIVE_VENV_MARKER_VARS = ("VIRTUAL_ENV", "CONDA_PREFIX")
 
 
 def _is_hermes_internal_secret(key: str) -> bool:
-    """Return True for Hermes-internal secrets injected under *dynamic* names.
+    """对于在 *动态* 名称下注入的 Hermes 内部密钥，返回 True。
 
-    ``_HERMES_PROVIDER_ENV_BLOCKLIST`` is name-based and derived from the
-    provider/tool registries, but the gateway and CLI also inject secrets into
-    ``os.environ`` at runtime under names no static registry knows about:
+    ``_HERMES_PROVIDER_ENV_BLOCKLIST`` 是基于名称的，
+    且源自提供商/工具注册表，
+    但网关（gateway）和 CLI 也会在运行时向 ``os.environ`` 注入密钥，
+    其使用的名称是任何静态注册表都无法预知的：
 
-    - ``AUXILIARY_<TASK>_API_KEY`` / ``AUXILIARY_<TASK>_BASE_URL`` — per-task
-      side-LLM credentials bridged from ``config.yaml[auxiliary]`` by
-      ``gateway/run.py`` and ``cli.py`` (vision, web_extract, approval,
-      compression, and any plugin-registered auxiliary task). These are
-      separate, often higher-spend API keys plus base URLs that may point at
-      private endpoints; a model-authored shell command must never see them.
+    - ``AUXILIARY_<TASK>_API_KEY`` / ``AUXILIARY_<TASK>_BASE_URL`` ——
+      由 ``gateway/run.py`` 和 ``cli.py`` 从 ``config.yaml[auxiliary]`` 桥接过来的
+      按任务划分的辅助侧 LLM 凭据（包括 vision、web_extract、approval、
+      compression 以及任何插件注册的辅助任务）。
+      这些是独立的、通常开销更高的 API 密钥，
+      加上可能指向私有端点的 Base URL；
+      模型生成的 Shell 命令绝不能看到它们。
     - ``GATEWAY_RELAY_*_SECRET`` / ``GATEWAY_RELAY_*_KEY`` /
-      ``GATEWAY_RELAY_*_TOKEN`` — relay-auth material provisioned by the
-      gateway (``GATEWAY_RELAY_SECRET``, ``GATEWAY_RELAY_DELIVERY_KEY``).
-      These are Tier-1 gateway secrets, like the messaging bot tokens in
-      ``_ALWAYS_STRIP_KEYS``. Non-secret ``GATEWAY_RELAY_*`` routing hints
-      (``GATEWAY_RELAY_URL``, ``GATEWAY_RELAY_PLATFORMS``, …) are NOT matched
-      and remain visible.
+      ``GATEWAY_RELAY_*_TOKEN`` ——
+      由网关预配的中继认证材料（``GATEWAY_RELAY_SECRET``、``GATEWAY_RELAY_DELIVERY_KEY``）。
+      这些属于 1 级（Tier-1）网关密钥，
+      类似于 ``_ALWAYS_STRIP_KEYS`` 中的消息 Bot Token。
+      非密钥性质的 ``GATEWAY_RELAY_*`` 路由提示
+      （``GATEWAY_RELAY_URL``、``GATEWAY_RELAY_PLATFORMS``，……）
+      不会被匹配，并保持可见。
 
-    ``code_execution_tool.py`` already catches these via substring matching on
-    ``KEY`` / ``SECRET`` / ``TOKEN``; the terminal backend's narrower name-based
-    blocklist did not, which is the leak this predicate closes.
+    ``code_execution_tool.py`` 已经通过对 ``KEY`` / ``SECRET`` / ``TOKEN`` 的子串匹配
+    捕获了这些变量；
+    而终端后端较窄的基于名称的黑名单此前未能捕获，
+    这正是此谓词函数所修复的泄露漏洞。
 
-    This is the single source of truth for "Hermes-internal dynamic secret"
-    across every spawn path — the terminal ``_make_run_env`` /
-    ``_sanitize_subprocess_env`` filters, the Docker passthrough filter, and the
-    non-terminal :func:`hermes_subprocess_env` helper all call it, so the
-    dynamic patterns are stripped **unconditionally** regardless of
-    ``env_passthrough`` skill registration or ``inherit_credentials``. Nothing
-    a model-driving CLI legitimately needs matches these patterns.
+    这是在所有衍生路径（spawn path）中判定“Hermes 内部动态密钥”的唯一权威数据源 ——
+    终端的 ``_make_run_env`` / ``_sanitize_subprocess_env`` 过滤器、
+    Docker 透传过滤器，
+    以及非终端的 :func:`hermes_subprocess_env` 辅助函数都会调用它，
+    因此无论 ``env_passthrough`` Skill 注册状态或 ``inherit_credentials`` 如何，
+    这些动态模式都会被 **无条件** 剥离。
+    模型驱动 CLI 合法需要的任何内容都不符合这些模式。
     """
     upper = key.upper()
     if upper.startswith("AUXILIARY_") and (

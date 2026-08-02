@@ -57,10 +57,10 @@ INSTALL_POLICY = {
     "builtin":       ("allow",  "allow",   "allow"),
     "trusted":       ("allow",  "allow",   "block"),
     "community":     ("allow",  "block",   "block"),
-    # Agent-created: "ask" on dangerous surfaces as an error to the agent,
-    # which can retry without the flagged content. This gate only runs when
-    # skills.guard_agent_created is enabled (off by default) — see
-    # tools/skill_manager_tool.py::_guard_agent_created_enabled.
+    # Agent 创建的 Skill：将危险攻击面上的 "ask"（询问）以错误形式返回给 Agent，
+    # 使其可以在不包含标记内容的情况下重试。
+    # 此关卡仅在启用 skills.guard_agent_created 时运行（默认关闭）——
+    # 详见 tools/skill_manager_tool.py::_guard_agent_created_enabled。
     "agent-created": ("allow",  "allow",   "ask"),
 }
 
@@ -566,14 +566,14 @@ INVISIBLE_CHARS = {
 
 def scan_file(file_path: Path, rel_path: str = "") -> List[Finding]:
     """
-    Scan a single file for threat patterns and invisible unicode characters.
+    扫描单个文件中的威胁模式和不可见的 Unicode 字符。
 
-    Args:
-        file_path: Absolute path to the file
-        rel_path: Relative path for display (defaults to file_path.name)
+    参数：
+        file_path: 文件的绝对路径
+        rel_path: 用于显示的相对路径（默认为 file_path.name）
 
-    Returns:
-        List of findings (deduplicated per pattern per line)
+    返回：
+        发现项列表（对每行中的同一模式进行去重）
     """
     if not rel_path:
         rel_path = file_path.name
@@ -631,27 +631,26 @@ def scan_file(file_path: Path, rel_path: str = "") -> List[Finding]:
 
 def scan_skill(skill_path: Path, source: str = "community") -> ScanResult:
     """
-    Scan all files in a skill directory for security threats.
+    扫描 Skill 目录中的所有文件以检测安全威胁。
 
-    Performs:
-    1. Structural checks (file count, total size, binary files, symlinks)
-    2. Regex pattern matching on all text files
-    3. Invisible unicode character detection
+    执行以下检查：
+    1. 结构检查（文件数量、总大小、二进制文件、符号链接）
+    2. 对所有文本文件进行正则表达式模式匹配
+    3. 不可见 Unicode 字符检测
 
-    A skill may ship a `.skillignore` (or `.clawhubignore`) file with
-    gitignore-style patterns. Matching paths are excluded from BOTH the
-    structural checks and the pattern scan, so development/docs artifacts
-    that are not part of the installed skill (e.g. `SKILL-original.md`,
-    `docs/plans/`, `release-notes.md`) don't trip findings. The ignore
-    file itself is always excluded. Patterns cannot un-ignore the
-    skill's own `SKILL.md`, which is always scanned.
+    Skill 可以附带一个 `.skillignore`（或 `.clawhubignore`）文件，
+    该文件采用类似 gitignore 规则的匹配模式。
+    匹配到的路径将同时从**结构检查**和**模式扫描**中排除，
+    从而避免不属于已安装 Skill 的开发/文档产物（例如 `SKILL-original.md`、`docs/plans/`、`release-notes.md`）触发告警。
+    忽略文件本身始终会被排除。
+    规则模式无法取消对 Skill 自身 `SKILL.md` 的忽略，该文件始终会被扫描。
 
-    Args:
-        skill_path: Path to the skill directory (must contain SKILL.md)
-        source: Source identifier for trust level resolution (e.g. "openai/skills")
+    参数：
+        skill_path: Skill 目录路径（必须包含 SKILL.md）
+        source: 用于解析信任级别的来源标识符（例如 "openai/skills"）
 
-    Returns:
-        ScanResult with verdict, findings, and trust metadata
+    返回：
+        包含判定结果（verdict）、发现项（findings）及信任元数据的 ScanResult 对象
     """
     skill_name = skill_path.name
     trust_level = _resolve_trust_level(source)
@@ -765,14 +764,14 @@ def scan_skill_cached(
 
 def should_allow_install(result: ScanResult, force: bool = False) -> Tuple[bool, str]:
     """
-    Determine whether a skill should be installed based on scan result and trust.
+    根据扫描结果和信任级别，决定是否安装该 Skill。
 
-    Args:
-        result: Scan result from scan_skill()
-        force: If True, override blocked policy decisions for this scan result
+    参数：
+        result: scan_skill() 返回的扫描结果
+        force: 若为 True，则针对该扫描结果强制覆盖被拦截的策略决策
 
-    Returns:
-        (allowed, reason) tuple
+    返回：
+        (allowed, reason) 元组
     """
     policy = INSTALL_POLICY.get(result.trust_level, INSTALL_POLICY["community"])
     vi = VERDICT_INDEX.get(result.verdict, 2)

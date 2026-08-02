@@ -1,68 +1,68 @@
 #!/usr/bin/env python3
 """
-Skills Tool Module
+Skill 工具模块
 
-This module provides tools for listing and viewing skill documents.
-Skills are organized as directories containing a SKILL.md file (the main instructions)
-and optional supporting files like references, templates, and examples.
+本模块用于提供列出和查看 Skill 文档的工具。
+Skill 通常以目录的形式进行组织，其中包含一个 SKILL.md 文件（主指令文档），
+以及可选的支撑文件，如参考文档、模板和示例等。
 
-Inspired by Anthropic's Claude Skills system with progressive disclosure architecture:
-- Metadata (name ≤64 chars, description ≤1024 chars) - shown in skills_list
-- Full Instructions - loaded via skill_view when needed
-- Linked Files (references, templates) - loaded on demand
+灵感来源于 Anthropic 的 Claude Skills 系统，采用了渐进式披露（Progressive Disclosure）架构：
+- 元数据（名称 ≤ 64 字符，描述 ≤ 1024 字符） - 展示在 skills_list 中
+- 完整指令内容 - 需要时通过 skill_view 进行加载
+- 关联文件（参考文档、模板等） - 按需加载
 
-Directory Structure:
+目录结构：
     skills/
     ├── my-skill/
-    │   ├── SKILL.md           # Main instructions (required)
-    │   ├── references/        # Supporting documentation
+    │   ├── SKILL.md           # 主指令文档（必需）
+    │   ├── references/        # 支撑文档
     │   │   ├── api.md
     │   │   └── examples.md
-    │   ├── templates/         # Templates for output
+    │   ├── templates/         # 输出模板
     │   │   └── template.md
-    │   └── assets/            # Supplementary files (agentskills.io standard)
-    └── category/              # Category folder for organization
+    │   └── assets/            # 补充文件（agentskills.io 标准）
+    └── category/              # 用于分类整理的类别文件夹
         └── another-skill/
             └── SKILL.md
 
-SKILL.md Format (YAML Frontmatter, agentskills.io compatible):
+SKILL.md 格式（YAML Frontmatter，兼容 agentskills.io）：
     ---
-    name: skill-name              # Required, max 64 chars
-    description: Brief description # Required, max 1024 chars
-    version: 1.0.0                # Optional
-    license: MIT                  # Optional (agentskills.io)
-    platforms: [macos]            # Optional — restrict to specific OS platforms
-                                  #   Valid: macos, linux, windows
-                                  #   Omit to load on all platforms (default)
-    prerequisites:                # Optional — legacy runtime requirements
-      env_vars: [API_KEY]         #   Legacy env var names are normalized into
-                                  #   required_environment_variables on load.
-      commands: [curl, jq]        #   Command checks remain advisory only.
-    compatibility: Requires X     # Optional (agentskills.io)
-    metadata:                     # Optional, arbitrary key-value (agentskills.io)
+    name: skill-name              # 必需，最大 64 字符
+    description: 简短描述          # 必需，最大 1024 字符
+    version: 1.0.0                # 可选
+    license: MIT                  # 可选 (agentskills.io)
+    platforms: [macos]            # 可选 — 限制特定操作系统平台
+                                  #   有效值：macos, linux, windows
+                                  #   省略则默认在所有平台上加载
+    prerequisites:                # 可选 — 旧版运行时依赖要求
+      env_vars: [API_KEY]         #   旧版环境变量名在加载时会被
+                                  #   归一化（Normalize）转换为 required_environment_variables。
+      commands: [curl, jq]        #   命令检查仍仅作为建议性检查。
+    compatibility: 需要 X         # 可选 (agentskills.io)
+    metadata:                     # 可选，任意键值对 (agentskills.io)
       hermes:
         tags: [fine-tuning, llm]
         related_skills: [peft, lora]
     ---
 
-    # Skill Title
+    # Skill 标题
 
-    Full instructions and content here...
+    此处为完整的指令和内容...
 
-Available tools:
-- skills_list: List skills with metadata (progressive disclosure tier 1)
-- skill_view: Load full skill content (progressive disclosure tier 2-3)
+可用工具：
+- skills_list：列出包含元数据的 Skill 列表（渐进式披露第 1 层）
+- skill_view：加载完整 Skill 内容（渐进式披露第 2-3 层）
 
-Usage:
+用法示例：
     from tools.skills_tool import skills_list, skill_view, check_skills_requirements
 
-    # List all skills (returns metadata only - token efficient)
+    # 列出所有 Skill（仅返回元数据 - 节省 Token）
     result = skills_list()
 
-    # View a skill's main content (loads full instructions)
+    # 查看某个 Skill 的主内容（加载完整指令）
     content = skill_view("axolotl")
 
-    # View a reference file within a skill (loads linked file)
+    # 查看某个 Skill 内部的参考文件（加载关联文件）
     content = skill_view("axolotl", "references/dataset-formats.md")
 """
 
@@ -415,12 +415,15 @@ def _capture_required_environment_variables(
         }
 
     missing_names = [entry["name"] for entry in missing_entries]
-    # Most gateway surfaces (messaging platforms) can't prompt for a secret, so
-    # they short-circuit to the "unsupported" hint. Interactive gateway surfaces
-    # — the desktop app / TUI — set HERMES_INTERACTIVE and register a
-    # secret-capture callback that routes to a secure secret.request overlay, so
-    # they fall through and actually prompt. (HERMES_INTERACTIVE is the same flag
-    # tools/approval.py uses to tell an interactive surface from a messaging one.)
+    # 大多数网关界面（如消息平台）无法直接弹窗请求输入密钥，
+    # 因此它们会直接回退触发“不支持”的提示。
+    # 而交互式网关界面——例如桌面应用或终端用户界面（TUI）——
+    # 会设置 HERMES_INTERACTIVE 标志，
+    # 并注册一个捕获密钥的回调函数，
+    # 该回调会路由至安全的 secret.request 覆盖层（overlay），
+    # 从而跳过回退逻辑，真正向用户发起输入请求。
+    # （HERMES_INTERACTIVE 与 tools/approval.py 中使用的标志相同，
+    # 用于区分交互式界面与消息接收界面。）
     if _is_gateway_surface() and not env_var_enabled("HERMES_INTERACTIVE"):
         return {
             "missing_names": missing_names,
@@ -563,13 +566,13 @@ def _parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
 
 def _get_category_from_path(skill_path: Path) -> Optional[str]:
     """
-    Extract category from skill path based on directory structure.
+    根据目录结构从 Skill 路径中提取分类（category）。
 
-    For paths like: ~/.hermes/skills/mlops/axolotl/SKILL.md -> "mlops"
-    Also works for external skill dirs configured via skills.external_dirs.
+    对于形如 ~/.hermes/skills/mlops/axolotl/SKILL.md 的路径 -> 提取出 "mlops"
+    该方法同样适用于通过 skills.external_dirs 配置的外部 Skill 目录。
     """
-    # Try the active profile skills dir first (respects monkeypatching in tests),
-    # then fall back to external dirs from config.
+    # 优先尝试当前活跃配置文件的 Skill 目录（适配测试中的 Monkeypatch 机制），
+    # 若未匹配，则回退并尝试配置文件中的外部目录。
     dirs_to_check = [_skills_dir()]
     try:
         from agent.skill_utils import get_external_skills_dirs
@@ -669,31 +672,33 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
 
 
 def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
-    """Recursively find all skills in ~/.hermes/skills/ and external dirs.
+    """递归查找 ~/.hermes/skills/ 及外部目录中的所有 Skill。
 
-    Args:
-        skip_disabled: If True, return ALL skills regardless of disabled
-            state (used by ``hermes skills`` config UI). Default False
-            filters out disabled skills.
+    参数：
+        skip_disabled: 若为 True，则忽略禁用状态返回所有 Skill
+            （供 ``hermes skills`` 配置界面使用）。
+            默认为 False，会自动过滤掉已禁用的 Skill。
 
-    Returns:
-        List of skill metadata dicts (name, description, category).
+    返回：
+        Skill 元数据字典的列表（包含 name、description、category）。
 
-    Results are cached per-session; the cache is invalidated when the scan
-    signature changes (dir/category mtimes or the disabled-set) and expires
-    after a short TTL to bound staleness from in-place SKILL.md edits.
+    结果按会话进行缓存；当扫描特征发生变化
+    （如目录/分类的 mtime 修改时间改变，或禁用集合变更）时，
+    缓存会自动失效，且缓存包含较短的 TTL 存活时间，
+    以限制因原地修改 SKILL.md 所带来的数据滞后问题。
     """
     from agent.skill_utils import get_external_skills_dirs, iter_skill_index_files
 
     cache_key = _SKILLS_CACHE_KEY_DISABLED if skip_disabled else _SKILLS_CACHE_KEY_FILTERED
 
-    # Load disabled set once (not per-skill). Part of the cache signature:
-    # disabling a skill is a config change with no filesystem mtime bump.
+    # 一次性加载已禁用 Skill 集合（而非按每个 Skill 逐个加载）。
+    # 这是缓存特征（cache signature）的一部分：
+    # 禁用某项 Skill 属于配置变更，不会触发文件系统的修改时间（mtime）变动。
     disabled = set() if skip_disabled else _get_disabled_skill_names()
 
-    # Collect directories to scan — same resolution as the scan loop below
-    # (_skills_dir() resolves the LIVE profile HERMES_HOME; the module-level
-    # SKILLS_DIR can be stale in long-lived runtimes).
+    # 收集要扫描的目录 —— 解析逻辑与下方的扫描循环保持一致
+    # （_skills_dir() 会解析当前活跃配置文件的 HERMES_HOME；
+    # 模块级别的 SKILLS_DIR 在长生命周期的运行时中可能会陈旧过期）。
     dirs_to_scan: list = []
     active_skills_dir = _skills_dir()
     if active_skills_dir.exists():
@@ -717,8 +722,8 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
     skills = []
     seen_names: set = set()
 
-    # Scan local dir first, then external dirs (local takes precedence) —
-    # dirs_to_scan already resolved above for the signature.
+    # 先扫描本地目录，再扫描外部目录（本地优先）——
+    # 上文生成特征签名时，已将 dirs_to_scan 解析完毕。
     for scan_dir in dirs_to_scan:
         for skill_md in iter_skill_index_files(scan_dir, "SKILL.md"):
             if any(part in _EXCLUDED_SKILL_DIRS for part in skill_md.parts):
@@ -771,10 +776,10 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
                 )
                 continue
 
-    # Store in cache keyed by the scan signature computed BEFORE the scan
-    # (a write racing the scan changes the signature, so the next call
-    # re-scans rather than serving the torn result past the TTL). Same
-    # shallow-copy contract as the hit path — the caller may mutate.
+    # 使用在扫描前计算出的特征签名作为键存入缓存
+    # （如果在扫描过程中发生并发写入，则特征签名会被改变，
+    # 从而确保下次调用会重新扫描，而不是在 TTL 期间提供被损坏/不完整的结果）。
+    # 遵循与缓存命中路径相同的浅拷贝约定 —— 调用方可以对其进行修改。
     _SKILLS_CACHE[cache_key] = (signature, now, skills)
     return [dict(s) for s in skills]
 
@@ -785,18 +790,17 @@ def _sort_skills(skills: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def skills_list(category: str = None, task_id: str = None) -> str:
-    """
-    List all available skills (progressive disclosure tier 1 - minimal metadata).
+    """列出所有可用的 Skill（渐进式披露第 1 级 —— 最小化元数据）。
 
-    Returns only name + description to minimize token usage. Use skill_view() to
-    load full content, tags, related files, etc.
+    仅返回名称与描述以最小化 Token 消耗。
+    如需加载完整内容、标签、关联文件等信息，请使用 skill_view()。
 
-    Args:
-        category: Optional category filter (e.g., "mlops")
-        task_id: Optional task identifier used to probe the active backend
+    参数：
+        category: 可选的分类过滤器（例如 "mlops"）
+        task_id: 可选的任务标识符，用于探测当前激活的后端
 
-    Returns:
-        JSON string with minimal skill info: name, description, category
+    返回：
+        包含 Skill 最小化信息的 JSON 字符串：name、description、category
     """
     try:
         active_skills_dir = _skills_dir()
@@ -1120,8 +1124,9 @@ def skill_view(
             candidates.append((sd, smd))
 
         for search_dir in all_dirs:
-            # Strategy 1: direct path (e.g., "mlops/axolotl" or bare "axolotl"
-            # at the top of the dir).
+            # 策略 1：直接路径
+            # （例如："mlops/axolotl"，
+            # 或者是位于目录顶层单独的 "axolotl"）。
             direct_path = search_dir / name
             if (
                 not _is_skill_support_path(direct_path)
@@ -1134,9 +1139,9 @@ def skill_view(
             ):
                 _record(None, direct_path.with_suffix(".md"))
 
-            # Strategy 1b: categorized form for plugin namespace fall-through
-            # (e.g., a "myplugin:explore" name with no plugin registered also
-            # tries the on-disk path "myplugin/explore").
+            # 策略 1b：插件命名空间降级回退的分类形式
+            # （例如：对于未注册任何插件的名称 "myplugin:explore"，
+            # 也会尝试寻找磁盘路径 "myplugin/explore"）。
             if local_category_name:
                 categorized_path = search_dir / local_category_name
                 if (
@@ -1152,11 +1157,13 @@ def skill_view(
                 ):
                     _record(None, categorized_path.with_suffix(".md"))
 
-            # Strategy 2: recursive by directory name (catches nested skills
-            # like "foundations/runtime/explore-codebase" called by bare name),
-            # plus frontmatter `name:` lookup. `skills_list()` exposes the
-            # frontmatter name, so `skill_view(name)` must accept it too even
-            # when the on-disk directory is a shorter category/alias.
+            # 策略 2：按目录名递归搜索
+            # （捕获通过简短名称调用的嵌套 Skill，
+            # 例如 "foundations/runtime/explore-codebase"），
+            # 另外再加上 Frontmatter 中的 `name:` 查找。
+            # 由于 `skills_list()` 会暴露 Frontmatter 中定义的名称，
+            # 因此即使磁盘上的目录使用的是较短的分类名称或别名，
+            # `skill_view(name)` 也必须能够接受该名称。
             for found_skill_md in iter_skill_index_files(search_dir, "SKILL.md"):
                 if found_skill_md.parent.name == name:
                     _record(found_skill_md.parent, found_skill_md)
@@ -1169,10 +1176,11 @@ def skill_view(
                 if fm.get("name") == name:
                     _record(found_skill_md.parent, found_skill_md)
 
-            # Strategy 3: legacy flat <name>.md files anywhere under the dir.
-            # Exclude skill support docs: references/templates/assets/scripts
-            # are loaded through skill_view(skill, file_path=...) and must not
-            # shadow or collide with real skills that share the same basename.
+            # 策略 3：位于该目录下任意位置的旧版扁平 <name>.md 文件。
+            # 排除 Skill 的支持文档：
+            # references/templates/assets/scripts 目录下的文件
+            # 是通过 skill_view(skill, file_path=...) 加载的，
+            # 绝不能遮蔽（shadow）或碰撞（collide）共享相同基准名称（basename）的真实 Skill。
             for found_md in search_dir.rglob(f"{name}.md"):
                 if found_md.name != "SKILL.md" and not _is_skill_support_path(
                     found_md
@@ -1230,8 +1238,8 @@ def skill_view(
                 ensure_ascii=False,
             )
 
-        # Security: warn if skill is loaded from outside trusted directories
-        # (local skills dir + configured external_dirs are all trusted)
+        # 安全性提醒：如果 Skill 从受信任目录之外加载，则发出警告
+        # （本地 skills 目录与配置的 external_dirs 均属于受信任目录）
         _outside_skills_dir = True
         _trusted_dirs = [active_skills_dir.resolve()]
         try:
@@ -1246,8 +1254,8 @@ def skill_view(
             except ValueError:
                 continue
 
-        # Security: detect common prompt injection patterns
-        # (pattern list at module level as _INJECTION_PATTERNS)
+        # 安全性检测：检测常见的提示词注入（prompt injection）模式
+        # （模式列表在模块层级定义为 _INJECTION_PATTERNS）
         _content_lower = content.lower()
         _injection_detected = any(p in _content_lower for p in _INJECTION_PATTERNS)
 
@@ -1289,11 +1297,11 @@ def skill_view(
                 ensure_ascii=False,
             )
 
-        # If a specific file path is requested, read that instead
+        # 如果指定请求了具体的文件路径，则改为读取该路径的文件
         if file_path and skill_dir:
             from tools.path_security import validate_within_dir, has_traversal_component
 
-            # Security: Prevent path traversal attacks
+            # 安全性防护：防止路径穿越攻击（path traversal attacks）
             if has_traversal_component(file_path):
                 return json.dumps(
                     {
@@ -1449,8 +1457,9 @@ def skill_view(
                         [str(f.relative_to(skill_dir)) for f in scripts_dir.glob(ext)]
                     )
 
-        # Read tags/related_skills with backward compat:
-        # Check metadata.hermes.* first (agentskills.io convention), fall back to top-level
+        # 读取 tags/related_skills 并保持向下兼容（backward compat）：
+        # 优先检查 metadata.hermes.*（agentskills.io 规范），
+        # 如果不存在则降级回退（fall back）到顶层字段
         hermes_meta = {}
         metadata = frontmatter.get("metadata")
         if isinstance(metadata, dict):
@@ -1505,9 +1514,10 @@ def skill_view(
         )
         setup_needed = bool(remaining_missing_required_envs)
 
-        # Register available skill env vars so they pass through to sandboxed
-        # execution environments (execute_code, terminal).  Only vars that are
-        # actually set get registered — missing ones are reported as setup_needed.
+        # 注册可用的 Skill 环境变量，
+        # 以便将它们传递到沙箱化执行环境中（如 execute_code、terminal）。
+        # 只有实际已设置的变量会被注册 ——
+        # 未设置的变量将被报告为 setup_needed。
         available_env_names = [
             e["name"]
             for e in required_env_vars
@@ -1525,9 +1535,10 @@ def skill_view(
                     exc_info=True,
                 )
 
-        # Register credential files for mounting into remote sandboxes
-        # (Modal, Docker).  Files that exist on the host are registered;
-        # missing ones are added to the setup_needed indicators.
+        # 注册凭据文件，以便挂载到远程沙箱
+        # （如 Modal、Docker）中。
+        # 主机上已存在的文件会被注册；
+        # 缺失的文件则会被添加到 setup_needed 状态指标中。
         required_cred_files_raw = frontmatter.get("required_credential_files", [])
         if not isinstance(required_cred_files_raw, list):
             required_cred_files_raw = []
@@ -1680,7 +1691,39 @@ if __name__ == "__main__":
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
-
+# SKILLS_LIST_SCHEMA = {
+#     "name": "skills_list",
+#     "description": "列出所有可用的 Skill（包含名称和描述）。若要加载完整内容，请使用 skill_view(name)。",
+#     "parameters": {
+#         "type": "object",
+#         "properties": {
+#             "category": {
+#                 "type": "string",
+#                 "description": "可选的分类过滤器，用于缩小搜索结果范围",
+#             }
+#         },
+#         "required": [],
+#     },
+# }
+#
+# SKILL_VIEW_SCHEMA = {
+#     "name": "skill_view",
+#     "description": "Skill 用于加载特定任务和工作流的相关信息，以及脚本和模板。该工具可加载 Skill 的完整内容，或访问其关联的文件（参考文档、模板、脚本）。首次调用将返回 SKILL.md 的内容，以及展示可用的参考文档/模板/脚本的 'linked_files' 字典。若要访问这些关联文件，请携带 file_path 参数再次调用。",
+#     "parameters": {
+#         "type": "object",
+#         "properties": {
+#             "name": {
+#                 "type": "string",
+#                 "description": "Skill 的名称（可使用 skills_list 查看所有可用 Skill）。对于插件提供的 Skill，请使用限定名称格式 'plugin:skill'（例如 'superpowers:writing-plans'）。",
+#             },
+#             "file_path": {
+#                 "type": "string",
+#                 "description": "可选参数：Skill 内部关联文件的相对路径（例如 'references/api.md'、'templates/config.yaml'、'scripts/validate.py'）。省略此参数则获取主要的 SKILL.md 内容。",
+#             },
+#         },
+#         "required": ["name"],
+#     },
+# }
 SKILLS_LIST_SCHEMA = {
     "name": "skills_list",
     "description": "List available skills (name + description). Use skill_view(name) to load full content.",

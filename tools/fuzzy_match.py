@@ -50,18 +50,18 @@ def _unicode_normalize(text: str) -> str:
 def fuzzy_find_and_replace(content: str, old_string: str, new_string: str,
                             replace_all: bool = False) -> Tuple[str, int, Optional[str], Optional[str]]:
     """
-    Find and replace text using a chain of increasingly fuzzy matching strategies.
+    使用一连串模糊程度递增的匹配策略进行查找与替换。
 
-    Args:
-        content: The file content to search in
-        old_string: The text to find
-        new_string: The replacement text
-        replace_all: If True, replace all occurrences; if False, require uniqueness
+    参数：
+        content: 拟在其中进行搜索的文件内容
+        old_string: 待查找的文本
+        new_string: 替换后的文本
+        replace_all: 若为 True，则替换所有匹配项；若为 False，则要求匹配项必须唯一
 
-    Returns:
-        Tuple of (new_content, match_count, strategy_name, error_message)
-        - If successful: (modified_content, number_of_replacements, strategy_used, None)
-        - If failed: (original_content, 0, None, error_description)
+    返回：
+        元组 (new_content, match_count, strategy_name, error_message)
+        - 成功时返回：(修改后的内容, 替换次数, 所用策略名称, None)
+        - 失败时返回：(原始内容, 0, None, 错误描述信息)
     """
     if not old_string:
         return content, 0, None, "old_string cannot be empty"
@@ -93,16 +93,15 @@ def fuzzy_find_and_replace(content: str, old_string: str, new_string: str,
                     f"Provide more context to make it unique, or use replace_all=True."
                 )
 
-            # Escape-drift guard: when the matched strategy is NOT `exact`,
-            # we matched via some form of normalization. If new_string
-            # contains shell/JSON-style escape sequences (\' or \") that
-            # would be written literally into the file but the matched
-            # region of the file has no such sequences, this is almost
-            # certainly tool-call serialization drift — the model typed
-            # an apostrophe/quote and the transport added a stray
-            # backslash. Writing new_string as-is would corrupt the file.
-            # Block with a helpful error so the model re-reads and retries
-            # instead of the caller silently persisting garbage (or not).
+            # 转义漂移防护机制：当匹配到的策略不是 `exact`（精确匹配）时，
+            # 说明我们是通过某种形式的标准化处理才完成匹配的。
+            # 如果 new_string 中包含了 shell 或 JSON 风格的转义序列（如 \' 或 \"），
+            # 导致它们会被原封不动地字面写入文件中，但文件中被匹配到的区域
+            # 本身却没有这类转义序列，这几乎可以肯定是由工具调用序列化漂移造成的——
+            # 即模型输入了单引号/双引号，而传输层引入了多余的反斜杠。
+            # 此时直接按原样写入 new_string 会损坏文件。
+            # 因此抛出明确的提示信息予以拦截，让模型重新读取并重试，
+            # 以防止调用方在无感知的情况下将垃圾数据持久化落盘。
             if strategy_name != "exact":
                 drift_err = _detect_escape_drift(content, matches, old_string, new_string)
                 if drift_err:
@@ -158,32 +157,38 @@ def fuzzy_find_and_replace(content: str, old_string: str, new_string: str,
 
 def _detect_escape_drift(content: str, matches: List[Tuple[int, int]],
                          old_string: str, new_string: str) -> Optional[str]:
-    """Detect tool-call escape-drift artifacts in new_string.
+    """检测 new_string 中因工具调用转义漂移（escape-drift）产生的残留字符。
 
-    Looks for ``\\'`` or ``\\"`` sequences that are present in both
-    old_string and new_string (i.e. the model copy-pasted them as "context"
-    it intended to preserve) but don't exist in the matched region of the
-    file. That pattern indicates the transport layer inserted spurious
-    shell-style escapes around apostrophes or quotes — writing new_string
-    verbatim would literally insert ``\\'`` into source code.
+    查找在 old_string 和 new_string 中同时存在
+    （即模型将其作为打算保留的“上下文”进行了复制粘贴）、
+    但在文件匹配区域中并不存在的 ``\\'`` 或 ``\\"`` 序列。
+    这种特征表明传输层在单引号或双引号周围插入了伪造的 shell 风格转义字符——
+    如果原封不动地写入 new_string，会导致将 ``\\'`` 字面量直接插入到源代码中。
 
-    Returns an error string if drift is detected, None otherwise.
+    如果检测到转义漂移，则返回错误字符串，否则返回 None。
     """
-    # Cheap pre-check: bail out unless new_string actually contains a
-    # suspect escape sequence. This keeps the guard free for all the
-    # common, correct cases.
+    # 快速预检查：除非 new_string 确实包含可疑的转义序列，
+    # 否则直接跳过处理。这保证了所有常见且正确的场景不会产生额外开销。
     if "\\'" not in new_string and '\\"' not in new_string:
         return None
 
-    # Aggregate matched regions of the file — that's what new_string will
-    # replace. If the suspect escapes are present there already, the
-    # model is genuinely preserving them (valid for some languages /
-    # escaped strings); accept the patch.
+    # 聚合文件中被匹配到的区域——即 new_string 将要替换的部分。
+    # 如果可疑的转义序列在这些区域中已经存在，
+    # 说明模型确实是在保留它们（这对某些语言或转义字符串是合理的）；
+    # 此时接受该补丁（patch）。
     matched_regions = "".join(content[start:end] for start, end in matches)
 
     for suspect in ("\\'", '\\"'):
         if suspect in new_string and suspect in old_string and suspect not in matched_regions:
             plain = suspect[1]  # "'" or '"'
+            # return (
+            #     f"检测到转义漂移（Escape-drift）：old_string 和 new_string 包含 "
+            #     f"字面量序列 {suspect!r}，但文件中被匹配的区域并不存在该序列。\n"
+            #     f"这几乎总是由于工具调用序列化过程产生的残留问题——\n"
+            #     f"单引号或双引号前被误加了多余的反斜杠。\n"
+            #     f"请使用 read_file 重新读取该文件，并在传入 old_string/new_string 时\n"
+            #     f"不要对 {plain!r} 字符进行反斜杠转义。"
+            # )
             return (
                 f"Escape-drift detected: old_string and new_string contain "
                 f"the literal sequence {suspect!r} but the matched region of "

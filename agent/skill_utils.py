@@ -43,10 +43,11 @@ EXCLUDED_SKILL_DIRS = frozenset(
     )
 )
 
-# Supporting files live inside a skill package and are loaded explicitly via
-# skill_view(skill, file_path=...). They are not standalone skills and must not
-# be scanned for active SKILL.md/DESCRIPTION.md entries, even if a Curator or
-# archive workflow preserves a complete old skill package under references/.
+# 支持文件存放在 Skill 包内部，
+# 并通过 skill_view(skill, file_path=...) 进行明确加载。
+# 它们并不是独立的 Skill，
+# 绝不能为了获取有效的 SKILL.md/DESCRIPTION.md 条目而去扫描它们，
+# 即使 Curator 或归档工作流在 references/ 目录下保留了一个完整的旧 Skill 包也是如此。
 SKILL_SUPPORT_DIRS = frozenset(("references", "templates", "assets", "scripts"))
 
 
@@ -71,23 +72,24 @@ def is_excluded_skill_path(path) -> bool:
 
 
 def is_skill_support_path(path) -> bool:
-    """True if *path* is under a support dir of an actual skill root.
+    """如果 *path* 位于实际 Skill 根目录下的支持目录中，则返回 True。
 
-    ``references/``, ``templates/``, ``assets/``, and ``scripts/`` are
-    progressive-disclosure support areas when they sit directly inside a skill
-    directory containing ``SKILL.md``. They are not active discovery roots for
-    standalone skills. A preserved package such as
-    ``some-skill/references/old-skill-package/SKILL.md`` is documentation data
-    unless the caller explicitly loads it via ``file_path``.
+    当 ``references/``、``templates/``、``assets/`` 和 ``scripts/``
+    直接放置在包含 ``SKILL.md`` 的 Skill 目录内部时，
+    它们属于渐进式展示（progressive-disclosure）的支持区域。
+    它们本身并不是用于发现独立 Skill 的活跃搜索根目录。
+    例如像 ``some-skill/references/old-skill-package/SKILL.md``
+    这样被保留的包仅作为文档数据对待，
+    除非调用方通过 ``file_path`` 明确对其进行加载。
 
-    Legitimate categories or skill names such as ``skills/scripts/foo`` remain
-    discoverable because their ``scripts`` component is not directly under a
-    directory that contains ``SKILL.md``.
+    而合法的类别或 Skill 名称（如 ``skills/scripts/foo``）仍然是可以被发现的，
+    因为它们的 ``scripts`` 组件并不直接位于
+    包含 ``SKILL.md`` 的目录之下。
     """
     path_obj = path if isinstance(path, Path) else Path(str(path))
     parts = path_obj.parts
-    # Last component may be a file or candidate skill directory name. Only
-    # components before the leaf can be containing support directories.
+    # 最后一个组件可能是文件名称，也可能是候选 Skill 的目录名称。
+    # 只有叶子节点之前的组件，才可能是包含它的支持目录（support directories）。
     for idx, part in enumerate(parts[:-1]):
         if part not in SKILL_SUPPORT_DIRS or idx == 0:
             continue

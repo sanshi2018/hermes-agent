@@ -46,24 +46,24 @@ _config_passthrough: frozenset[str] | None = None
 
 
 def _is_hermes_provider_credential(name: str) -> bool:
-    """True if ``name`` is a Hermes-managed provider credential (API key,
-    token, or similar) per ``_HERMES_PROVIDER_ENV_BLOCKLIST``.
+    """如果依据 ``_HERMES_PROVIDER_ENV_BLOCKLIST`` 判定，
+    ``name`` 属于 Hermes 管理的提供商凭据（API 密钥、Token 或类似凭据），
+    则返回 True。
 
-    Skill-declared ``required_environment_variables`` frontmatter must
-    not be able to override this list — that was the bypass in
-    GHSA-rhgp-j443-p4rf where a malicious skill registered
-    ``ANTHROPIC_TOKEN`` / ``OPENAI_API_KEY`` as passthrough and received
-    the credential in the ``execute_code`` child process, defeating the
-    sandbox's scrubbing guarantee.
+    Skill 声明的 ``required_environment_variables`` Frontmatter
+    绝不能覆盖此列表 —— 这正是 GHSA-rhgp-j443-p4rf 中的绕过漏洞：
+    恶意 Skill 将 ``ANTHROPIC_TOKEN`` / ``OPENAI_API_KEY`` 注册为透传变量，
+    从而在 ``execute_code`` 子进程中接收到了该凭据，
+    破坏了沙箱的凭据清理（scrubbing）保证。
 
-    Non-Hermes API keys (TENOR_API_KEY, NOTION_TOKEN, etc.) are NOT
-    in the blocklist and remain legitimately registerable — skills that
-    wrap third-party APIs still work.
+    非 Hermes 的 API 密钥（如 TENOR_API_KEY、NOTION_TOKEN 等）
+    并不在黑名单中，依然可以合法注册 ——
+    封装第三方 API 的 Skill 仍可正常工作。
 
-    Fail closed: if the authoritative blocklist cannot be imported (partial
-    install, import-time error, etc.) we treat the name as a protected
-    provider credential and refuse passthrough, rather than fall open and
-    let a skill tunnel a Hermes credential into the execute_code child.
+    故障收紧（Fail closed）：如果无法导入权威黑名单
+    （如部分安装、导入期错误等），
+    我们将该名称视为受保护的提供商凭据并拒绝透传，
+    而不是故障放开（fall open）导致 Skill 将 Hermes 凭据隧穿透传至 execute_code 子进程。
     """
     try:
         from tools.environments.local import (
@@ -78,31 +78,33 @@ def _is_hermes_provider_credential(name: str) -> bool:
             e,
         )
         return True
-    # Dynamically-generated Hermes-internal secrets (AUXILIARY_*_API_KEY /
-    # _BASE_URL side-LLM credentials, GATEWAY_RELAY_* relay-auth) are provider
-    # credentials the static blocklist can't enumerate — they're injected per
-    # task/relay at gateway startup. A skill must not be able to register them
-    # as passthrough and tunnel them into an execute_code / terminal child.
+    # 动态生成的 Hermes 内部密钥
+    # （辅助侧 LLM 凭据 AUXILIARY_*_API_KEY / _BASE_URL，
+    # 以及网关中继认证密钥 GATEWAY_RELAY_*）
+    # 均属于静态黑名单无法穷举列出的提供商凭据 ——
+    # 它们是在网关启动时根据每个任务/中继动态注入的。
+    # Skill 绝不能将它们注册为透传变量，
+    # 并将其隧穿透传至 execute_code / terminal 子进程中。
     if _is_hermes_internal_secret(name):
         return True
     return name in _HERMES_PROVIDER_ENV_BLOCKLIST
 
 
 def register_env_passthrough(var_names: Iterable[str]) -> None:
-    """Register environment variable names as allowed in sandboxed environments.
+    """将环境变量名称注册为沙箱环境中允许使用的变量。
 
-    Typically called when a skill declares ``required_environment_variables``.
+    通常在 Skill 声明 ``required_environment_variables`` 时被调用。
 
-    Variables that are Hermes-managed provider credentials (from
-    ``_HERMES_PROVIDER_ENV_BLOCKLIST``) are rejected here to preserve
-    the ``execute_code`` sandbox's credential-scrubbing guarantee per
-    GHSA-rhgp-j443-p4rf. A skill that needs to talk to a Hermes-managed
-    provider should do so via the agent's main-process tools (web_search,
-    web_extract, etc.) where the credential remains safely in the main
-    process.
+    对于属于 Hermes 管理的提供商凭据的变量
+    （来自 ``_HERMES_PROVIDER_ENV_BLOCKLIST``），
+    此处会予以拒绝，以维护 GHSA-rhgp-j443-p4rf 规范下
+    ``execute_code`` 沙箱对凭据清理（credential-scrubbing）的安全性保证。
+    如果某个 Skill 需要与 Hermes 管理的提供商通信，
+    应当通过 Agent 主进程的工具（如 web_search、web_extract 等）来进行，
+    这样凭据就可以安全地保留在主进程中。dd
 
-    Non-Hermes third-party API keys (TENOR_API_KEY, NOTION_TOKEN, etc.)
-    pass through normally — they were never in the sandbox scrub list.
+    非 Hermes 的第三方 API 密钥（如 TENOR_API_KEY、NOTION_TOKEN 等）
+    可以正常通过 —— 它们从来不在沙箱的清理列表中。
     """
     for name in var_names:
         name = name.strip()

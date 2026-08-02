@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-Skill Manager Tool -- Agent-Managed Skill Creation & Editing
+Skill Manager Tool -- Agent 管理的 Skill 创建与编辑工具
 
-Allows the agent to create, update, and delete skills, turning successful
-approaches into reusable procedural knowledge. New skills are created in
-~/.hermes/skills/. Existing skills (bundled, hub-installed, or user-created)
-can be modified or deleted wherever they live.
+允许 Agent 创建、更新和删除 Skill，将成功的处理方法转化为可复用的过程性知识（procedural knowledge）。
+新创建的 Skill 会保存在 ~/.hermes/skills/ 目录下。
+已有 Skill（无论是系统内置、Hub 安装还是用户创建的）在其所在位置均可被修改或删除。
 
-Skills are the agent's procedural memory: they capture *how to do a specific
-type of task* based on proven experience. General memory (MEMORY.md, USER.md) is
-broad and declarative. Skills are narrow and actionable.
+Skill 是 Agent 的过程记忆（procedural memory）：
+它们根据已被验证的经验，记录“如何完成某种具体类型的任务”。
+通用记忆（如 MEMORY.md、USER.md）是广泛且陈述性的；
+而 Skill 则是精准且具可操作性的。
 
-Actions:
-  create     -- Create a new skill (SKILL.md + directory structure)
-  edit       -- Replace the SKILL.md content of a user skill (full rewrite)
-  patch      -- Targeted find-and-replace within SKILL.md or any supporting file
-  delete     -- Remove a user skill entirely
-  write_file -- Add/overwrite a supporting file (reference, template, script, asset)
-  remove_file-- Remove a supporting file from a user skill
+可用操作（Actions）：
+  create     -- 创建新的 Skill（包含 SKILL.md 及目录结构）
+  edit       -- 替换用户 Skill 中 SKILL.md 的内容（完全覆写）
+  patch      -- 在 SKILL.md 或任意配套文件中进行定向查找替换
+  delete     -- 完全删除一个用户 Skill
+  write_file -- 添加/覆盖配套文件（参考资料、模板、脚本、资源）
+  remove_file-- 从用户 Skill 中移除配套文件
 
-Directory layout for user skills:
+用户 Skill 的目录布局示例：
     ~/.hermes/skills/
     ├── my-skill/
     │   ├── SKILL.md
@@ -54,13 +54,13 @@ _background_review_read_paths: "_ctxvars.ContextVar[frozenset[str]]" = _ctxvars.
 
 
 def mark_background_review_skill_read(path: Path) -> None:
-    """Record that the active background-review fork has read a skill file.
+    """记录当前后台审查（background-review）分支已读取某个 Skill 文件。
 
-    The autonomous review fork is allowed to evolve skills, but it must not
-    patch or rewrite content it has only inferred from the transcript.  The
-    skill_view tool calls this after returning file content to the model; write
-    paths below require the corresponding target path to be present when the
-    current origin is ``background_review``.
+    自主审查分支允许演进 Skill，
+    但绝不能对仅凭对话记录（transcript）推断出的内容进行补丁修正或重写。
+    `skill_view` 工具在向模型返回文件内容后会调用此函数；
+    当当前的来源（origin）为 ``background_review`` 时，
+    后续的写入路径要求对应的目标路径必须已经被读取过。
     """
     try:
         from tools.skill_provenance import is_background_review
@@ -119,9 +119,9 @@ def _guard_agent_created_enabled() -> bool:
 
 
 def _security_scan_skill(skill_dir: Path) -> Optional[str]:
-    """Scan a skill directory after write. Returns error string if blocked, else None.
+    """在写入后扫描 Skill 目录。如果被拦截则返回错误字符串，否则返回 None。
 
-    No-op when skills.guard_agent_created is disabled (the default).
+    当禁用 skills.guard_agent_created（默认状态）时，此操作为无操作（No-op）。
     """
     if not _GUARD_AVAILABLE:
         return None
@@ -299,12 +299,11 @@ def _background_review_write_guard(
     skill_dir: Path,
     action: str,
 ) -> Optional[Dict[str, Any]]:
-    """Refuse autonomous curator writes to externally owned skills.
+    """拒绝自主策展人（Autonomous Curator）对外部所有 Skill 的写入操作。
 
-    Foreground agents may still perform user-directed edits to external,
-    bundled, or hub-installed skills. The background review fork is different:
-    it is autonomous lifecycle maintenance, so its write surface is restricted
-    to local curator-owned sediment.
+    前台 Agent 仍可根据用户指令，对外部的、预置的（bundled）或从 Hub 安装的 Skill 进行编辑。
+    后台审查分支（Background review fork）则有所不同：
+    它属于自主生命周期维护，因此其写入范围严格限制在本地策展人拥有的沉淀数据（sediment）内。
     """
     try:
         from tools.skill_provenance import is_background_review
@@ -313,12 +312,12 @@ def _background_review_write_guard(
     except Exception:
         return None
 
-    # Pin must be respected by autonomous maintenance. The curator already
-    # skips pinned skills from every auto-transition; the background review
-    # fork is the same kind of autonomous, no-user-present actor, so it must
-    # not write to a pinned skill either (issue #25839). This is stricter than
-    # the foreground ``_pinned_guard`` (which only blocks deletion) precisely
-    # because there is no user in the loop to consent to an edit here.
+    # 自主维护必须尊重固定状态（Pin）。
+    # 策展人（Curator）在进行任何自动状态变更时，都会跳过已被固定的 Skill；
+    # 后台审查分支同样属于此类无用户参与的自主执行体，
+    # 因此也不得对已被固定的 Skill 进行写入操作（issue #25839）。
+    # 这比前台的 ``_pinned_guard`` 更加严格（前台仅拦截删除操作），
+    # 原因正是此处没有用户参与并授权编辑。
     try:
         from tools import skill_usage
         if skill_usage.get_record(name).get("pinned"):
@@ -395,7 +394,17 @@ def _background_review_read_before_write_guard(
 
     if _background_review_has_read(target):
         return None
-
+    # return {
+    #     "success": False,
+    #     "error": (
+    #         f"拒绝后台策展人针对 Skill '{name}' 执行 {action} 操作：\n"
+    #         f"当前 {file_label} 的内容在此轮审查中尚未加载。\n"
+    #         "对于 SKILL.md，请先调用 skill_view(name)；\n"
+    #         "对于配套文件，请先调用 skill_view(name, file_path=...)，\n"
+    #         "然后使用刚刚返回的内容重新尝试写入。"
+    #     ),
+    #     "_read_before_write_required": True,
+    # }
     return {
         "success": False,
         "error": (
@@ -756,16 +765,15 @@ def _resolve_skill_target(skill_dir: Path, file_path: str) -> Tuple[Optional[Pat
 
 def _atomic_write_text(file_path: Path, content: str, encoding: str = "utf-8") -> None:
     """
-    Atomically write text content to a file.
-    
-    Uses a temporary file in the same directory and os.replace() to ensure
-    the target file is never left in a partially-written state if the process
-    crashes or is interrupted.
-    
-    Args:
-        file_path: Target file path
-        content: Content to write
-        encoding: Text encoding (default: utf-8)
+    以原子方式（Atomic）将文本内容写入文件。
+
+    在同一目录下使用临时文件并通过 os.replace() 进行替换，
+    以确保在进程崩溃或中断时，目标文件绝不会处于仅写入一部分的半完成状态。
+
+    参数：
+        file_path: 目标文件路径
+        content: 拟写入的内容
+        encoding: 文本编码（默认值：utf-8）
     """
     file_path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_path = tempfile.mkstemp(
@@ -918,10 +926,10 @@ def _patch_skill(
     file_path: str = None,
     replace_all: bool = False,
 ) -> Dict[str, Any]:
-    """Targeted find-and-replace within a skill file.
+    """在 Skill 文件中进行定向查找与替换。
 
-    Defaults to SKILL.md. Use file_path to patch a supporting file instead.
-    Requires a unique match unless replace_all is True.
+    默认针对 SKILL.md。如需修补配套文件，请使用 file_path 参数。
+    除非 replace_all 为 True，否则要求必须有唯一的匹配项。
     """
     if not old_string:
         return {"success": False, "error": "old_string is required for 'patch'."}
@@ -964,10 +972,9 @@ def _patch_skill(
 
     content = target.read_text(encoding="utf-8")
 
-    # Use the same fuzzy matching engine as the file patch tool.
-    # This handles whitespace normalization, indentation differences,
-    # escape sequences, and block-anchor matching — saving the agent
-    # from exact-match failures on minor formatting mismatches.
+    # 使用与文件补丁（patch）工具相同的模糊匹配引擎。
+    # 这可以处理空白字符标准化、缩进差异、转义序列以及块锚点匹配——
+    # 从而避免 Agent 因微小的格式不匹配而导致精确匹配失败。
     from tools.fuzzy_match import fuzzy_find_and_replace
 
     new_content, match_count, _strategy, match_error = fuzzy_find_and_replace(

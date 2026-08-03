@@ -430,26 +430,27 @@ def _background_review_preflight(action: str, name: str) -> Optional[Dict[str, A
 def _curator_consolidation_delete_guard(
     name: str, absorbed_into: Optional[str]
 ) -> Optional[Dict[str, Any]]:
-    """Fail closed on unverified deletes during the curator consolidation pass.
+    """在策展人合并阶段（curator consolidation pass）对未经验证的删除采取“默认拒绝（Fail closed）”策略。
 
-    The curator's forked review agent (``is_background_review()``) runs the
-    LLM umbrella-building pass. Its only legitimate ``skill_manage(delete)`` is
-    a *verified consolidation*: the skill's content was absorbed into an
-    umbrella, declared via ``absorbed_into=<umbrella>`` where the umbrella
-    exists on disk (validated separately in ``_delete_skill``).
+    策展人的派生审查 Agent（``is_background_review()``）负责运行 LLM 伞形构建阶段（LLM umbrella-building pass）。
+    其唯一合法的 ``skill_manage(delete)`` 操作是*经过验证的合并（verified consolidation）*：
+    即该技能的内容已被合并入一个伞形技能（umbrella）中，
+    并通过 ``absorbed_into=<umbrella>`` 进行声明，且该伞形技能必须存在于磁盘上
+    （此逻辑会在 ``_delete_skill`` 中单独进行校验）。
 
-    A delete with no forwarding target — ``absorbed_into`` omitted (``None``)
-    or empty (``""``) — is the fail-open behavior reported in #29912: the
-    consolidation pass archived whole clusters of active skills with zero
-    verified consolidations (``consolidated_this_run == 0``), leaving active
-    automations pointing at names that no longer resolve. The deterministic
-    inactivity prune is the only legitimate prune path, and it archives via
-    ``skill_usage.archive_skill()`` directly without ever calling
-    ``skill_manage`` — so a bare prune reaching here can only be the LLM pass
-    pruning without consolidation evidence. Refuse it; keep the skill active.
+    没有重定向目标的删除——即未提供 ``absorbed_into``（为 ``None``）或为空（为 ``""``）——
+    属于 #29912 中报告的“默认允许（fail-open）”行为：
+    合并阶段在未经任何验证合并（``consolidated_this_run == 0``）的情况下，
+    归档了整簇处于激活状态的技能，
+    导致现有的自动化程序指向了不再能够解析的技能名称。
+    确定性的“因无活动而裁减（inactivity prune）”是唯一合法的裁减路径，
+    且它会直接通过 ``skill_usage.archive_skill()`` 进行归档，
+    根本不会调用 ``skill_manage``——
+    因此，到达此处且未带合并依据的“裸裁减（bare prune）”，只能是 LLM 阶段在缺乏合并凭证时的裁减行为。
+    对此应予以拒绝，并保持该技能处于激活状态。
 
-    Returns an error dict to abort the delete, or ``None`` when the delete is
-    allowed to proceed (not the curator pass, or a declared consolidation).
+    返回一个错误字典以终止删除操作；
+    若允许继续执行删除（非策展人阶段，或已显式声明合并），则返回 ``None``。
     """
     try:
         from tools.skill_provenance import is_background_review
@@ -461,7 +462,19 @@ def _curator_consolidation_delete_guard(
     declared = isinstance(absorbed_into, str) and absorbed_into.strip()
     if declared:
         return None
-
+    # return {
+    #     "success": False,
+    #     "error": (
+    #         f"拒绝在后台策展人阶段删除技能 '{name}'："
+    #         "合并阶段仅允许归档已被吸收合并入伞形技能（umbrella）的技能。"
+    #         "请传入 absorbed_into=<umbrella>（该伞形技能必须已存在）"
+    #         "以记录一次经过验证的合并。"
+    #         "此处不允许裁减没有重定向/转发目标的技能——"
+    #         "确定性的无活动裁减逻辑会单独处理过期归档。"
+    #         "保持 '{name}' 处于激活状态。".format(name=name)
+    #     ),
+    #     "_fail_closed": True,
+    # }
     return {
         "success": False,
         "error": (
@@ -1032,16 +1045,17 @@ def _patch_skill(
 
 
 def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, Any]:
-    """Delete a skill.
+    """删除一个技能（skill）。
 
-    ``absorbed_into`` declares intent:
-      - ``None`` / missing  → caller didn't declare (legacy / non-curator path);
-        accepted for backward compat but logs a warning because the curator
-        classification pipeline can't tell consolidation from pruning without it.
-      - ``""`` (empty)      → explicit "truly pruned, no forwarding target".
-      - ``"<skill-name>"``  → content was absorbed into that umbrella; the
-        target must exist on disk. Validated here so the model can't claim an
-        umbrella that doesn't exist.
+    ``absorbed_into`` 用于声明操作意图：
+      - ``None`` / 缺失  → 调用方未声明（旧版 / 非策展人路径）；
+        出于向下兼容性予以接受，但会记录一条警告信息，
+        因为缺少该参数时，策展分类流水线（curator classification pipeline）
+        无法区分是“合并”还是“裁减”。
+      - ``""`` (空字符串) → 显式声明“已被真正裁减，无重定向/合并目标”。
+      - ``"<skill-name>"`` → 内容已被合并至该伞形技能（umbrella）中；
+        目标技能必须存在于磁盘上。此处会进行校验，
+        以防止模型声明一个并不存在的伞形技能。
     """
     existing = _find_skill(name)
     if not existing:
@@ -1050,9 +1064,9 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
     if guard:
         return guard
 
-    # Fail closed on unverified deletes during the curator consolidation pass.
-    # A bare prune (no absorbed_into) from the LLM umbrella pass is the
-    # fail-open behavior reported in #29912 — refuse it; keep the skill active.
+    # 在策展人合并阶段（curator consolidation pass），对于未经过验证的删除操作采取“默认拒绝（Fail closed）”策略。
+    # 来自 LLM 伞形处理阶段（LLM umbrella pass）的裸裁减（bare prune，即未指定 absorbed_into）
+    # 属于 #29912 中报告的“默认允许（fail-open）”行为 —— 对此予以拒绝，并保持该技能（skill）为处于激活状态。
     fail_closed = _curator_consolidation_delete_guard(name, absorbed_into)
     if fail_closed:
         return fail_closed
@@ -1093,13 +1107,14 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
     if unsafe:
         return {"success": False, "error": unsafe}
 
-    # During the curator consolidation pass, a verified consolidation must be
-    # RECOVERABLE: archival into ~/.hermes/skills/.archive/ is documented as
-    # the maximum destructive action the curator may take, and
-    # `hermes curator restore` promises the skill can be brought back. Route
-    # through the recoverable archive primitive instead of permanent rmtree so
-    # a misjudged consolidation can be undone (#29912). Foreground,
-    # user-directed deletes keep their existing hard-delete semantics.
+    # 在策展人合并阶段（curator consolidation pass），一次经过验证的合并必须是
+    # 可恢复的（RECOVERABLE）：归档至 ~/.hermes/skills/.archive/
+    # 是文档所规范的策展人可采取的最大破坏性操作，
+    # 且 `hermes curator restore` 承诺该技能可以被恢复。
+    # 应当通过可恢复的归档原语（recoverable archive primitive）来进行处理，
+    # 而不是直接使用永久性的 rmtree，
+    # 以便在合并误判时能够进行撤销（#29912）。
+    # 前台及用户主导的删除操作，则继续保持其现有的硬删除（hard-delete）语义。
     try:
         from tools.skill_provenance import is_background_review
         curator_pass = is_background_review()
@@ -1428,7 +1443,112 @@ def skill_manage(
 # =============================================================================
 # OpenAI Function-Calling Schema
 # =============================================================================
-
+# SKILL_MANAGE_SCHEMA = {
+#     "name": "skill_manage",
+#     "description": (
+#         "管理技能（创建、更新、删除）。技能是你的程序性记忆（procedural memory）——"
+#         "用于处理可复用且重复出现的任务类型。"
+#         f"新技能会存入 {display_hermes_home()}/skills/；现有技能无论存储在何处均可被修改。\n\n"
+#         "操作类型：create（完整 SKILL.md + 可选分类）、"
+#         "patch（old_string/new_string —— 修复问题的首选）、"
+#         "edit（重写完整 SKILL.md —— 仅限重大重构）、"
+#         "delete、write_file、remove_file。\n\n"
+#         "进行删除（delete）时，若将该技能的内容合并入另一技能，"
+#         "请传入 `absorbed_into=<umbrella>`；若只是进行裁减且无重定向/合并目标，"
+#         "请传入 `absorbed_into=\"\"`。这样可以让策展人（curator）无需猜测即可区分"
+#         "是“合并”还是“裁减”，从而确保下游消费者（如引用旧技能名称的 cron 任务等）"
+#         "能够得到正确更新。在 `absorbed_into` 中指定的目标必须已存在 —— "
+#         "请先创建/修补伞形技能，然后再执行删除操作。\n\n"
+#         "满足以下条件时创建技能：成功完成复杂任务（调用 5 次以上）、克服了错误、"
+#         "用户纠正后的方案生效、发现了非平凡的工作流、或用户要求你记住某项操作流程。\n"
+#         "满足以下条件时更新技能：说明已陈旧/有误、遇到特定操作系统相关的失败、"
+#         "或在使用过程中发现了遗漏的步骤/陷阱。如果你使用了某个技能并遇到了该技能未包含的问题，"
+#         "请立即对其进行修补（patch）。\n\n"
+#         "在完成困难/迭代式的任务后，主动询问用户是否保存为技能。简单的一次性任务请跳过。"
+#         "在创建/删除前需与用户进行确认。\n\n"
+#         "优质技能包含：触发条件、包含精确命令的编号步骤、陷阱/注意事项章节、验证步骤。"
+#         "可使用 skill_view() 查看格式示例。\n\n"
+#         "置顶技能（Pinned skills）仅受防删除保护 —— 执行 skill_manage(action='delete') "
+#         "会被拒绝，并提示用户使用 `hermes curator unpin <name>`。修补（patch）和编辑（edit）"
+#         "仍可在置顶技能上正常执行，以便在发现陷阱时能够持续进行改进；置顶仅为了防止不可恢复的丢失。"
+#     ),
+#     "parameters": {
+#         "type": "object",
+#         "properties": {
+#             "action": {
+#                 "type": "string",
+#                 "enum": ["create", "patch", "edit", "delete", "write_file", "remove_file"],
+#                 "description": "要执行的操作。"
+#             },
+#             "name": {
+#                 "type": "string",
+#                 "description": (
+#                     "技能名称（小写，连字符/下划线，最多 64 个字符）。"
+#                     "执行 patch/edit/delete/write_file/remove_file 时必须匹配现有的技能。"
+#                 )
+#             },
+#             "content": {
+#                 "type": "string",
+#                 "description": (
+#                     "完整的 SKILL.md 内容（YAML frontmatter + markdown 正文）。"
+#                     "执行 'create' 和 'edit' 时必填。对于 'edit'，请先通过 "
+#                     "skill_view() 读取该技能，并提供完整更新后的文本。"
+#                 )
+#             },
+#             "old_string": {
+#                 "type": "string",
+#                 "description": (
+#                     "要在文件中查找的文本（执行 'patch' 时必填）。除非 replace_all=true，"
+#                     "否则必须唯一。请包含足够的上下文以确保唯一性。"
+#                 )
+#             },
+#             "new_string": {
+#                 "type": "string",
+#                 "description": (
+#                     "替换文本（执行 'patch' 时必填）。可以为空字符串，"
+#                     "用于删除匹配到的文本。"
+#                 )
+#             },
+#             "replace_all": {
+#                 "type": "boolean",
+#                 "description": "用于 'patch'：替换所有出现的项，而不是要求唯一匹配（默认值：false）。"
+#             },
+#             "category": {
+#                 "type": "string",
+#                 "description": (
+#                     "用于组织技能的可选分类/领域（例如 'devops'、'data-science'、'mlops'）。"
+#                     "会创建一个子目录进行分组。仅在与 'create' 配合使用时生效。"
+#                 )
+#             },
+#             "file_path": {
+#                 "type": "string",
+#                 "description": (
+#                     "技能目录内辅助文件的路径。"
+#                     "对于 'write_file'/'remove_file'：必填，且必须位于 references/、"
+#                     "templates/、scripts/ 或 assets/ 目录下。"
+#                     "对于 'patch'：可选，省略时默认为 SKILL.md。"
+#                 )
+#             },
+#             "file_content": {
+#                 "type": "string",
+#                 "description": "文件的内容。执行 'write_file' 时必填。"
+#             },
+#             "absorbed_into": {
+#                 "type": "string",
+#                 "description": (
+#                     "仅用于 'delete' —— 声明操作意图，以便策展人（curator）"
+#                     "无需猜测即可区分是合并还是裁减。"
+#                     "当该技能的内容已合并入另一技能时，请传入伞形技能的名称"
+#                     "（目标必须已存在）。"
+#                     "当该技能确实已过期且无重定向/合并目标而被裁减时，请传入空字符串。"
+#                     "出于向下兼容性，允许在删除时省略此参数，但下游工具"
+#                     "（如 cron 任务的技能引用重写逻辑）将不得不去猜测其意图。"
+#                 )
+#             },
+#         },
+#         "required": ["action", "name"],
+#     },
+# }
 SKILL_MANAGE_SCHEMA = {
     "name": "skill_manage",
     "description": (

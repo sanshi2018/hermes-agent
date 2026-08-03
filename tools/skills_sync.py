@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
-"""
-Skills Sync -- Manifest-based seeding and updating of bundled skills.
+"""技能同步（Skills Sync）— 基于清单的捆绑技能植入与更新。
 
-Copies bundled skills from the repo's skills/ directory into ~/.hermes/skills/
-and uses a manifest to track which skills have been synced and their origin hash.
+将仓库中 skills/ 目录下的捆绑技能复制到 ~/.hermes/skills/ 中，
+并使用清单来跟踪哪些技能已被同步及其原始哈希值。
 
-Manifest format (v2): each line is "skill_name:origin_hash" where origin_hash
-is the MD5 of the bundled skill at the time it was last synced to the user dir.
-Old v1 manifests (plain names without hashes) are auto-migrated.
+清单格式 (v2)：每行为 "skill_name:origin_hash"，
+其中 origin_hash 是捆绑技能在上次同步到用户目录时的 MD5 值。
+旧的 v1 清单（只有纯名称而无哈希值）会自动进行迁移。
 
-Update logic:
-  - NEW skills (not in manifest): copied to user dir, origin hash recorded.
-  - EXISTING skills (in manifest, present in user dir):
-      * If user copy matches origin hash: user hasn't modified it → safe to
-        update from bundled if bundled changed. New origin hash recorded.
-      * If user copy differs from origin hash: user customized it → SKIP.
-  - DELETED by user (in manifest, absent from user dir): respected, not re-added.
-  - REMOVED from bundled (in manifest, gone from repo): cleaned from manifest.
+更新逻辑：
+  - 新技能（不在清单中）：复制到用户目录，并记录原始哈希值。
+  - 现有技能（在清单中，且存在于用户目录中）：
+      * 若用户副本与原始哈希值匹配：说明用户未修改过 →
+        若捆绑包发生更改，则可安全地从捆绑包更新。记录新的原始哈希值。
+      * 若用户副本与原始哈希值不同：说明用户进行了自定义 → 跳过（SKIP）。
+  - 用户删除的技能（在清单中，但用户目录中不存在）：予以尊重，不再重新添加。
+  - 从捆绑包中移除的技能（在清单中，但仓库中已消失）：从清单中清除。
 
-The manifest lives at ~/.hermes/skills/.bundled_manifest.
+该清单存储在 ~/.hermes/skills/.bundled_manifest 中。
 """
 
 import hashlib

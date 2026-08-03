@@ -107,40 +107,39 @@ def fuzzy_find_and_replace(content: str, old_string: str, new_string: str,
                 if drift_err:
                     return content, 0, None, drift_err
 
-            # Perform replacement. When the matched strategy is NOT `exact`,
-            # the file's indentation may differ from what the LLM sent in
-            # old_string/new_string — e.g. LLM used 2-space indent but the
-            # file is 4-space. Shift new_string by the indentation delta so
-            # the replacement matches the file's actual indent pattern.
-            # LLMs frequently serialize tabs / carriage returns in JSON
-            # tool-call arguments as the two-character sequences ``\t`` and
-            # ``\r`` (backslash + letter) instead of the real control bytes.
-            # If we write new_string verbatim, the file ends up with literal
-            # backslash sequences where the surrounding code uses real tabs.
+            # 执行替换。当匹配策略非 `exact` 时，
+            # 文件的缩进可能与 LLM 在 old_string/new_string 中发送的缩进不一致——
+            # 例如：LLM 使用了 2 空格缩进，而文件使用的是 4 空格。
+            # 根据缩进差值（indentation delta）平移 new_string，
+            # 使替换内容符合文件实际的缩进模式。
             #
-            # Strategy: only unescape when the matched region of the file
-            # *actually contains* the corresponding real control character.
-            # That mirrors the region-based heuristic in
-            # ``_detect_escape_drift`` and keeps legitimate writes of the
-            # literal two-character string ``"\t"`` (e.g. patching Python
-            # source that contains a tab string literal in source text)
-            # untouched — those files have a backslash+t in the matched
-            # region, not a real tab, so we leave new_string alone.
+            # LLM 经常会将 JSON 工具调用（tool-call）参数中的制表符（tabs）和回车符（carriage returns）
+            # 序列化为由两个字符组成的序列 ``\t`` 和 ``\r``（反斜杠 + 字母），而不是实际的控制字节。
+            # 如果我们原样写入 new_string，当周围代码使用真实制表符时，
+            # 文件中最终会留下字面量的反斜杠序列。
             #
-            # ``\n`` is intentionally excluded: newlines serialize correctly
-            # through JSON, and rewriting backslash-n would mangle escape
-            # sequences in source code constants far more often than help.
+            # 策略：仅当文件的匹配区域*确实包含*对应的真实控制字符时才进行反转义（unescape）。
+            # 这与 ``_detect_escape_drift`` 中基于区域的启发式规则保持一致，
+            # 并且能够保留对字面量双字符字符串 ``"\t"`` 的合法写入
+            # （例如：修补源码本身就包含制表符字符串字面量的 Python 代码）——
+            # 这些文件在匹配区域中包含的是“反斜杠+t”，而不是真实的制表符，因此我们不对 new_string 做任何修改。
+            #
+            # 特意排除了 ``\n``：换行符可以通过 JSON 正确序列化，
+            # 而重写“反斜杠-n”破坏源码常量中转义序列的概率，远大于其提供帮助的概率。
             effective_new = _maybe_unescape_new_string(
                 new_string, content, matches,
             )
-            # Unicode-preservation guard: when strategy 7 (unicode_normalized)
-            # matched, the file has Unicode characters (em-dashes, smart quotes,
-            # ellipsis) but old_string/new_string from the LLM are ASCII
-            # equivalents.  Writing new_string verbatim would silently corrupt
-            # the file's Unicode — em-dashes become two hyphens, smart quotes
-            # become straight quotes.  Align the replacement with the file's
-            # actual Unicode so only the LLM's intended changes are applied
-            # and unchanged portions keep their original characters.
+            # Unicode 保留防护机制：
+            # 当策略 7（unicode_normalized）匹配成功时，
+            # 说明文件中包含 Unicode 字符（如破折号、弯引号、省略号等），
+            # 但来自 LLM 的 old_string/new_string 却是对应的 ASCII 替代字符。
+            #
+            # 如果原样写入 new_string，会静默损坏文件中的 Unicode 字符——
+            # 例如破折号变成了两个连字符，弯引号变成了直引号。
+            #
+            # 因此，需要将替换内容与文件中实际的 Unicode 字符进行对齐，
+            # 从而仅应用 LLM 预期的修改，
+            # 并让未修改的部分继续保留其原始字符。
             if strategy_name == "unicode_normalized":
                 effective_new = _preserve_unicode_in_replacement(
                     content, matches, old_string, effective_new,
@@ -221,30 +220,28 @@ def _first_meaningful_line(text: str) -> Optional[str]:
 
 
 def _reindent_replacement(file_region: str, old_string: str, new_string: str) -> str:
-    """Adjust ``new_string`` so its indentation matches ``file_region``.
+    """调整 ``new_string``，使其缩进与 ``file_region`` 保持一致。
 
-    Used after a non-exact fuzzy match: the LLM may have sent old_string and
-    new_string with a different indent than the file actually has (e.g.
-    2-space indent in tool args vs 4-space indent on disk). The fuzzy
-    strategy successfully matched anyway, but writing ``new_string`` verbatim
-    would corrupt the file's indentation.
+    用于非精确的模糊匹配（non-exact fuzzy match）之后：
+    LLM 发送的 old_string 和 new_string 缩进可能与文件实际缩进不一致
+    （例如：工具参数中使用 2 空格缩进，而磁盘文件上是 4 空格缩进）。
+    尽管模糊策略成功匹配上了，但如果原样写入 ``new_string``，
+    会破坏文件的缩进。
 
-    Approach:
+    实现方法：
 
-    1. For each non-blank line in ``new_string``, compute its indent
-       *relative* to the shallowest non-blank line of ``old_string`` (the
-       LLM's base indent).
-    2. Anchor that relative indent onto the file's actual base indent (the
-       leading whitespace of the file_region's first non-blank line).
-    3. Re-emit each non-blank line as ``file_base + (line_indent - llm_base)``.
+    1. 对于 ``new_string`` 中的每一非空行，计算其*相对于* ``old_string`` 中
+       最浅非空行（即 LLM 的基准缩进）的相对缩进。
+    2. 将该相对缩进锚定到文件实际的基准缩进上
+       （即 file_region 中首个非空行的前导空白字符）。
+    3. 将每个非空行重新生成为 ``file_base + (line_indent - llm_base)``。
 
-    Blank lines and lines less-indented than the LLM's base are anchored
-    directly to the file's base indent.
+    空行以及缩进浅于 LLM 基准缩进的行，直接锚定到文件的基准缩进上。
 
-    No-op cases (returns ``new_string`` unchanged):
-    - file_region or old_string has no meaningful line
-    - LLM base indent equals file base indent
-    - new_string is empty
+    无需处理（原样返回 ``new_string``）的情况：
+    - file_region 或 old_string 中没有有效的行
+    - LLM 的基准缩进等于文件的基准缩进
+    - new_string 为空
     """
     if not new_string:
         return new_string
@@ -260,27 +257,27 @@ def _reindent_replacement(file_region: str, old_string: str, new_string: str) ->
     if old_indent == file_indent:
         return new_string
 
-    # Re-indent each line of new_string. Strategy: replace the LLM's base
-    # indent prefix with the file's base indent prefix, preserving any
-    # additional indent the LLM added on top. This is the same approach
-    # Roo Code uses (multi-search-replace.ts:466-500). It preserves the
-    # LLM's intended *relative* nesting between lines while anchoring to
-    # the file's actual indent style.
+    # 重新缩进 new_string 的每一行。策略：用文件的基准缩进前缀
+    # 替换 LLM 的基准缩进前缀，同时保留 LLM 在此基础上增加的任何
+    # 额外缩进。这与 Roo Code 所采用的方法一致
+    # （multi-search-replace.ts:466-500）。它能够保留 LLM 预期的
+    # 行间*相对*嵌套关系，同时将其锚定到文件实际的缩进风格上。
     out_lines: List[str] = []
     for line in new_string.split("\n"):
         if not line.strip():
-            # Blank lines: leave whitespace untouched.
+            # 空行：保留空白字符不做修改。
             out_lines.append(line)
             continue
         line_indent = _leading_whitespace(line)
         if line_indent.startswith(old_indent):
-            # Common case: line has the LLM's base indent (possibly plus
-            # extra). Swap base prefix for the file's base prefix.
+            # 常见情况：行内包含 LLM 的基准缩进（可能包含额外缩进）。
+            # 将基准前缀替换为文件的基准前缀。
             remainder = line[len(old_indent):]
             out_lines.append(file_indent + remainder)
         else:
-            # Line is less-indented than the LLM's base — e.g. a dedent at
-            # the start of new_string. Anchor to the file's base.
+            # 该行缩进浅于 LLM 的基准缩进——
+            # 例如 new_string 开头的取消缩进（dedent）。
+            # 将其直接锚定到文件的基准缩进上。
             out_lines.append(file_indent + line.lstrip(" \t"))
     return "\n".join(out_lines)
 
@@ -288,27 +285,23 @@ def _reindent_replacement(file_region: str, old_string: str, new_string: str) ->
 def _maybe_unescape_new_string(new_string: str,
                                content: str,
                                matches: List[Tuple[int, int]]) -> str:
-    """Conditionally unescape ``\\t``/``\\r`` in new_string.
+    """条件性地取消 new_string 中 ``\t``/``\r`` 的转义。
 
-    LLMs frequently send the two-character sequences ``\\t`` (backslash + t)
-    and ``\\r`` (backslash + r) inside JSON tool-call arguments where they
-    meant a real tab or carriage-return byte. Writing the string verbatim
-    corrupts tab-indented files with literal backslash-letter pairs.
+    在 JSON 工具调用参数中，LLM 经常在原本想表达真实制表符（tab）或回车符（carriage-return）字节的地方，
+    发送由两个字符组成的序列 ``\t``（反斜杠 + t）和 ``\r``（反斜杠 + r）。
+    如果原样写入该字符串，会用字面的“反斜杠-字母”对损坏采用制表符缩进的文件。
 
-    The unescape is only applied per-sequence when the *matched region of
-    the file* actually contains the corresponding control character — that
-    is, we only convert ``\\t`` -> tab when the file region we're replacing
-    contains a real tab byte. Files that legitimately contain the literal
-    two-character string ``"\\t"`` (e.g. a Python source line that defines
-    ``sep = "\\t"``) get a backslash+t in the matched region instead of a
-    tab, so we leave new_string alone.
+    仅当*文件的匹配区域*实际上包含对应的控制字符时，才会对各个序列应用取消转义——
+    也就是说，只有当我们要替换的文件区域包含真实的制表符字节时，我们才会将 ``\t`` 转换为制表符。
+    对于合法包含字面量双字符字符串 ``"\t"`` 的文件
+    （例如定义了 ``sep = "\t"`` 的 Python 源码行），其匹配区域包含的是反斜杠+t 而非真实制表符，
+    因此我们会对 new_string 保持原样。
 
-    ``\\n`` is intentionally excluded: newlines serialize correctly through
-    JSON and rewriting backslash-n would corrupt escape sequences in
-    string literals far more often than it would help.
+    特意排除了 ``\n``：换行符可以通过 JSON 正确序列化，
+    而重写“反斜杠-n”破坏字符串字面量中转义序列的概率，远大于其提供帮助的概率。
     """
-    # Cheap pre-check — bail out unless new_string actually contains one of
-    # the suspect sequences. Keeps the common case free.
+    # 快速预检 —— 除非 new_string 确实包含可疑序列之一，否则直接退出。
+    # 保持常规情况下的零开销。
     if "\\t" not in new_string and "\\r" not in new_string:
         return new_string
 
@@ -325,20 +318,20 @@ def _preserve_unicode_in_replacement(
     content: str, matches: List[Tuple[int, int]],
     old_string: str, new_string: str,
 ) -> str:
-    """Preserve Unicode characters from the file in the replacement string.
+    """保留文件中替换字符串里的 Unicode 字符。
 
-    When strategy 7 (unicode_normalized) matched, the file has Unicode
-    characters (em-dashes, smart quotes, ellipsis, non-breaking spaces)
-    but old_string/new_string from the LLM are ASCII equivalents.
-    Writing new_string verbatim would silently corrupt the file's
-    Unicode — em-dashes become two hyphens, smart quotes become
-    straight quotes.
+    当策略 7（unicode_normalized）匹配成功时，
+    说明文件中包含 Unicode 字符（如破折号、弯引号、省略号、不换行空格等），
+    但来自 LLM 的 old_string/new_string 却是对应的 ASCII 替代字符。
+    如果原样写入 new_string，会静默损坏文件中的 Unicode 字符——
+    例如破折号变成了两个连字符，弯引号变成了直引号。
 
-    This function aligns the replacement with the file's actual Unicode
-    by diffing old_string→new_string and applying only the actual edits
-    to the file's original text, preserving Unicode for unchanged portions.
+    本函数通过对 old_string→new_string 进行差异对比（diff），
+    并将实际的修改应用到文件的原始文本中，
+    从而使替换内容与文件实际的 Unicode 字符保持对齐，
+    并保留未修改部分的 Unicode 字符。
     """
-    # Aggregate the matched file regions
+    # 聚合匹配的文件区域
     file_region = "".join(content[start:end] for start, end in matches)
 
     # Normalize both for comparison
@@ -350,12 +343,13 @@ def _preserve_unicode_in_replacement(
     if norm_old != norm_file:
         return new_string
 
-    # Build position maps from normalized space back to original space
-    # for both old_string and file_region.  UNICODE_MAP replacements can
-    # expand characters (em-dash → '--'), so normalized positions don't
-    # map 1:1 to original positions.  Reuse the module-level
-    # _build_orig_to_norm_map, then invert it (same inversion as
-    # _map_positions_norm_to_orig) to get norm→orig lookups.
+    # 分别为 old_string 和 file_region 构建
+    # 从标准化空间映射回原始空间的位置映射表。
+    # UNICODE_MAP 的替换可能会展开字符（例如破折号 → '--'），
+    # 因此标准化后的位置与原始位置之间并非 1:1 的映射关系。
+    # 此处复用模块级的 _build_orig_to_norm_map，
+    # 然后将其反转（与 _map_positions_norm_to_orig 中的反转逻辑相同），
+    # 从而获得从标准化位置到原始位置（norm→orig）的查找表。
     file_orig_to_norm = _build_orig_to_norm_map(file_region)
     file_norm_to_orig: dict[int, int] = {}
     for orig_pos, np in enumerate(file_orig_to_norm[:-1]):
@@ -392,21 +386,21 @@ def _preserve_unicode_in_replacement(
 def _apply_replacements(content: str, matches: List[Tuple[int, int]],
                         new_string: str, old_string: Optional[str] = None) -> str:
     """
-    Apply replacements at the given positions.
+    在指定位置应用替换。
 
-    Args:
-        content: Original content
-        matches: List of (start, end) positions to replace
-        new_string: Replacement text
-        old_string: When non-None, signals that the match came from a
-            non-exact fuzzy strategy; ``new_string`` is re-indented to
-            match the file's actual indentation before substitution.
+    参数:
+        content: 原始内容
+        matches: 待替换的 (start, end) 位置列表
+        new_string: 替换文本
+        old_string: 当不为 None 时，表示该匹配来自于非精确的模糊匹配策略；
+            在进行替换前，``new_string`` 会被重新缩进，
+            以匹配文件实际的缩进。
 
-    Returns:
-        Content with replacements applied
+    返回:
+        应用替换后的内容
     """
-    # Sort matches by position (descending) to replace from end to start
-    # This preserves positions of earlier matches
+    # 按位置倒序（从大到小）对匹配项进行排序，以便从后往前进行替换
+    # 这样可以保持前面匹配项的位置索引不受影响
     sorted_matches = sorted(matches, key=lambda x: x[0], reverse=True)
 
     result = content
@@ -445,11 +439,11 @@ def _strategy_exact(content: str, pattern: str) -> List[Tuple[int, int]]:
 
 def _strategy_line_trimmed(content: str, pattern: str) -> List[Tuple[int, int]]:
     """
-    Strategy 2: Match with line-by-line whitespace trimming.
-    
-    Strips leading/trailing whitespace from each line before matching.
+    策略 2：通过逐行去除首尾空格来进行匹配。
+
+    在匹配前去除每行文本的前导与尾随空格。
     """
-    # Normalize pattern and content by trimming each line
+    # 通过去除每行的首尾空格来规范化模式 (pattern) 和内容 (content)
     pattern_lines = [line.strip() for line in pattern.split('\n')]
     pattern_normalized = '\n'.join(pattern_lines)
     
@@ -562,15 +556,15 @@ def _strategy_trimmed_boundary(content: str, pattern: str) -> List[Tuple[int, in
 
 
 def _build_orig_to_norm_map(original: str) -> List[int]:
-    """Build a list mapping each original character index to its normalized index.
+    """构建一个将每个原始字符索引映射到其标准化索引的列表。
 
-    Because UNICODE_MAP replacements may expand characters (e.g. em-dash → '--',
-    ellipsis → '...'), the normalised string can be longer than the original.
-    This map lets us convert positions in the normalised string back to the
-    corresponding positions in the original string.
+    由于 UNICODE_MAP 替换可能会展开字符（例如：破折号 → '--'，
+    省略号 → '...'），因此标准化后的字符串可能会比原始字符串更长。
+    通过该映射表，我们可以将标准化字符串中的位置
+    转换回原始字符串中的对应位置。
 
-    Returns a list of length ``len(original) + 1``; entry ``i`` is the
-    normalised index that character ``i`` maps to.
+    返回一个长度为 ``len(original) + 1`` 的列表；
+    第 ``i`` 个条目代表字符 ``i`` 所映射到的标准化索引。
     """
     result: List[int] = []
     norm_pos = 0
@@ -760,17 +754,17 @@ def _find_normalized_matches(content: str, content_lines: List[str],
                               content_normalized_lines: List[str],
                               pattern: str, pattern_normalized: str) -> List[Tuple[int, int]]:
     """
-    Find matches in normalized content and map back to original positions.
-    
-    Args:
-        content: Original content string
-        content_lines: Original content split by lines
-        content_normalized_lines: Normalized content lines
-        pattern: Original pattern
-        pattern_normalized: Normalized pattern
-    
-    Returns:
-        List of (start, end) positions in the original content
+    在规范化后的内容中查找匹配项，并映射回原始位置。
+
+    参数：
+        content: 原始内容字符串
+        content_lines: 按行分割的原始内容
+        content_normalized_lines: 规范化后的内容行
+        pattern: 原始模式
+        pattern_normalized: 规范化后的模式
+
+    返回：
+        原始内容中 (start, end) 起止位置的列表
     """
     pattern_norm_lines = pattern_normalized.split('\n')
     num_pattern_lines = len(pattern_norm_lines)

@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
-"""
-Skills Guard — Security scanner for externally-sourced skills.
+"""技能卫士（Skills Guard）— 针对外部来源技能的安全扫描器。
 
-Every skill downloaded from a registry passes through this scanner before
-installation. It uses regex-based static analysis to detect known-bad patterns
-(data exfiltration, prompt injection, destructive commands, persistence, etc.)
-and a trust-aware install policy that determines whether a skill is allowed
-based on both the scan verdict and the source's trust level.
+从注册表下载的每个技能在安装前都要通过此扫描器。
+它使用基于正则表达式的静态分析来检测已知的不良模式
+（数据窃取、提示词注入、破坏性命令、持久化等），
+并采用感知信任度的安装策略，根据扫描结论和来源的信任级别来决定是否允许安装。
 
-Trust levels:
-  - builtin:   Ships with Hermes. Never scanned, always trusted.
-  - trusted:   openai/skills and anthropics/skills only. Caution verdicts allowed.
-  - community: Everything else. Any findings = blocked unless --force.
+信任级别：
+  - builtin：随 Hermes 一起发布。无需扫描，始终受信任。
+  - trusted：仅限 openai/skills 和 anthropics/skills。允许存在谨慎（Caution）结论。
+  - community：所有其他来源。任何发现均会被拦截，除非指定了 --force 参数。
 
-Usage:
+用法示例：
     from tools.skills_guard import scan_skill, should_allow_install, format_scan_report
 
     result = scan_skill(Path("skills/.hub/quarantine/some-skill"), source="community")

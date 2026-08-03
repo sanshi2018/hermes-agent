@@ -1,25 +1,23 @@
-"""Skill usage telemetry + provenance tracking for the Curator feature.
+"""Curator 功能的技能使用情况遥测与溯源跟踪。
 
-Tracks per-skill usage metadata in a sidecar JSON file (~/.hermes/skills/.usage.json)
-keyed by skill name. Counters are bumped by the existing skill tools (skill_view,
-skill_manage); the curator orchestrator reads the derived activity timestamp to
-decide lifecycle transitions.
+在边车（sidecar）JSON 文件 (~/.hermes/skills/.usage.json) 中跟踪按技能名称键入的每个技能的使用元数据。
+计数器由现有技能工具（skill_view、skill_manage）递增；
+curator 编排器读取导出的活动时间戳来决定生命周期转换。
 
-Design notes:
-  - Sidecar, not frontmatter. Keeps operational telemetry out of user-authored
-    SKILL.md content and avoids conflict pressure for bundled/hub skills.
-  - Atomic writes via tempfile + os.replace (same pattern as .bundled_manifest).
-  - All counter bumps are best-effort: failures log at DEBUG and return silently.
-    A broken sidecar never breaks the underlying tool call.
-  - Provenance filter: curator-managed skills are explicitly marked when
-    created through skill_manage. Bundled / hub-installed skills stay
-    off-limits, and manually authored skills are not inferred from location.
+设计说明：
+  - 使用边车文件而非 frontmatter。可将操作遥测数据排除在用户编写的 SKILL.md 内容之外，
+    并避免捆绑/集线器（hub）技能的冲突压力。
+  - 通过 tempfile + os.replace 实现原子写入（与 .bundled_manifest 采用相同的模式）。
+  - 所有计数器递增均采取尽力而为（best-effort）原则：失败时记录 DEBUG 日志并静默返回。
+    损坏的边车文件绝不会破坏底层的工具调用。
+  - 溯源过滤：通过 skill_manage 创建的由 curator 管理的技能会被显式标记。
+    捆绑/集线器安装的技能保持受限状态，且手写的技能不会根据位置进行推断。
 
-Lifecycle states:
-    active    -> default
-    stale     -> unused > stale_after_days (config)
-    archived  -> unused > archive_after_days (config); moved to .archive/
-    pinned    -> opt-out from auto transitions (boolean flag, orthogonal to state)
+生命周期状态：
+    active    -> 默认状态
+    stale     -> 未使用天数 > stale_after_days（配置项）
+    archived  -> 未使用天数 > archive_after_days（配置项）；移动到 .archive/ 目录下
+    pinned    -> 退出自动状态转换（布尔标志，与状态正交）
 """
 
 from __future__ import annotations
@@ -694,12 +692,13 @@ def forget(skill_name: str) -> None:
 # ---------------------------------------------------------------------------
 
 def archive_skill(skill_name: str) -> Tuple[bool, str]:
-    """Move a curator-eligible skill directory to ~/.hermes/skills/.archive/.
+    """将符合策展条件的技能目录移动至 ~/.hermes/skills/.archive/。
 
-    Returns (ok, message). Never archives hub-installed skills. Bundled
-    built-ins are only archivable when ``curator.prune_builtins`` is enabled;
-    when one is archived, its name is added to the suppression list so the
-    update-time re-seeder leaves it archived instead of restoring it.
+    返回 (ok, message)。
+    绝不归档从 Hub 安装的技能。
+    对于内置（Bundled）技能，仅在启用 ``curator.prune_builtins`` 时才可进行归档；
+    当内置技能被归档时，其名称会被添加至抑制列表中，
+    以便更新时的重新播种程序（re-seeder）使其保持归档状态，而不是重新恢复它。
     """
     local_skill_dir = _find_skill_dir(skill_name)
     if local_skill_dir is None and _find_external_skill_dir(skill_name) is not None:

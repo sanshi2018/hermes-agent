@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""
-Skills Hub — Source adapters and hub state management for the Hermes Skills Hub.
+"""技能集线器（Skills Hub）— 针对 Hermes Skills Hub 的源适配器与集线器状态管理。
 
-This is a library module (not an agent tool). It provides:
-  - GitHubAuth: Shared GitHub API authentication (PAT, gh CLI, GitHub App)
-  - SkillSource ABC: Interface for all skill registry adapters
-  - OptionalSkillSource: Official optional skills shipped with the repo (not activated by default)
-  - GitHubSource: Fetch skills from any GitHub repo via the Contents API
-  - HubLockFile: Track provenance of installed hub skills
-  - Hub state directory management (quarantine, audit log, taps, index cache)
+这是一个库模块（而非智能体工具）。它提供：
+  - GitHubAuth：共享的 GitHub API 身份验证（PAT、gh CLI、GitHub App）
+  - SkillSource ABC：所有技能注册表适配器的接口
+  - OptionalSkillSource：随仓库一起发布的官方可选技能（默认不激活）
+  - GitHubSource：通过内容 API 从任意 GitHub 仓库获取技能
+  - HubLockFile：跟踪已安装集线器技能的溯源信息
+  - 集线器状态目录管理（隔离区、审计日志、taps、索引缓存）
 
-Used by hermes_cli/skills_hub.py for CLI commands and the /skills slash command.
+由 hermes_cli/skills_hub.py 用于 CLI 命令以及 /skills 斜杠命令。
 """
 
 import hashlib

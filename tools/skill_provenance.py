@@ -1,19 +1,17 @@
-"""Skill write-origin provenance — ContextVar for distinguishing agent-sediment skill writes from foreground user-directed writes.
+"""技能写入来源溯源 — 用于区分智能体沉淀的技能写入与前台用户直接发起的技能写入的 ContextVar。
 
-The curator only consolidates/prunes skills it autonomously created via the
-background self-improvement review fork. Skills a user asks a foreground
-agent to write belong to the user and must never be auto-curated.
+管理员（curator）仅对通过后台自我改进审查分支自主创建的技能进行整合/修剪。
+用户要求前台智能体编写的技能属于用户，绝不能被自动管理。
 
-This module exposes a ContextVar that run_agent.py sets before each tool
-loop so tool handlers (e.g. skill_manage create) can check whether they
-are executing inside the background-review fork.
+本模块公开了一个 ContextVar，由 run_agent.py 在每个工具循环之前设置，
+以便工具处理程序（例如 skill_manage create）可以检查它们是否在后台审查分支内部执行。
 
-The signal piggybacks on AIAgent._memory_write_origin, which is already
-set to "background_review" for review-fork instances (see
-_spawn_background_review in run_agent.py) and defaults to "assistant_tool"
-for normal (foreground) agents.
+该信号依托于 AIAgent._memory_write_origin，
+对于审查分支实例，该属性已被设置为 "background_review"
+（参见 run_agent.py 中的 _spawn_background_review），
+而对于普通（前台）智能体，则默认值为 "assistant_tool"。
 
-Usage:
+用法示例：
     from tools.skill_provenance import (
         set_current_write_origin,
         reset_current_write_origin,
@@ -22,11 +20,11 @@ Usage:
 
     token = set_current_write_origin("background_review")
     try:
-        ...  # tool runs here
+        ...  # 工具在此处运行
     finally:
         reset_current_write_origin(token)
 
-    # inside a tool:
+    # 在工具内部：
     if get_current_write_origin() == "background_review":
         mark_agent_created(skill_name)
 """

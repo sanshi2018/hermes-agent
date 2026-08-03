@@ -1,13 +1,12 @@
-"""
-AST-level deep audit for skill Python files — opt-in diagnostic, not a security gate.
+"""技能 Python 文件的 AST 级别深度审计 — 这是一个可选的诊断工具，而非安全关卡。
 
-Per SECURITY.md §2.4, Skills Guard is in-process heuristics ("useful — not
-boundaries"). This module is a separate opt-in diagnostic that flags dynamic
-import / dynamic attribute access patterns operators may want to eyeball when
-reviewing third-party skill code. Every pattern flagged here has legitimate
-uses; findings are hints for human review, not verdicts.
+根据 SECURITY.md §2.4 节，Skills Guard 采用的是进程内启发式方法（“有用，但并非边界”）。
+本模块是一个独立的可选诊断工具，用于标记动态导入和动态属性访问模式，
+供运维人员在审查第三方技能代码时进行人工目视检查。
+这里标记的每种模式都有其合法的用途；
+检查结果只是供人工审查的提示，而非最终定论。
 
-CLI: ``hermes skills audit --deep``
+命令行接口（CLI）：``hermes skills audit --deep``
 """
 
 from __future__ import annotations

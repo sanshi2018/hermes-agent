@@ -1,22 +1,23 @@
-"""Curator — background skill maintenance orchestrator.
+"""Curator — 后台 Skill 维护编排器。
 
-The curator is an auxiliary-model task that periodically reviews agent-created
-skills and maintains the collection. It runs inactivity-triggered (no cron
-daemon): when the agent is idle and the last curator run was longer than
-``interval_hours`` ago, ``maybe_run_curator()`` spawns a forked AIAgent to do
-the review.
+Curator 是一个使用辅助模型（Auxiliary Model）的后台任务，
+负责定期审查由 Agent 创建的 Skill 并对其集合进行维护。
+它通过“空闲触发”机制运行（无需 Cron 守护进程）：
+当 Agent 处于空闲状态，且距离上一次 Curator 运行的时间
+超过了 ``interval_hours`` 时，``maybe_run_curator()`` 会
+派生（Fork）一个 AIAgent 来执行审查。
 
-Responsibilities:
-  - Auto-transition lifecycle states based on derived skill activity timestamps
-  - Spawn a background review agent that can pin / archive / consolidate /
-    patch agent-created skills via skill_manage
-  - Persist curator state (last_run_at, paused, etc.) in .curator_state
+主要职责：
+  - 根据派生的 Skill 活动时间戳，自动过渡生命周期状态
+  - 衍生后台审查 Agent，该 Agent 可通过 skill_manage 工具
+    对 Agent 创建的 Skill 执行固定（Pin）、归档（Archive）、合并（Consolidate）或补丁（Patch）操作
+  - 在 .curator_state 中持久化保存 Curator 状态（如 last_run_at、paused 等）
 
-Strict invariants:
-  - Only touches agent-created skills (see tools/skill_usage.is_agent_created)
-  - Never auto-deletes — only archives. Archive is recoverable.
-  - Pinned skills bypass all auto-transitions
-  - Uses the auxiliary client; never touches the main session's prompt cache
+严格的不变性约束：
+  - 仅处理由 Agent 创建的 Skill（参见 tools/skill_usage.is_agent_created）
+  - 绝不自动删除 — 仅进行归档。归档是可恢复的
+  - 被固定的 Skill 会跳过所有自动状态过渡
+  - 使用辅助客户端；绝不触碰主会话（Main Session）的 Prompt 缓存
 """
 
 from __future__ import annotations
@@ -190,28 +191,30 @@ def get_archive_after_days() -> int:
 
 
 def get_prune_builtins() -> bool:
-    """Whether the curator may prune (archive) bundled built-in skills too.
+    """Curator 是否也可以清理（归档）打包自带的内置 Skill。
 
-    ON by default. When on, built-ins become curation candidates and are
-    archived after the same inactivity period as agent-created skills, with a
-    suppression list keeping them archived across `hermes update` re-seeds.
-    Hub-installed skills are never pruned regardless of this flag.
+    默认开启（ON）。开启时，内置 Skill 将成为维护候选对象，
+    并在经历与 Agent 创建的 Skill 相同的空闲期后被归档，
+    同时通过抑制列表（Suppression List）确保它们在执行 `hermes update` 重新填充时
+    依然保持归档状态。
+    无论此标志如何设置，通过 Hub 安装的 Skill 均绝不会被清理。
     """
     cfg = _load_config()
     return bool(cfg.get("prune_builtins", True))
 
 
 def get_consolidate() -> bool:
-    """Whether the curator runs its LLM consolidation (umbrella-building) pass.
+    """是否让 Curator 运行其 LLM 合并（框架构建）流程。
 
-    OFF by default. When off, a curator run does ONLY the deterministic
-    inactivity prune (mark stale / archive long-unused skills) and skips the
-    forked aux-model review entirely — no consolidation, no umbrella-building,
-    no aux-model cost. Set ``curator.consolidate: true`` to opt back into the
-    LLM pass that merges overlapping skills into class-level umbrellas.
+    默认关闭（OFF）。关闭时，Curator 仅执行确定性的空闲清理
+    （标记过期 / 归档长期未使用的 Skill），
+    并完全跳过派生的辅助模型审查 ——
+    不进行合并，不构建框架，亦无辅助模型成本。
+    将 ``curator.consolidate: true`` 设置为 true，
+    可重新启用将重叠 Skill 合并为类级别框架的 LLM 流程。
 
-    The explicit ``hermes curator run --consolidate`` flag overrides this for
-    a single invocation regardless of the config value.
+    无论配置值如何，显式使用 ``hermes curator run --consolidate`` 标志
+    均可在单次调用中覆盖此选项。
     """
     cfg = _load_config()
     return bool(cfg.get("consolidate", DEFAULT_CONSOLIDATE))
@@ -231,25 +234,28 @@ def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
 
 
 def should_run_now(now: Optional[datetime] = None) -> bool:
-    """Return True if the curator should run immediately.
+    """如果 Curator 应当立即运行，则返回 True。
 
-    Gates:
+    关卡门控条件：
       - curator.enabled == True
-      - not paused
-      - last_run_at present AND older than interval_hours
+      - 未暂停（not paused）
+      - 存在 last_run_at，且其时间早于指定的 interval_hours
 
-    First-run behavior: when there is no ``last_run_at`` (fresh install, or
-    install that predates the curator), we DO NOT run immediately. The
-    curator is designed to run after at least ``interval_hours`` (7 days by
-    default) of skill activity, not on the first background tick after
-    ``hermes update``. On first observation we seed ``last_run_at`` to "now"
-    and defer the first real pass by one full interval. Users who want to
-    run it sooner can always invoke ``hermes curator run`` (with or without
-    ``--dry-run``) explicitly — that path bypasses this gate.
+    首次运行行为：当不存在 ``last_run_at`` 时
+    （例如全新安装，或先于 Curator 版本安装的情况），
+    我们**不会**立即运行。
+    Curator 的设计初衷是在 Skill 产生至少 ``interval_hours``
+    （默认为 7 天）的活动之后才运行，
+    而不是在执行 ``hermes update`` 后的首次后台 Tick 时立即运行。
+    在首次检测时，我们会将 ``last_run_at`` 初始化为“当前时间”，
+    并将第一次真正的审查推迟整整一个周期。
+    如果用户希望尽早运行，可以随时显式调用
+    ``hermes curator run``（无论是否带 ``--dry-run`` 参数）——
+    该路径会绕过这里的门控限制。
 
-    The idle check (min_idle_hours) is applied at the call site where we know
-    whether an agent is actively running — here we only enforce the static
-    gates.
+    空闲检测（min_idle_hours）会在能够获取 Agent
+    是否正在活跃运行的调用方（Call Site）处执行 ——
+    在此处，我们仅强制校验静态门控条件。
     """
     if not is_enabled():
         return False
@@ -288,11 +294,12 @@ def should_run_now(now: Optional[datetime] = None) -> bool:
 # ---------------------------------------------------------------------------
 
 def _cron_referenced_skills() -> Set[str]:
-    """Skill names referenced by any cron job (incl. paused/disabled).
+    """任何 Cron 任务（包括已暂停/已禁用的任务）所引用的 Skill 名称列表。
 
-    Best-effort: a cron-module import error or corrupt jobs store must never
-    break the curator, so any failure yields an empty set (no protection,
-    but no crash).
+    尽力而为（Best-effort）：Cron 模块导入错误或损坏的 Jobs 存储库
+    绝不能导致 Curator 崩溃，
+    因此任何异常都会返回一个空集合
+    （即不进行特殊保护，但能保证系统不崩溃）。
     """
     try:
         from cron.jobs import referenced_skill_names as _refs
@@ -303,16 +310,17 @@ def _cron_referenced_skills() -> Set[str]:
 
 
 def apply_automatic_transitions(now: Optional[datetime] = None) -> Dict[str, int]:
-    """Walk every curator-managed skill and move active/stale/archived based on
-    the latest real activity timestamp. Pinned skills are never touched.
+    """遍历每个由 Curator 管理的 Skill，并根据其最新的实际活动时间戳
+    在 active（活跃）、stale（陈旧）和 archived（归档）状态之间进行切换过渡。
+    被固定（Pinned）的 Skill 绝不会被触碰变动。
 
-    Built-ins (eligible only when ``curator.prune_builtins`` is on) are seeded
-    with a baseline record the first time they're seen so their inactivity
-    clock starts NOW rather than at epoch — a long-unused built-in is therefore
-    archived only after a fresh ``archive_after_days`` of non-use, not on the
-    first pass after the flag flips on.
+    内置 Skill（仅在启用 ``curator.prune_builtins`` 时才符合处理条件）
+    会在首次发现时初始化并写入一条基线记录，
+    以便其空闲计时器从“此刻”开始计算，而不是从 Unix 纪元（Epoch）开始 ——
+    因此，长期未使用的内置 Skill 只有在经历了完整的 ``archive_after_days``
+    未使用的天数后才会被归档，而不会在配置开关刚开启后的首次审查流程中就被立即归档。
 
-    Returns a counter dict describing what changed.
+    返回一个描述变更情况的 Counter 字典。
     """
     from tools import skill_usage as _u
 
@@ -331,35 +339,37 @@ def apply_automatic_transitions(now: Optional[datetime] = None) -> Dict[str, int
         if row.get("pinned"):
             continue
 
-        # A skill referenced by any cron job (incl. paused/disabled) is in
-        # use by definition — resuming or the next fire must find it. The
-        # scheduler only bumps usage when a job actually fires, so jobs that
-        # fire less often than archive_after_days, paused jobs, and far-future
-        # one-shots would otherwise have their skills aged out from under
-        # them. Treat referenced skills like pinned: never auto-transition.
+        # 只要被任意 Cron 任务（包括已暂停/已禁用的任务）引用的 Skill，
+        # 按定义均视为“在使用中” —— 因为恢复运行或下一次触发时必须确保其存在。
+        # 调度器仅在任务实际触发时才会更新（Bump）使用率，
+        # 因此对于触发频率低于 archive_after_days 的任务、已暂停的任务，
+        # 以及执行时间久远的单次（One-shot）任务，若不加以保护，
+        # 其依赖的 Skill 就会在后台自动因过期而被移除。
+        # 因此，请将受引用的 Skill 视为与“固定（Pinned）”相同：绝不进行自动状态过渡。
         if name in cron_referenced:
             continue
 
-        # First sight of a curation-eligible skill with no persisted record
-        # (e.g. a newly-eligible built-in): anchor its clock to now and defer.
+        # 首次发现符合 Curator 管理条件但无持久化记录的 Skill
+        # （例如新纳入管理范围的内置 Skill）：
+        # 将其计时器锚定为当前时间，并推迟后续处理。
         if not row.get("_persisted", True):
             _u.seed_record_if_missing(name)
             counts["seeded"] += 1
             continue
 
         last_activity = _parse_iso(row.get("last_activity_at"))
-        # If never active, treat created_at as the anchor so new skills don't
-        # immediately archive themselves.
+        # 若从未活跃过，则将 created_at 作为时间锚点，
+        # 以防止新创建的 Skill 被立即自动归档。
         anchor = last_activity or _parse_iso(row.get("created_at")) or now
         if anchor.tzinfo is None:
             anchor = anchor.replace(tzinfo=timezone.utc)
 
         current = row.get("state", _u.STATE_ACTIVE)
 
-        # Never-used skills (use_count == 0) get a grace floor: don't archive
-        # one until it is at least stale_after_days old. A use=0 skill is
-        # absence of evidence, not evidence of staleness — a skill created
-        # recently may simply not have had its trigger come up yet.
+        # 从未使用过的 Skill（use_count == 0）将享有宽限期：
+        # 在其年龄至少达到 stale_after_days 之前，不会对其进行归档。
+        # 一个 use=0 的 Skill 仅代表“缺乏使用证据”，并不等同于“已陈旧” ——
+        # 新创建的 Skill 可能只是尚未遇到触发它的场景而已。
         never_used = int(row.get("use_count", 0) or 0) == 0
         if never_used and anchor > stale_cutoff:
             # Younger than the stale window — leave it alone entirely.
@@ -386,7 +396,29 @@ def apply_automatic_transitions(now: Optional[datetime] = None) -> Dict[str, int
 # ---------------------------------------------------------------------------
 # Review prompt for the forked agent
 # ---------------------------------------------------------------------------
-
+# CURATOR_DRY_RUN_BANNER = (
+#     "═══════════════════════════════════════════════════════════════\n"
+#     "预演模式（DRY-RUN）— 仅生成报告。请勿修改技能库（SKILL LIBRARY）。\n"
+#     "═══════════════════════════════════════════════════════════════\n"
+#     "\n"
+#     "这是一个【预览】环节。请遵循以下所有指令，但【排除】以下操作：\n"
+#     "\n"
+#     "  • 请勿调用 skill_manage 并传入 action=patch, create, delete, "
+#     "write_file 或 remove_file。\n"
+#     "  • 请勿调用 terminal 将技能目录移动（mv）至 .archive/ 中。\n"
+#     "  • 请勿调用 terminal 去移动（mv）、复制（cp）、删除（rm）或重写 "
+#     "~/.hermes/skills/ 下的任何文件。\n"
+#     "  • skills_list 与 skill_view 可以正常使用 — 尽情读取你需要的内容。\n"
+#     "\n"
+#     "你的输出【就是】最终交付物。请生成与实际运行（live run）完全一致的"
+#     "可读摘要和结构化 YAML 块 — 但请描述你【打算】采取的操作，"
+#     "而非【已执行】的操作。后续的审核人员将阅读此报告，"
+#     "并决定是否批准使用 `hermes curator run`（不带标记）进行实际运行。\n"
+#     "\n"
+#     "如果你意外执行了任何修改类操作，请在摘要中明确说明，"
+#     "以便审核人员能够进行还原。\n"
+#     "═══════════════════════════════════════════════════════════════"
+# )
 CURATOR_DRY_RUN_BANNER = (
     "═══════════════════════════════════════════════════════════════\n"
     "DRY-RUN — REPORT ONLY. DO NOT MUTATE THE SKILL LIBRARY.\n"
@@ -412,8 +444,111 @@ CURATOR_DRY_RUN_BANNER = (
     "the summary so the reviewer can revert it.\n"
     "═══════════════════════════════════════════════════════════════"
 )
+#
+# CURATOR_REVIEW_PROMPT = (
+#     "你正在作为 Hermes 的后台 Skill 维护者（CURATOR）运行。"
+#     "这是一次**框架构建（UMBRELLA-BUILDING）**合并审查，而不是被动审计，也不是重复项查找器。\n\n"
+#     "Skill 集合的目标是建立一个**类级别（CLASS-LEVEL）指令和经验知识的库**。"
+#     "包含几百个狭隘 Skill（其中每个只捕获单次会话的特定 Bug）的集合是该库的**失败**，而不是特性。"
+#     "Agent 搜索 Skill 时是通过描述进行匹配，而不是通过精确名称匹配；"
+#     "一个带有清晰标注小节的广义框架（Umbrella）Skill，在可发现性上远胜于五个狭隘的同类 Skill，而不是相反。\n\n"
+#     "正确的目标形态是带有丰富 SKILL.md 主体，
+#     以及用于存放会话特定细节的 `references/`、`templates/`
+#     和 `scripts/` 子文件的**类级别 Skill** —— 而不是“一次会话一个 Skill”的微型条目。\n\n"
+#     "硬性规则 —— 切勿违反：\n"
+#     "1. 切勿触碰打包自带（bundled）、Hub 安装或外部目录（`skills.external_dirs`）中的 Skill。
+#     下方的候选列表已经过滤为仅包含本地 Curator 管理的 Skill；
+#     外部 Skill 归外部所有，对本后台 Curator 而言是只读的。\n"
+#     "2. 切勿删除任何 Skill。归档（将 Skill 目录移动到 ~/.hermes/skills/.archive/）
+#     是最大的破坏性操作。归档是可恢复的；删除不可恢复。\n"
+#     "3. 切勿触碰显示为 pinned=yes 的 Skill。完全跳过它们。\n"
+#     "3b. 切勿对受保护的内置列表（目前为：plan）中命名的任何 Skill 进行归档、删除、合并、移动或以其他方式修改。
+#     这些支撑着关键的 UX（文档和提示中引用的斜杠命令入口点），
+#     并且已从下方的候选列表中过滤掉 —— 切勿将其作为归档或吸收目标重新复活。\n"
+#     "3c. 切勿归档或清理候选列表中标记为 `cron=yes` 的任何 Skill。Cron 任务依赖于它，下次运行时将无法加载它。
+#     你**仍可以**将其合并到框架 Skill 中 ——
+#     但这仅是因为 Curator 会重写 Cron 任务的 Skill 引用以跟进合并；绝不能直接清理它。\n"
+#     "4. 切勿将使用计数器作为跳过合并的理由。
+#     计数器是新功能，通常大多为零。请根据**内容**判断重叠度，而不是根据 use_count。
+#     “use=0”不是 Skill 毫无价值的证据；无论如何它只是缺乏证据。
+#     推论：“use=0”也**不是**清理（PRUNE）Skill 的理由。
+#     切勿归档从未使用的 Skill（use=0），除非它至少有 30 天的历史（检查 last_activity / created 日期）
+#     **并且**其内容确实已过时或完全被其他地方吸收 —— 新创建的 Skill 可能只是尚未遇到触发它的场景而已。\n"
+#     "5. 切勿以“每个 Skill 都有不同的触发条件”为由拒绝合并。
+#     成对的差异性是错误的标准。正确的标准是：“人类维护者会将其写成 N 个独立的 Skill，
+#     还是写成带有 N 个标注小节的一个 Skill？”当答案是后者时，进行合并。\n\n"
+#     "工作方式 —— 强制执行：\n"
+#     "1. 扫描完整的候选列表。
+#     识别**前缀聚类（PREFIX CLUSTERS）**（共享首个单词或领域关键字的 Skill）。
+#     你可能找到的示例包括：hermes-config-*、hermes-dashboard-*、
+#     gateway-*、codex-*、ollama-*、anthropic-*、
+#     gemini-*、mcp-*、salvage-*、pr-*、competitor-*、
+#     python-*、security-* 等。预计会有 10-25 个聚类。\n"
+#     "2. 对于每个包含 2 个以上成员的聚类，**不要**问“这些成对的 Skill 是否重叠？”
+#     —— 要问“这些 Skill 共同服务的**框架类（UMBRELLA CLASS）**是什么？
+#     维护者是否会命名该类并为其编写一个 Skill？”
+#     如果是，选择（或创建）框架 Skill，并将同类 Skill 吸收进去。\n"
+#     "3. 合并的三种方式 —— 每个聚类使用合适的方式：\n"
+#     "   a. **合并到现有的框架 Skill 中** —— 聚类中的一个 Skill 已经足够宽泛，
+#     可以作为框架 Skill（例如 PR 审查聚类中的 `pr-triage-salvage`）。
+#     对其进行打补丁（Patch），为每个同类 Skill 的独到见解添加一个带标注的章节，然后归档这些同类 Skill。\n"
 
+#     "   b. **创建一个新的框架 SKILL.md** ——
+#     现有的成员都不够宽泛。使用 skill_manage action=create 编写一个新的类级别 Skill，
+#     其 SKILL.md 涵盖共享的工作流并包含简短的带标注小节。归档现已被吸收的狭隘同类 Skill。\n"
 
+#     "   c. **降级为 REFERENCES/TEMPLATES/SCRIPTS** —— 同类 Skill 拥有狭隘但有价值的会话特定内容。
+#     将其移动到框架 Skill 对应的支持目录中：\n"
+#     "      • `references/<topic>.md`：用于会话特定的细节或精简的知识库（引用的研究、API 文档摘要、领域笔记、提供者特性、复现配方）\n"
+#     "      • `templates/<name>.<ext>`：用于旨在复制和修改的初始模板文件\n"
+#     "      • `scripts/<name>.<ext>`：用于可静态重复运行的操作（验证脚本、Fixture 生成器、探测器）\n"
+#     "      然后归档旧的同类 Skill。使用 `terminal` 命令，
+#     如 `mkdir -p ~/.hermes/skills/<umbrella>/references/ && mv ... <umbrella>/references/<topic>.md`（或 templates/ / scripts/）。\n\n"
+#     "包完整性 —— 强制执行：\n"
+#     "在降级或归档 Skill 之前，请将其作为一个**完整的目录包**进行检查，而不仅仅是 SKILL.md。
+#     Skill 根目录可能包含 `references/`、`templates/`、`scripts/` 和 `assets/`；
+#     `skill_view` 会相对于 Skill 根目录发现这些文件。
+#     另一个 Skill 内部的参考 Markdown 文件**并不是**新的 Skill 根目录，不会获得其自身的关联文件发现。\n"
+#     "如果源 Skill 包含支持文件，或 SKILL.md 包含相对链接（
+#     例如 `references/...`、`templates/...`、`scripts/...` 或 `assets/...`），
+#     **切勿**仅将 SKILL.md 扁平化合并到 `<umbrella>/references/<old>.md`。请选择以下一种安全路径：\n"
+#     "   • 将其保留为独立 Skill，或者\n"
+#     "   • 通过将每个需要的支持文件重新归位到框架 Skill 的规范 `references/`、
+#     `templates/`、`scripts/` 或 `assets/` 目录中来进行完全合并，**并且**将目标指令重写为新路径，或者\n"
+#     "   • 保持整个原始 Skill 包不变并直接归档。\n"
+#     "切勿留下指向旧 Skill 目录下遗留文件的已归档/已降级指令。\n"
+#     "4. 标记那些**名称**过于狭隘的 Skill（包含 PR 编号、功能代号、特定的错误字符串、
+#     “audit”/“diagnosis”/“salvage” 会话产物）。
+#     这些几乎总是属于类级别框架下的子章节或支持文件。\n"
+#     "5. 迭代处理。在一个合并轮次之后，扫描剩余的集合，寻找**下一个**框架构建机会。
+#     不要在 3 次合并后就停止。\n\n"
+#     "你的工具集：\n"
+#     "  - skills_list, skill_view        — 读取当前的全局状况\n"
+#     "  - skill_manage action=patch      — 为框架 Skill 添加章节\n"
+#     "  - skill_manage action=create     — 创建一个新的框架 SKILL.md\n"
+#     "  - skill_manage action=write_file — 在现有的 Skill 下添加 references/、templates/ 或 scripts/ 文件（该 Skill 必须已经存在）\n"
+#     "  - skill_manage action=delete     — 归档一个 Skill。当你将其内容合并到另一个 Skill 时，
+#     **必须**传递 `absorbed_into=<umbrella>`；当你在没有任何转发目标的情况下进行纯粹清理时，
+#     传递 `absorbed_into=\"\"`。这将驱动 Cron 任务的 Skill 引用迁移 ——
+#     事后从你的 YAML 总结中猜测是很脆弱的。\n"
+#     "  - terminal                       — 当包完整性需要时，将本地候选内容移动到支持子文件中；
+#     切勿对打包自带、Hub 安装或外部目录中的 Skill 执行 mv、cp、rm、patch 或重写操作\n\n"
+#     "只有当 Skill 已经是一个类级别框架，且提议的合并都无法改善可发现性时，'keep'（保留）才是一个合理的决策。
+#     “这个 Skill 虽然狭隘但与其同类 Skill 不同”**不是**保留的理由 —— 这是将其作为子章节或支持文件移动到框架 Skill 下的理由。\n\n"
+#     "期望的输出：真正的框架化（umbrella-ification）。处理每一个明显的聚类。如果你结束本次审查时归档数量少于 10 个，说明你停止得太早了 —— 请重新查看你未触碰的聚类。\n\n"
+#     "完成后，撰写一份人类可读的总结**以及**一个结构化的机器可读文本块，以便下游工具能够区分“合并”与“清理”。格式**严格如下**：\n\n"
+#     "## Structured summary (required)\n"
+#     "```yaml\n"
+#     "consolidations:\n"
+#     "  - from: <old-skill-name>\n"
+#     "    into: <umbrella-skill-name>\n"
+#     "    reason: <简短的一句话 —— 解释为何合并，而不仅仅是'相似'>\n"
+#     "prunings:\n"
+#     "  - name: <skill-name>\n"
+#     "    reason: <简短的一句话 —— 解释为何在无合并目标的情况下归档>\n"
+#     "```\n\n"
+#     "你移动到 .archive/ 的每个 Skill **必须**恰好出现在上述两个列表之一中。如果你将 X 合并到了框架 Y 中（打补丁到 Y、向 Y 写入参考文件，或创建了吸收 X 内容的 Y），X 放在 `consolidations` 下并带上 `into: Y`。如果你归档了 X 且没有任何吸收 —— 属于真正陈旧、不相关或过时 —— X 放在 `prunings` 下。如果没有相应项目，请保留空列表（`consolidations: []`）。切勿省略该文本块。该文本块应当放在你对已处理聚类、所做补丁和未触碰决策的人类可读总结**之后**。"
+# )
 CURATOR_REVIEW_PROMPT = (
     "You are running as Hermes' background skill CURATOR. This is an "
     "UMBRELLA-BUILDING consolidation pass, not a passive audit and not a "
@@ -1007,14 +1142,14 @@ def _build_rename_summary(
     tool_calls: List[Dict[str, Any]],
     model_final: str,
 ) -> str:
-    """Format the user-visible rename map for a curator run.
+    """为策展人（curator）运行格式化用户可见的重命名映射。
 
-    Renders the "where did my skills go?" lines that get appended to the
-    `final_summary` string fed to gateway/CLI receivers. Empty string when
-    nothing was archived this run — most ticks are no-op and shouldn't add
-    extra log noise.
+    渲染“我的技能去哪儿了？”相关行，这些行会被追加到
+    传递给网关/CLI接收器的 `final_summary` 字符串中。
+    如果本次运行没有归档任何内容，则为空字符串 ——
+    大多数心跳检测（ticks）都是无操作的，不应增加额外的日志噪声。
 
-    Format::
+    格式如下：::
 
         archived 4 skill(s):
           • pdf-extraction → document-tools
@@ -1024,10 +1159,10 @@ def _build_rename_summary(
         full report: hermes curator status
         keep an umbrella stable: hermes curator pin document-tools
 
-    Cap is 10 entries so a 50-skill consolidation doesn't blow up
-    agent.log; the full list is always in REPORT.md. The pin hint only
-    appears when at least one consolidation produced an umbrella worth
-    pinning (pruned-only runs skip it).
+    上限为 10 个条目，以避免 50 个技能的整合撑爆
+    agent.log；完整列表始终保存在 REPORT.md 中。固定提示仅在
+    至少产生了一个值得固定的伞形技能的整合时才会出现
+    （仅修剪的运行会跳过此提示）。
     """
     after_by_name = {r.get("name"): r for r in after_report if isinstance(r, dict)}
     after_names = set(after_by_name.keys())
@@ -1101,10 +1236,10 @@ def _write_run_report(
     after_report: List[Dict[str, Any]],
     llm_meta: Dict[str, Any],
 ) -> Optional[Path]:
-    """Write run.json + REPORT.md under logs/curator/{YYYYMMDD-HHMMSS}/.
+    """在 logs/curator/{YYYYMMDD-HHMMSS}/ 目录下写入 run.json 和 REPORT.md 文件。
 
-    Returns the report directory path on success, None if the write
-    couldn't happen (caller logs and continues — reporting is best-effort).
+    成功时返回报告目录路径，如果写入未能完成则返回 None
+    （调用方会记录日志并继续 —— 报告属于尽力而为的操作）。
     """
     root = _reports_root()
     try:
@@ -1497,33 +1632,32 @@ def run_curator_review(
     dry_run: bool = False,
     consolidate: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """Execute a single curator review pass.
+    """执行单次 Curator 审查流程。
 
-    Steps:
-      1. Apply automatic state transitions (pure, no LLM).
-      2. If consolidation is enabled AND there are agent-created skills, spawn
-         a forked AIAgent that runs the LLM review prompt against the current
-         candidate list.
-      3. Update .curator_state with last_run_at and a one-line summary.
-      4. Invoke *on_summary* with a user-visible description.
+    步骤：
+      1. 应用自动状态过渡（纯逻辑控制，无 LLM 参与）。
+      2. 如果启用了合并功能（Consolidation）且存在由 Agent 创建的 Skill，
+         则派生（Fork）一个 AIAgent，针对当前的候选列表运行 LLM 审查 Prompt。
+      3. 使用 last_run_at 以及单行总结更新 .curator_state。
+      4. 传入用户可见的描述内容并调用 *on_summary*。
 
-    If *synchronous* is True, the LLM review runs in the calling thread; the
-    default is to spawn a daemon thread so the caller returns immediately.
+    如果 *synchronous* 为 True，LLM 审查将在调用线程中同步运行；
+    默认行为是派生一个守护线程（Daemon Thread），以便调用方能够立即返回。
 
-    *consolidate* gates the LLM umbrella-building pass. ``None`` (the default)
-    reads ``curator.consolidate`` from config (OFF by default). Passing
-    ``True``/``False`` overrides the config for this invocation — used by the
-    ``hermes curator run --consolidate`` flag. When consolidation is off, only
-    the deterministic inactivity prune runs and the forked aux-model review is
-    skipped entirely (no aux-model cost).
+    *consolidate* 参数用于控制 LLM 级的整合/归类 pass 流程。
+    默认值 ``None`` 会从配置中读取 ``curator.consolidate``（默认关闭 OFF）。
+    显式传入 ``True``/``False`` 则会覆盖本次调用的默认配置 ——
+    这一特性常用于 ``hermes curator run --consolidate`` 命令行标志。
+    当合并功能关闭时，仅运行确定性的空闲清理逻辑，
+    完全跳过派生的辅助模型审查（不会产生辅助模型的消耗成本）。
 
-    If *dry_run* is True, the automatic stale/archive transitions are SKIPPED
-    and the LLM review pass is instructed to produce a report only — no
-    skill_manage mutations, no terminal archive moves. The REPORT.md still
-    gets written and ``state.last_report_path`` still records it so users
-    can read what the curator WOULD have done. A dry-run also honors
-    *consolidate*: when consolidation is off, the preview only reports the
-    deterministic prune candidates.
+    如果 *dry_run* 为 True，系统将跳过自动过期/归档的状态过渡，
+    同时指示 LLM 审查流程仅生成报告 ——
+    不调用 skill_manage 进行变更，也不执行最终的归档移动。
+    系统仍会写入 REPORT.md 并将其记录在 ``state.last_report_path`` 中，
+    以便用户查看 Curator 本“计划”执行的操作。
+    试运行（Dry-run）同样遵循 *consolidate* 的设定：
+    当合并功能关闭时，预览结果仅包含确定性清理的候选项目。
     """
     if consolidate is None:
         consolidate = get_consolidate()
@@ -1541,11 +1675,10 @@ def run_curator_review(
         except Exception:
             counts = {"checked": 0, "marked_stale": 0, "archived": 0, "reactivated": 0}
     else:
-        # Pre-mutation snapshot — best-effort, never blocks the run. A
-        # failed snapshot logs at debug and continues (the alternative is
-        # that a transient disk issue silently disables curator forever,
-        # which is worse). Users who want to require snapshots can disable
-        # curator entirely until they can fix disk space.
+        # 变动前快照 — 尽力而为，绝不阻塞流程运行。
+        # 快照失败仅输出 Debug 日志并继续执行
+        # （若非如此，一次短暂的磁盘问题就会静默禁用 Curator 且无法恢复，后果更为严重）。
+        # 若用户要求必须生成快照，可在修复磁盘空间前彻底禁用 Curator。
         try:
             from agent import curator_backup
             snap = curator_backup.snapshot_skills(reason="pre-curator-run")
@@ -1567,11 +1700,13 @@ def run_curator_review(
         auto_summary_parts.append(f"{counts['reactivated']} reactivated")
     auto_summary = ", ".join(auto_summary_parts) if auto_summary_parts else "no changes"
 
-    # Persist state before the LLM pass so a crash mid-review still records
-    # the run and doesn't immediately re-trigger. In dry-run we do NOT bump
-    # last_run_at or run_count — a preview shouldn't push the next scheduled
-    # real pass out. We still record a summary so `hermes curator status`
-    # shows that a preview ran.
+    # 在进行 LLM 审查前先持久化保存状态，
+    # 这样即使在审查过程中发生崩溃，仍会记录本次运行，
+    # 从而避免立即重新触发。
+    # 在试运行（Dry-run）模式下，我们**不会**更新 last_run_at 或 run_count ——
+    # 预览操作不应当将下一次计划的正式审查推迟。
+    # 但我们仍会记录一份总结，
+    # 以便通过 `hermes curator status` 可以查看到曾执行过预览。
     state = load_state()
     if not dry_run:
         state["last_run_at"] = start.isoformat()
@@ -1589,10 +1724,11 @@ def run_curator_review(
             before_report = []
         before_names = {r.get("name") for r in before_report if isinstance(r, dict)}
 
-        # Consolidation gate. When off (the default), the curator does ONLY the
-        # deterministic inactivity prune above — no forked aux-model review, no
-        # umbrella-building, no aux-model cost. Record the run, write a report
-        # reflecting the prune-only outcome, and return without spawning a fork.
+        # 合并流程门控（Consolidation gate）。
+        # 当该功能关闭时（默认关闭），Curator 仅会执行上述确定性的空闲清理 ——
+        # 不会派生辅助模型进行审查，不会构建框架，亦无辅助模型产生的成本。
+        # 记录本次运行，写入仅反映清理结果的报告，
+        # 并直接返回，不再派生（Fork）新进程。
         if not consolidate:
             final_summary = (
                 f"{prefix}{auto_summary}; llm: skipped (consolidation off)"
@@ -1650,12 +1786,22 @@ def run_curator_review(
                     "error": None,
                 }
             else:
-                # When pruning built-ins is enabled, the candidate list now
-                # includes bundled skills. Override the default "don't touch
-                # bundled" rule for them — but only archiving is permitted, and
-                # hub-installed skills remain strictly off-limits.
+                # 当启用清理内置 Skill 功能时，候选列表将包含打包自带的 Skill。
+                # 针对这些 Skill，覆盖默认的“请勿触碰打包内置内容”规则 ——
+                # 但仅允许进行归档操作，
+                # 且通过 Hub 安装的 Skill 仍严格禁止触碰。
                 builtins_note = ""
                 if get_prune_builtins():
+                    # builtins_note = (
+                    #     "\n\n清理内置 Skill 模式已开启：打包自带的内置 Skill "
+                    #     "已包含在下方的候选列表中，"
+                    #     "且可能会因陈旧/不相关而被归档，"
+                    #     "仅针对打包内置 Skill 覆盖硬性规则 #1。"
+                    #     "通过 Hub 安装的 Skill 仍严格禁止触碰。"
+                    #     "对待陈旧内置 Skill 的方式与对待 Agent 创建的陈旧 Skill 相同："
+                    #     "对其进行归档（绝不删除）。"
+                    #     "只有当用户显式恢复时，它才会在执行 `hermes update` 时被恢复。"
+                    # )
                     builtins_note = (
                         "\n\nPRUNE-BUILTINS MODE IS ON: bundled built-in skills "
                         "ARE included in the candidate list below and MAY be "
@@ -1690,10 +1836,10 @@ def run_curator_review(
                 "error": str(e),
             }
 
-        # Append the rename map (`old-name → umbrella`) to the user-visible
-        # summary so people don't have to dig into REPORT.md to find out where
-        # their skills went. Best-effort: classification is pure but never
-        # block the run on a formatting issue.
+        # 将重命名映射（`旧名称 → 伞形名称`）追加到用户可见的
+        # 摘要中，这样大家就不需要深入查阅 REPORT.md
+        # 才能知道自己的技能去哪儿了。尽力而为：
+        # 分类是纯粹的，但绝不要因为格式问题而阻塞运行。
         try:
             rename_lines = _build_rename_summary(
                 before_names=before_names,
@@ -1823,17 +1969,17 @@ def _resolve_review_model(cfg: Dict[str, Any]) -> tuple[str, str]:
 
 
 def _run_llm_review(prompt: str) -> Dict[str, Any]:
-    """Spawn an AIAgent fork to run the curator review prompt.
+    """派生一个 AIAgent 子进程来运行策展人（curator）审核提示词。
 
-    Returns a dict with:
-      - final: full (untruncated) final response from the reviewer
-      - summary: short summary suitable for state file (240-char cap)
-      - model, provider: what the fork actually ran on
-      - tool_calls: list of {name, arguments} for every tool call made during
-        the pass (arguments may be truncated for readability)
-      - error: set if the pass failed mid-run; final/summary may still be empty
+    返回一个包含以下内容的字典：
+      - final：来自审核员的完整（未截断）最终响应
+      - summary：适用于状态文件的简短摘要（上限 240 个字符）
+      - model, provider：子进程实际运行所使用的模型和提供商
+      - tool_calls：在运行期间发生的所有工具调用的 {name, arguments} 列表
+        （为了可读性，参数可能会被截断）
+      - error：如果运行中途失败则会设置此项；final/summary 可能会为空
 
-    Never raises; callers get a structured failure instead.
+    绝不抛出异常；调用方会获取一个结构化的失败结果。
     """
     import contextlib
     result_meta: Dict[str, Any] = {
@@ -1851,17 +1997,19 @@ def _run_llm_review(prompt: str) -> Dict[str, Any]:
         result_meta["summary"] = result_meta["error"]
         return result_meta
 
-    # Resolve provider + model the same way the CLI does, so the curator
-    # fork inherits the user's active main config rather than falling
-    # through to an empty provider/model pair (which sends HTTP 400
-    # "No models provided"). AIAgent() without explicit provider/model
-    # arguments hits an auto-resolution path that fails for OAuth-only
-    # providers and for pool-backed credentials.
+    # 以与 CLI 相同的方式解析提供商和模型，
+    # 这样 curator 分支就能继承用户的活动主配置，
+    # 而不会回退到空的提供商/模型对
+    # （这会导致发送 HTTP 400 错误“未提供模型”）。
+    # 如果 AIAgent() 没有显式提供商/模型参数，
+    # 就会触发自动解析路径，该路径对于仅支持 OAuth 的提供商
+    # 以及由凭据池支持的提供商会失败。
     #
-    # `_resolve_review_runtime()` honors `auxiliary.curator.{provider,model,...}`
-    # (canonical aux-task slot, wired through `hermes model` → auxiliary
-    # picker and the dashboard Models tab), with a legacy fallback to
-    # `curator.auxiliary.{provider,model,...}`. See docs/user-guide/features/curator.md.
+    # `_resolve_review_runtime()` 优先使用 `auxiliary.curator.{provider,model,...}`
+    # （规范的辅助任务槽位，通过 `hermes model` → 辅助选择器
+    # 以及仪表板的“模型”选项卡连接），
+    # 同时对旧版配置 `curator.auxiliary.{provider,model,...}` 提供向下兼容的回退。
+    # 详情请参见 docs/user-guide/features/curator.md。
     _api_key = None
     _base_url = None
     _api_mode = None
@@ -1921,34 +2069,35 @@ def _run_llm_review(prompt: str) -> Dict[str, Any]:
             credential_pool=_credential_pool,
             request_overrides=_request_overrides,
             **_agent_kwargs,
-            # Umbrella-building over a large skill collection is worth a
-            # high iteration ceiling — the pass typically takes 50-100
-            # API calls against hundreds of candidate skills. The
-            # single-session review path caps itself at a much smaller
-            # number because it's not doing a curation sweep.
+            # 针对庞大的技能集合构建伞形技能值得设定较高的
+            # 迭代上限 —— 针对数百个候选技能，这一过程通常需要进行
+            # 50 到 100 次 API 调用。而单次会话的审核路径
+            # 将其上限限制在小得多的数量，
+            # 因为它并没有进行策展扫描。
             max_iterations=9999,
             quiet_mode=True,
             platform="curator",
             skip_context_files=True,
             skip_memory=True,
         )
-        # Disable recursive nudges — the curator must never spawn its own review.
+        # 禁用递归提示 — curator 绝不能生成它自己的审核。
         review_agent._memory_nudge_interval = 0
         review_agent._skill_nudge_interval = 0
-        # Tag this fork as autonomous background curation so skill_manage's
-        # background-review write guard fires. Without this the fork inherits
-        # the default "assistant_tool" origin, is_background_review() is False,
-        # and the external/bundled/hub-installed skill_manage guards never
-        # trigger during the curation pass they exist to protect against.
-        # turn_context.py binds this onto the write-origin ContextVar at turn
-        # start (see agent/turn_context.py).
+        # 将此分支标记为自主后台策展（autonomous background curation），
+        # 从而触发 skill_manage 的后台审核写入保护机制。
+        # 若无此标记，该分支将继承默认的 "assistant_tool" 来源，
+        # 导致 is_background_review() 返回 False，
+        # 从而使外部/内置/从 hub 安装的 skill_manage 保护机制
+        # 在其原本用于防范的策展期间永不触发。
+        # turn_context.py 会在回合开始时将此标记绑定到
+        # 写入来源的 ContextVar 上（参见 agent/turn_context.py）。
         review_agent._memory_write_origin = "background_review"
 
-        # Redirect the forked agent's stdout/stderr to /dev/null while it
-        # runs so its tool-call chatter doesn't pollute the foreground
-        # terminal. The background-thread runner also hides it; this
-        # belt-and-suspenders path matters when a caller invokes
-        # run_curator_review(synchronous=True) from the CLI.
+        # 将派生代理的 stdout/stderr 重定向到 /dev/null，
+        # 以免其工具调用啰嗦信息污染前台终端。
+        # 后台线程运行器也会将其隐藏；当调用方
+        # 从 CLI 调用 run_curator_review(synchronous=True) 时，
+        # 这种双重保险（belt-and-suspenders）路径就显得尤为重要。
         with open(os.devnull, "w", encoding="utf-8") as _devnull, \
              contextlib.redirect_stdout(_devnull), \
              contextlib.redirect_stderr(_devnull):
@@ -1960,10 +2109,10 @@ def _run_llm_review(prompt: str) -> Dict[str, Any]:
         result_meta["final"] = final
         result_meta["summary"] = (final[:240] + "…") if len(final) > 240 else (final or "no change")
 
-        # Collect tool calls for the report. Walk the forked agent's
-        # session messages and extract every tool_call made during the
-        # pass. Truncate argument payloads so a giant skill_manage create
-        # doesn't blow up the report.
+        # 收集用于报告的工具调用。遍历分叉代理的
+        # 会话消息，并提取在运行期间发出的所有 tool_call。
+        # 截断参数有效载荷，以防庞大的 skill_manage 创建
+        # 撑爆报告。
         _calls: List[Dict[str, Any]] = []
         for msg in getattr(review_agent, "_session_messages", []) or []:
             if not isinstance(msg, dict):

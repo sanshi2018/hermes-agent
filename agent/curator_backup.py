@@ -209,16 +209,16 @@ def _write_manifest(dest: Path, reason: str, archive_path: Path,
 
 
 def snapshot_skills(reason: str = "manual", *, protect_ids: Optional[Set[str]] = None) -> Optional[Path]:
-    """Create a tar.gz snapshot of ``~/.hermes/skills/`` and prune old ones.
+    """创建 ``~/.hermes/skills/`` 的 tar.gz 快照并清理旧快照。
 
-    Returns the snapshot directory path, or ``None`` if the snapshot was
-    skipped (backup disabled, skills dir missing, or an IO error occurred —
-    in which case we log at debug and return None so the curator never
-    aborts a pass because of a backup failure).
+    返回快照目录路径；若跳过快照则返回 ``None``
+    （例如禁用备份、Skill 目录不存在或发生 IO 错误 ——
+    在此情况下，我们会记录 Debug 日志并返回 None，
+    以确保 Curator 绝不因备份失败而中断审查流程）。
 
-    ``protect_ids`` is forwarded to the prune step so callers can guarantee
-    specific snapshot ids survive even when they fall outside the keep
-    window (rollback passes the id it is about to restore from).
+    ``protect_ids`` 会传递给清理步骤，
+    以便调用方能够确保特定的快照 ID 即使超出了保留窗口期
+    也不会被清理（回滚流程会传入其即将其恢复的快照 ID）。
     """
     if not is_enabled():
         logger.debug("Curator backup disabled by config; skipping snapshot")

@@ -326,15 +326,16 @@ def remove_suppressed_name(skill_name: str) -> None:
 
 
 def list_agent_created_skill_names() -> List[str]:
-    """Enumerate skills the curator may manage.
+    """枚举 Curator 可以管理的 Skill。
 
-    Always includes agent-authored skills (those marked in ``.usage.json`` via
-    ``skill_manage(action="create")``). When ``curator.prune_builtins`` is
-    enabled, bundled built-in skills are ALSO included even though they have no
-    agent-created usage record — their inactivity clock is anchored on first
-    sight (see ``apply_automatic_transitions``). Hub-installed skills are never
-    included; manually authored skills are not inferred from filesystem
-    location.
+    始终包含由 Agent 编写的 Skill
+    （即在 ``.usage.json`` 中通过 ``skill_manage(action="create")`` 标记的 Skill）。
+    当启用了 ``curator.prune_builtins`` 时，
+    打包内置的 Skill 也将**被包含**进来，
+    即使它们没有由 Agent 创建的使用记录 ——
+    它们的空闲计时器会在首次发现时被挂载锚定（参见 ``apply_automatic_transitions``）。
+    通过 Hub 安装的 Skill 绝不会被包含；
+    手动编写的 Skill 不会根据文件系统路径进行推断。
     """
     base = _skills_dir()
     if not base.exists():
@@ -867,14 +868,17 @@ def _find_external_skill_dir(skill_name: str) -> Optional[Path]:
 # ---------------------------------------------------------------------------
 
 def agent_created_report() -> List[Dict[str, Any]]:
-    """Return a list of {name, state, pinned, last_activity_at, ...}
-    records for every curator-managed skill. Missing usage records are
-    backfilled with defaults so callers can always index fields.
+    """返回每一个由 Curator 管理的 Skill 的记录列表，
+    内容包含 {name, state, pinned, last_activity_at, ...}。
+    对于缺失的使用记录会用默认值补全，
+    以便调用方始终可以对各字段进行索引。
 
-    Each row carries ``_persisted``: True when a real record exists in
-    ``.usage.json``, False when the row is a fresh backfill (e.g. a built-in
-    seen for the first time). The curator uses this to seed the inactivity
-    clock instead of treating an unrecorded skill as ancient.
+    每行记录都包含 ``_persisted`` 标识：
+    当 ``.usage.json`` 中存在真实的记录时为 True；
+    当该行是全新的补全数据时为 False
+    （例如首次看到的内置 Skill）。
+    Curator 会利用该标识来初始化空闲计时器，
+    而不是将未记录的 Skill 直接视为久未使用。
     """
     data = load_usage()
     rows: List[Dict[str, Any]] = []

@@ -2190,20 +2190,21 @@ def save_job_output(job_id: str, output: str):
 
 
 # =============================================================================
-# Skill reference rewriting (curator integration)
+# Skill 引用重写（Curator 集成）
 # =============================================================================
 
 def referenced_skill_names() -> Set[str]:
-    """Return the set of skill names referenced by ANY cron job.
+    """返回任意 Cron 任务所引用的 Skill 名称集合。
 
-    Includes paused and disabled jobs deliberately: a paused job never
-    fires, so its skills never get a ``bump_use`` from the scheduler, yet
-    resuming it must still find its skills present. The curator uses this
-    set to protect referenced skills from inactivity archival — a skill a
-    live job depends on is "in use" regardless of when it was last loaded.
+    故意包含了已暂停和已禁用的任务：
+    因为暂停的任务不会触发，其对应的 Skill 也不会从调度器中获得 ``bump_use`` 更新，
+    但在重新启用该任务时，必须确保其依赖的 Skill 依然存在。
+    Curator 使用该集合来保护被引用的 Skill 免受空闲归档 ——
+    只要有活跃任务依赖该 Skill，无论其最近一次加载是在何时，该 Skill 都被视为“在使用中”。
 
-    Best-effort: a corrupt/unreadable jobs store returns an empty set
-    rather than raising, so a cron issue can never break the curator.
+    尽力而为（Best-effort）：
+    若 Jobs 存储库损坏或不可读，将返回一个空集合而不是抛出异常，
+    因此 Cron 的任何问题都绝不会影响或破坏 Curator 的正常运行。
     """
     try:
         jobs = load_jobs()

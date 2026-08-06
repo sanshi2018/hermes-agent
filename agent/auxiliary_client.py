@@ -1,43 +1,43 @@
-"""Shared auxiliary client router for side tasks.
+"""用于辅助任务的共享辅助客户端路由器。
 
-Provides a single resolution chain so every consumer (context compression,
-session search, web extraction, vision analysis, browser vision) picks up
-the best available backend without duplicating fallback logic.
+提供单一的解析链，使每个调用方（上下文压缩、
+会话搜索、网页提取、视觉分析、浏览器视觉）
+都能获取当前可用的最佳后端，无需重复编写回退逻辑。
 
-Resolution order for text tasks (auto mode):
-  1. User's main provider + main model (used regardless of provider type —
-     aggregators, direct API-key providers, native Anthropic, Codex, etc.)
-  2. OpenRouter  (OPENROUTER_API_KEY)
-  3. Nous Portal (~/.hermes/auth.json active provider)
-  4. Custom endpoint (config.yaml model.base_url + OPENAI_API_KEY)
-  5. Native Anthropic
-  6. Direct API-key providers (z.ai/GLM, Kimi/Moonshot, MiniMax, MiniMax-CN)
-  7. None
+文本任务的解析顺序（auto 模式）：
+  1. 用户的首选提供商 + 主模型（无论提供商类型为何均可使用 —
+     聚合器、直接 API Key 提供商、原生 Anthropic、Codex 等）
+  2. OpenRouter (OPENROUTER_API_KEY)
+  3. Nous Portal (~/.hermes/auth.json 中的激活提供商)
+  4. 自定义端点 (config.yaml 中的 model.base_url + OPENAI_API_KEY)
+  5. 原生 Anthropic
+  6. 直接 API Key 提供商 (z.ai/GLM、Kimi/Moonshot、MiniMax、MiniMax-CN)
+  7. 无 (None)
 
-Resolution order for vision/multimodal tasks (auto mode):
-  1. Selected main provider, if it is one of the supported vision backends below
+视觉/多模态任务的解析顺序（auto 模式）：
+  1. 当前选择的主提供商（前提是属于下方支持的视觉后端之一）
   2. OpenRouter
   3. Nous Portal
-  4. Native Anthropic
-  5. Custom endpoint (for local vision models: Qwen-VL, LLaVA, Pixtral, etc.)
-  6. None
+  4. 原生 Anthropic
+  5. 自定义端点（用于本地视觉模型：Qwen-VL、LLaVA、Pixtral 等）
+  6. 无 (None)
 
-Codex OAuth (ChatGPT-account auth) is intentionally NOT in either
-fallback chain: OpenAI gates this endpoint behind an undocumented,
-shifting model allow-list, so "just try Codex with a hardcoded model"
-rots on its own.  Codex is used only when the user's main provider *is*
-openai-codex (Step 1 above) or when a caller explicitly requests it with
-a model (auxiliary.<task>.provider + auxiliary.<task>.model).
+Codex OAuth（ChatGPT 账户认证）特意**未包含**在上述任一回退链中：
+OpenAI 将该端点限制在未公开且不断变动的模型白名单之后，
+因此“使用硬编码模型盲目尝试 Codex”的方式会因接口变更而失效。
+仅当用户的首选提供商**就是** openai-codex（即上述步骤 1），
+或者调用方使用具体模型显式请求时（例如配置 auxiliary.<task>.provider + auxiliary.<task>.model），
+才会使用 Codex。
 
-Per-task overrides are configured in config.yaml under the ``auxiliary:`` section
-(e.g. ``auxiliary.vision.provider``, ``auxiliary.compression.model``).
-Default "auto" follows the chains above.
+针对具体任务的覆盖配置写在 config.yaml 的 ``auxiliary:`` 配置项下
+（例如 ``auxiliary.vision.provider``、``auxiliary.compression.model``）。
+默认的 "auto" 模式将遵循上述解析链。
 
-Payment / credit exhaustion fallback:
-  When a resolved provider returns HTTP 402 or a credit-related error,
-  call_llm() automatically retries with the next available provider in the
-  auto-detection chain.  This handles the common case where a user depletes
-  their OpenRouter balance but has Codex OAuth or another provider available.
+支付 / 额度耗尽回退机制：
+  当解析出的提供商返回 HTTP 402 或与额度相关的错误时，
+  call_llm() 会自动使用自动检测链中的下一个可用提供商进行重试。
+  这能有效处理常见场景，例如：用户的 OpenRouter 余额已用尽，
+  但仍有可用 Codex OAuth 或其他提供商。
 """
 
 import contextlib

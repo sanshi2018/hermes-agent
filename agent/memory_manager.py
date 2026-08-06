@@ -169,29 +169,31 @@ def sanitize_context(text: str) -> str:
 
 
 class StreamingContextScrubber:
-    """Stateful scrubber for streaming text that may contain split memory-context spans.
+    """针对可能包含跨块（split）memory-context 跨度的流式文本的状态清理器（Stateful scrubber）。
 
-    The one-shot ``sanitize_context`` regex cannot survive chunk boundaries:
-    a ``<memory-context>`` opened in one delta and closed in a later delta
-    leaks its payload to the UI because the non-greedy block regex needs
-    both tags in one string.  This scrubber runs a small state machine
-    across deltas, holding back partial-tag tails and discarding
-    everything inside a span (including the system-note line).
+    单次执行的 ``sanitize_context`` 正则表达式无法穿越数据块（chunk）的边界：
+    如果在某一次增量（delta）中打开了 ``<memory-context>`` 标签，
+    并在后续的增量中才将其关闭，
+    由于非贪婪的块正则表达式需要两个标签同时出现在同一个字符串中，
+    这会导致标签内的载荷泄漏到用户界面（UI）。
+    该清理器会在各个增量之间运行一个小型状态机，
+    暂留不完整的标签尾部，
+    并丢弃标签跨度内的所有内容（包括系统注释行）。
 
-    Usage::
+    使用示例：
 
         scrubber = StreamingContextScrubber()
         for delta in stream:
             visible = scrubber.feed(delta)
             if visible:
                 emit(visible)
-        trailing = scrubber.flush()  # at end of stream
+        trailing = scrubber.flush()  # 在流结束时调用
         if trailing:
             emit(trailing)
 
-    The scrubber is re-entrant per agent instance.  Callers building new
-    top-level responses (new turn) should create a fresh scrubber or call
-    ``reset()``.
+    对于每个 Agent 实例，清理器支持重入。
+    构建新的顶层响应（新一轮对话）的调用方
+    应当创建一个新的清理器，或者调用 ``reset()``。
     """
 
     _OPEN_TAG = "<memory-context>"

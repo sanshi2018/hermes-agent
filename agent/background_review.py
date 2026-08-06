@@ -1,21 +1,21 @@
-"""Background memory/skill review — fork the agent to evaluate the turn.
+"""后台记忆/技能审查 —— 分叉（fork）Agent 以评估当前对话轮次。
 
-After every turn, ``AIAgent.run_conversation`` may call
-:func:`spawn_background_review` to fire off a daemon thread that replays
-the conversation snapshot in a forked :class:`AIAgent` and asks itself
-"should any skill/memory be saved or updated?".  Writes go straight to
-the memory + skill stores.  Main conversation and prompt cache are never
-touched.
+在每一轮对话结束后，`AIAgent.run_conversation` 可能会调用
+`spawn_background_review` 来启动一个守护线程。
+该线程会在分叉出的 `AIAgent` 中重放对话快照，
+并自我询问：“是否有任何技能/记忆需要保存或更新？”。
+写入操作会直接存入记忆与技能存储库，
+主对话以及 Prompt 缓存绝不会被修改或触碰。
 
-The fork inherits the parent's live runtime (provider, model, base_url,
-credentials, cached system prompt) so it hits the same prefix cache and
-uses the same auth.  It runs with a tool whitelist limited to memory and
-skill management tools; everything else is denied at runtime.
+分叉出的 Agent 会继承父级的实时运行时环境
+（包括 provider、model、base_url、凭据以及已缓存的系统 Prompt），
+因此它能命中相同的前缀缓存（prefix cache）并使用相同的身份验证。
+它的运行受到工具白名单限制，仅允许使用记忆和技能管理工具；
+其他所有工具在运行时均会被拒绝访问。
 
-See the ``hermes-agent-dev`` skill (``references/self-improvement-loop.md``)
-for invariants and PR review criteria.
+有关不变性（invariants）和 PR 审查标准，
+请参阅 `hermes-agent-dev` 技能（`references/self-improvement-loop.md`）。
 """
-
 from __future__ import annotations
 
 import json
@@ -29,28 +29,33 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Background-review aux-model selector + routed digest.
+# 后台审查辅助模型选择器 + 路由摘要。
 #
-# The review fork runs on the MAIN model by default ("auto"), replaying the
-# full conversation — already warm in the prompt cache, so cheap cache reads.
-# Optimal and unchanged. A user can route the review to a different, cheaper
-# model via auxiliary.background_review.{provider,model}. A different model
-# cannot reuse the parent's cache (different key), so the fork is cold
-# regardless — replaying the full transcript would just cold-write it. So when
-# (and only when) routed to a different model, we replay a compact DIGEST to
-# minimise cold-written tokens. Same model -> full replay; different model ->
-# digest. That's the whole policy.
+# 审查分叉（fork）默认在主模型上运行（"auto"），重放完整对话 ——
+# 由于其在 Prompt 缓存中已预热，因此缓存读取成本极低。
+# 这是最优解且保持不变。
+#
+# 用户可以通过 auxiliary.background_review.{provider,model}
+# 将审查路由到另一个更便宜的模型。
+# 不同的模型无法复用父级的缓存（因为键名不同），
+# 因此无论如何该分叉都是冷启动 —— 重放完整文本只会产生冷写入。
+#
+# 因而，当且仅当路由至不同模型时，
+# 我们会重放一个紧凑的摘要（DIGEST），以最大限度减少冷写入的 Token。
+# 相同模型 -> 重放全文；不同模型 -> 重放摘要。
+# 这就是全部策略。
 # ---------------------------------------------------------------------------
 
-
 def _resolve_review_runtime(agent: Any) -> Dict[str, Any]:
-    """Resolve provider/model/credentials for the review fork.
+    """解析审查分叉（fork）所需的 provider/model/credentials。
 
-    Default (auto / unset / same as parent): inherit the parent's live runtime
-    (with codex_app_server -> codex_responses downgrade). ``routed`` is False —
-    the fork uses the main model and the warm cache, exactly as before. When
-    ``auxiliary.background_review.{provider,model}`` names a concrete model
-    different from the parent's, resolve that runtime and set ``routed=True``.
+    默认情况（auto / 未设置 / 与父级相同）：继承父级的实时运行时环境
+    （同时执行 codex_app_server -> codex_responses 降级处理）。
+    此时 ``routed`` 为 False ——
+    分叉会像之前一样，使用主模型以及已预热的缓存。
+
+    当 ``auxiliary.background_review.{provider,model}`` 指定了一个
+    与父级不同的具体模型时，解析该运行时环境并将 ``routed`` 设置为 True。
     """
     parent_runtime = agent._current_main_runtime()
     parent_api_mode = parent_runtime.get("api_mode") or None

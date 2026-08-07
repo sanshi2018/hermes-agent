@@ -163,6 +163,19 @@ class TestControlCharSplitTokens:
         result = redact_sensitive_text(text, force=True)
         assert tok not in result
 
+    def test_complete_token_does_not_swallow_next_line(self):
+        # A COMPLETE token at end-of-line followed by ordinary text must not
+        # be joined across the newline — the ordinary prefix pass masks the
+        # token; joining would swallow the adjacent line (browser
+        # accessibility annotations regressed this way: "button [ref=e3]"
+        # disappeared into the mask).
+        tok = "ghp_" + "F" * 29
+        text = f"text: Token: {tok}\nbutton [ref=e3]: Copy\n"
+        result = redact_sensitive_text(text, force=True)
+        assert "F" * 20 not in result
+        assert "button" in result
+        assert "ref=e3" in result
+
     def test_env_dump_lines_not_joined(self):
         # Control-stripping must not join unrelated env lines into one match
         env_dump = (

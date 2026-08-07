@@ -130,7 +130,10 @@ _PREFIX_PATTERNS = [
     r"GR1348941[A-Za-z0-9_\-]{10,}",    # GitLab legacy runner registration token
 ]
 
-# ENV assignment patterns: KEY=value where KEY contains a secret-like name.
+
+
+
+# Generic ENV assignment patterns: KEY=value where KEY contains a secret-like name.
 # Uppercase keys tolerate spaces around "=" (e.g. ``FOO_SECRET = bar``) because
 # an all-caps key is almost never prose/code.
 _SECRET_ENV_NAMES = r"(?:API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)"
@@ -713,6 +716,7 @@ def redact_sensitive_text(
         _prefix_sub = _mask_token_nonreusable if file_read else _mask_token
         text = _PREFIX_RE.sub(lambda m: _prefix_sub(m.group(1)), text)
 
+
     # ENV assignments: OPENAI_API_KEY=***  (skip for code files — false positives)
     if not code_file:
         if "=" in text:
@@ -884,6 +888,65 @@ def redact_sensitive_text(
 # 详情请参见 issue #43025。
 _ENV_DUMP_COMMANDS = frozenset({"env", "printenv", "set", "export", "declare"})
 
+# Commands that read file contents to stdout. When the target is a ``.env``
+# file, the output is a credential dump — the same as ``printenv`` — so the
+# ENV-assignment pass must run (code_file=False). Per AGENTS.md, ``.env`` is
+# for secrets only; behavioral settings belong in config.yaml, so running
+# the generic ENV redactor on ``.env`` content is the correct behavior.
+_FILE_READ_COMMANDS = frozenset({
+    "cat", "head", "tail", "type", "bat", "less", "more", "nl",
+    "zcat", "tac", "view", "batcat",
+})
+
+# Basenames that are treated as ``.env`` files for redaction purposes.
+# Matches the list in ``agent/file_safety._BLOCKED_PROJECT_ENV_BASENAMES``
+# so the two defenses stay aligned: if file_tools blocks a read, and the
+# agent falls back to ``cat``, the terminal redactor still catches it.
+_ENV_FILE_BASENAMES = frozenset({
+    ".env", ".env.local", ".env.development", ".env.production",
+    ".env.test", ".env.staging", ".envrc",
+})
+
+# Filename suffixes that look like ``.env`` but are NOT secret-bearing
+# (templates, examples). These are explicitly excluded so the agent can
+# read template files without redaction interfering.
+_ENV_FILE_EXCLUDE_SUFFIXES = (".example", ".sample", ".template", ".dist")
+
+
+def _command_reads_env_file(command: str) -> bool:
+    """Return True if ``command`` reads a ``.env`` file to stdout.
+
+    Detects file-read commands (``cat``, ``head``, ``tail``, etc.) where any
+    argument ends with a ``.env``-style basename and is NOT a template
+    (``.env.example``, ``.env.sample``). Handles pipelines and sequences.
+    """
+    if not command:
+        return False
+    segments = re.split(r"[|;&]+", command)
+    for seg in segments:
+        seg = seg.strip()
+        if not seg:
+            continue
+        # Use plain split() instead of shlex.split — shlex treats backslashes
+        # as escape chars, which mangles Windows paths (``C:\Users\...\.env``).
+        # We only need the command name and filename, so shell quoting is not
+        # a concern here.
+        tokens = seg.split()
+        if not tokens or tokens[0] not in _FILE_READ_COMMANDS:
+            continue
+        # Check all arguments (skip flags like -n, -A, etc.)
+        for arg in tokens[1:]:
+            if arg.startswith("-"):
+                continue
+            # Strip any leading path to get the basename. Handle both / and \.
+            basename = arg.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+            # Exclude templates/examples.
+            if any(basename.endswith(suf) for suf in _ENV_FILE_EXCLUDE_SUFFIXES):
+                continue
+            if basename in _ENV_FILE_BASENAMES:
+                return True
+    return False
+
 
 def is_env_dump_command(command: str | None) -> bool:
     """若 ``command`` 会将环境变量输出至标准输出（stdout），则返回 True。
@@ -915,25 +978,27 @@ def is_env_dump_command(command: str | None) -> bool:
 def redact_terminal_output(
     output: str, command: str | None = None, *, force: bool = False
 ) -> str:
-    """从终端/进程的标准输出（stdout）中脱敏脱密。
+    """
+    对终端/进程的标准输出（stdout）进行密钥脱敏。
+    为所有终端输出界面（前台 ``terminal`` 结果以及后台 ``process(action=poll/log/wait)`` 输出）
+    提供统一的脱敏策略，以确保它们不会产生分歧。
+    根据 ``command`` 是环境变量转储还是读取 ``.env`` 文件来选择 ``code_file`` 参数：
 
-    这是适用于所有终端输出界面（包含前台 ``terminal`` 结果
-    以及后台 ``process(action=poll/log/wait)`` 输出）的统一脱敏策略，
-    以防止两者处理逻辑产生偏差。
+    - 环境变量转储命令（``env``/``printenv``/``set``/``export``/``declare``）
+      → 设置 ``code_file=False``，以便环境变量赋值匹配处理可以掩码非透明 Token。
+    - 针对 ``.env`` 文件的文件读取命令（如 ``cat .env``、``head .env.local`` 等）
+      → 出于同样的原因，设置 ``code_file=False``。
+      根据 AGENTS.md 的规定，``.env`` 文件仅包含密钥，因此通用的环境变量脱敏器是正确的处理方式
+      —— 不需要已知变量名的列表。
+    - 其他任何命令（或未知命令）
+      → 设置 ``code_file=True``，以避免在源码/配置转储时出现伪阳性（误报）。
+    对于决不能发出原始凭据的安全边界，设置 ``force=True`` 可以绕过全局的 ``security.redact_secrets`` 偏好配置。
 
-    根据 ``command`` 是否为环境变量导出指令来决定 ``code_file`` 的值：
-
-    - 环境变量导出指令（``env``/``printenv``/``set``/``export``/``declare``）
-      → ``code_file=False``，以便在环境变量赋值解析阶段对不透明 token 进行掩码处理。
-    - 其他任意指令（或未知指令）
-      → ``code_file=True``，以避免在源码或配置文件导出时出现误报。
-
-    针对绝不能暴露原始凭据的安全边界，
-    设置 ``force=True`` 可绕过全局的 ``security.redact_secrets`` 配置偏好。
     """
     if not output:
         return output
-    code_file = not is_env_dump_command(command or "")
+    cmd = command or ""
+    code_file = not (is_env_dump_command(cmd) or _command_reads_env_file(cmd))
     return redact_sensitive_text(output, force=force, code_file=code_file)
 
 

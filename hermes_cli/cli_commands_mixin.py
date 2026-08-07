@@ -37,21 +37,21 @@ from hermes_cli.browser_connect import (
 
 
 class CLICommandsMixin:
-    """Mixin holding the interactive-CLI slash-command handlers.
+    """提供交互式 CLI 斜杠命令（slash-command）处理函数的 Mixin 类。
 
-    All methods use only ``self`` state plus the imports above and per-method
-    lazy ``from cli import ...`` lines, so they compose cleanly onto
-    ``HermesCLI`` via the MRO.
+    所有方法仅使用 ``self`` 状态、上述导入项以及
+    各方法内部的延迟导入语句（如 ``from cli import ...``），
+    因此可以通过 MRO（方法解析顺序）干净地组合到 ``HermesCLI`` 中。
     """
 
     def _handle_rollback_command(self, command: str):
-        """Handle /rollback — list, diff, or restore filesystem checkpoints.
+        """处理 /rollback 命令 — 列出、比较差异或恢复文件系统检查点（checkpoint）。
 
-        Syntax:
-            /rollback                 — list checkpoints
-            /rollback <N>             — restore checkpoint N (also undoes last chat turn)
-            /rollback diff <N>        — preview changes since checkpoint N
-            /rollback <N> <file>      — restore a single file from checkpoint N
+        语法：
+            /rollback                 — 列出检查点
+            /rollback <N>             — 恢复至检查点 N（同时撤销上一轮对话）
+            /rollback diff <N>        — 预览自检查点 N 以为的变更
+            /rollback <N> <file>      — 从检查点 N 中单独恢复指定文件
         """
         from tools.checkpoint_manager import format_checkpoint_list
 
@@ -516,21 +516,21 @@ class CLICommandsMixin:
         print()
 
     def _handle_handoff_command(self, cmd_original: str) -> bool:
-        """Handle ``/handoff <platform>`` — transfer this CLI session to a gateway platform.
+        """处理 ``/handoff <platform>`` — 将当前 CLI 会话交接（handoff）至网关平台。
 
-        Flow:
-          1. Validate platform name + the gateway has a home channel for it.
-          2. Reject if the agent is currently running (the in-flight turn
-             would race with the gateway's switch_session).
-          3. Write ``handoff_state='pending'`` on this session row.
-          4. Block-poll ``state.db`` for terminal state (timeout 60s).
-          5. On ``completed`` → print resume hint and signal CLI exit by
-             returning False (the caller honors that like ``/quit``).
-          6. On ``failed`` / timeout → print error and return True so the
-             user keeps their CLI session.
+        流程：
+          1. 校验平台名称，并确认网关是否具有该平台的主频道（home channel）。
+          2. 若 Agent 当前正在运行，则予以拒绝
+             （运行中的单轮对话将与网关的 switch_session 产生竞态）。
+          3. 在当前会话行数据中写入 ``handoff_state='pending'``。
+          4. 阻塞轮询 ``state.db`` 以获取终态（超时时间 60 秒）。
+          5. 若状态变为 ``completed`` → 打印恢复提示信息，
+             并通过返回 False 发出退出 CLI 的信号（调用方会像对待 ``/quit`` 一样遵循该信号）。
+          6. 若状态变为 ``failed`` 或超时 → 打印错误信息并返回 True，
+             以便用户保留其 CLI 会话。
 
-        Returns:
-            False to signal CLI exit, True to keep going.
+        返回值：
+            返回 False 表示通知 CLI 退出，返回 True 表示继续保持运行。
         """
         from cli import _cprint
         from hermes_state import format_session_db_unavailable
@@ -667,16 +667,17 @@ class CLICommandsMixin:
         return True
 
     def _handle_resume_command(self, cmd_original: str) -> None:
-        """Handle /resume <session_id_or_title> — switch to a previous session mid-conversation."""
+        """处理 /resume <session_id_or_title> — 在对话过程中切换至先前的会话。"""
         from cli import _cprint, _sync_process_session_id
         parts = cmd_original.split(None, 1)
         target = parts[1].strip() if len(parts) > 1 else ""
 
-        # Strip common outer brackets/quotes users may type literally from the
-        # usage hint (e.g. ``/resume <abc123>`` or ``/resume [abc123]``).  The
-        # `/resume` help text shows angle brackets as a placeholder and a few
-        # users copy them through verbatim.  Stripping them keeps the lookup
-        # working without changing the help string.
+        # 剥离用户可能直接从用法提示中输入的常见外层括号/引号
+        # （例如 ``/resume <abc123>`` 或 ``/resume [abc123]``）。
+        # ``/resume`` 的帮助文本使用了尖括号作为占位符，
+        # 少数用户会原封不动地连同括号一起复制。
+        # 剥离这些括号可以保证查找功能正常运行，
+        # 同时也无需修改帮助字符串本身。
         if len(target) >= 2 and (
             (target[0] == "<" and target[-1] == ">")
             or (target[0] == "[" and target[-1] == "]")
@@ -688,12 +689,13 @@ class CLICommandsMixin:
         if not target:
             _cprint("  Usage: /resume <number|session_id_or_title>")
             if self._show_recent_sessions(reason="resume"):
-                # Arm a one-shot pending-resume selection so the user can type
-                # just the number (`3`) on the next line instead of having to
-                # retype `/resume 3`. The list here must match the one shown by
-                # _show_recent_sessions and used for index resolution below —
-                # all three go through _list_recent_sessions(limit=10). See
-                # #34584.
+                # 设置一次性的待处理恢复（pending-resume）选择，
+                # 这样用户在下一行只需输入数字（如 `3`），
+                # 而不必重新输入 `/resume 3`。
+                # 此处的列表必须与 _show_recent_sessions 显示的列表、
+                # 以及下方用于索引解析的列表保持一致 —
+                # 这三者均通过 _list_recent_sessions(limit=10) 获取。
+                # 参见 #34584。
                 self._pending_resume_sessions = self._list_recent_sessions(limit=10)
                 return
             _cprint("  Tip:   Use /history or `hermes sessions list` to find sessions.")
@@ -729,8 +731,9 @@ class CLICommandsMixin:
             _cprint("  Use /history or `hermes sessions list` to see available sessions.")
             return
 
-        # If the target is the empty head of a compression chain, redirect to
-        # the descendant that actually holds the transcript. See #15000.
+        # 如果目标是压缩链中的空头节点（empty head），
+        # 则重定向至实际保存对话记录的后代节点（descendant）。
+        # 参见 #15000。
         try:
             resolved_id = self._session_db.resolve_resume_session_id(target_id)
         except Exception:
@@ -858,11 +861,11 @@ class CLICommandsMixin:
         self._handle_resume_command(f"/resume {arg}")
 
     def _handle_branch_command(self, cmd_original: str) -> None:
-        """Handle /branch [name] — fork the current session into a new independent copy.
+        """处理 /branch [name] — 将当前会话分支为一个新的独立副本。
 
-        Copies the full conversation history to a new session so the user can
-        explore a different approach without losing the original session state.
-        Inspired by Claude Code's /branch command.
+        将完整的对话历史记录复制到一个新会话中，
+        以便用户可以探索不同的方法，而不会丢失原始的会话状态。
+        灵感来自 Claude Code 的 /branch 命令。
         """
         from cli import _cprint, _sync_process_session_id
         if not self.conversation_history:
@@ -912,11 +915,11 @@ class CLICommandsMixin:
         except Exception:
             pass
 
-        # Create the new session with parent link.
-        # Persist a stable ``_branched_from`` marker in model_config so
-        # list_sessions_rich() can keep the branch visible in /resume and
-        # /sessions even after the parent is reopened and re-ended with a
-        # different end_reason (e.g. tui_shutdown overwriting 'branched').
+        # 创建带父会话链接的新会话。
+        # 在 model_config 中持久化保存一个稳定的 ``_branched_from`` 标记，
+        # 这样即使父会话被重新打开，并以不同的结束原因（end_reason）再次结束
+        # （例如 tui_shutdown 覆盖了 'branched'），
+        # list_sessions_rich() 依然能在 /resume 和 /sessions 中保持该分支可见。
         try:
             self._session_db.create_session(
                 session_id=new_session_id,

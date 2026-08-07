@@ -1066,37 +1066,36 @@ async def vision_analyze_tool(
     model: str = None,
     task_id: Optional[str] = None,
 ) -> str:
-    """
-    Analyze an image from a URL or local file path using vision AI.
-    
-    This tool accepts either an HTTP/HTTPS URL or a local file path. For URLs,
-    it downloads the image first. In both cases, the image is converted to base64
-    and processed using Gemini 3 Flash Preview via OpenRouter API.
-    
-    The user_prompt parameter is expected to be pre-formatted by the calling
-    function (typically model_tools.py) to include both full description
-    requests and specific questions.
-    
-    Args:
-        image_url (str): The URL or local file path of the image to analyze.
-                         Accepts http://, https:// URLs or absolute/relative file paths.
-        user_prompt (str): The pre-formatted prompt for the vision model
-        model (str): The vision model to use (default: google/gemini-3-flash-preview)
-    
-    Returns:
-        str: JSON string containing the analysis results with the following structure:
+    """使用视觉 AI 分析来自 URL 或本地文件路径的图片。
+
+    此工具接受 HTTP/HTTPS URL 或本地文件路径。
+    对于 URL，会先下载图片。
+    在两种情况下，图片都会被转换为 base64 编码，
+    并通过 OpenRouter API 使用 Gemini 3 Flash Preview 进行处理。
+
+    预期 user_prompt 参数已由调用函数（通常为 model_tools.py）进行预格式化，
+    其中包含了完整的描述请求和具体的问题。
+
+    参数:
+        image_url (str): 要分析的图片的 URL 或本地文件路径。
+                         接受 http://、https:// URL 或绝对/相对文件路径。
+        user_prompt (str): 针对视觉模型预先格式化好的提示词。
+        model (str): 要使用的视觉模型（默认：google/gemini-3-flash-preview）。
+
+    返回值:
+        str: 包含分析结果的 JSON 字符串，结构如下：
              {
                  "success": bool,
-                 "analysis": str (defaults to error message if None)
+                 "analysis": str (若为 None，则默认为错误信息)
              }
-    
-    Raises:
-        Exception: If download fails, analysis fails, or API key is not set
-        
-    Note:
-        - For URLs, temporary images are stored under $HERMES_HOME/cache/vision/ and cleaned up
-        - For local file paths, the file is used directly and NOT deleted
-        - Supports common image formats (JPEG, PNG, GIF, WebP, etc.)
+
+    引发异常:
+        Exception: 若下载失败、分析失败或未设置 API 密钥。
+
+    注意:
+        - 对于 URL，临时图片保存在 $HERMES_HOME/cache/vision/ 目录下，并会被清理。
+        - 对于本地文件路径，文件将被直接使用，且**不会**被删除。
+        - 支持常见的图片格式（JPEG、PNG、GIF、WebP 等）。
     """
     if not isinstance(user_prompt, str):
         user_prompt = str(user_prompt) if user_prompt is not None else ""
@@ -1127,10 +1126,10 @@ async def vision_analyze_tool(
         logger.info("Analyzing image: %s", image_url[:60])
         logger.info("User prompt: %s", user_prompt[:100])
 
-        # Resolve the source to raw bytes through the single resolver (unifies
-        # data:/http/file/local/container and enforces terminal-backend
-        # confinement). Materialize to a temp file so the existing path-based
-        # encode/resize pipeline below is reused verbatim.
+        # 通过统一解析器将数据源解析为原始字节
+        # （该解析器统一处理 data:/http/file/local/container 等协议，并强制执行终端后端隔离）。
+        # 随后将其具象化（Materialize）为临时文件，
+        # 以便原样复用下方既有的基于路径的编码/缩放管道（encode/resize pipeline）。
         from tools.image_source import (
             ImageResolutionError,
             ResolveContext,
@@ -1153,9 +1152,11 @@ async def vision_analyze_tool(
         image_size_bytes = len(resolved.data)
         image_size_kb = image_size_bytes / 1024
         logger.info("Image ready (%.1f KB)", image_size_kb)
-        # Normalize unsupported formats (SVG, BMP, ...) to PNG. Vision providers
-        # reject these media types; convert before encoding. Offloaded — the
-        # rasterizers/Pillow are blocking.
+        # 将不支持的格式（SVG, BMP 等）标准化转换为 PNG。
+        # 视觉服务提供商会拒绝这些媒体类型；
+        # 因此在编码前需先行转换。
+        # 该操作已异步卸载（Offloaded）—
+        # 因为光栅化渲染器/Pillow 属于阻塞性组件。
         normalized_path, detected_mime_type, _norm_err = await asyncio.to_thread(
             _normalize_to_supported_image, temp_image_path, detected_mime_type,
         )
@@ -1170,10 +1171,10 @@ async def vision_analyze_tool(
             temp_image_path = normalized_path
             should_cleanup = True
 
-        # Convert image to base64 — send at full resolution first.
-        # If the provider rejects it as too large, we auto-resize and retry.
-        # Offloaded to the bounded vision CPU executor so a fan-out of encodes
-        # can't saturate every core and starve the event loop.
+        # 将图片转换为 base64 编码 — 首先以全分辨率发送。
+        # 如果提供商因图片过大而拒绝，我们将自动调整尺寸并重试。
+        # 该操作已被卸载（Offloaded）至有界视觉 CPU 执行器，
+        # 以防并发编码占用所有核心，进而导致事件循环饥饿。
         logger.info("Converting image to base64...")
         image_data_url = await _run_encode_on_cpu_executor(
             _image_to_base64_data_url, temp_image_path, mime_type=detected_mime_type)
@@ -1221,10 +1222,10 @@ async def vision_analyze_tool(
         ]
         
         logger.info("Processing image with vision model...")
-        
-        # Call the vision API via centralized router.
-        # Read timeout from config.yaml (auxiliary.vision.timeout), default 120s.
-        # Local vision models (llama.cpp, ollama) can take well over 30s.
+
+        # 通过集中路由（centralized router）调用视觉 API。
+        # 从 config.yaml读取超时时间（auxiliary.vision.timeout），默认为 120 秒。
+        # 本地视觉模型（如 llama.cpp、ollama）的响应时间可能会远超 30 秒。
         vision_timeout = 120.0
         vision_temperature = 0.1
         try:

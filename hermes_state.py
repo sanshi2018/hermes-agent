@@ -222,9 +222,9 @@ def get_last_init_error() -> Optional[str]:
     return _last_init_error
 
 
-# Distinctive opening shared by both background-review harness prompts
-# (_SKILL_REVIEW_PROMPT and _MEMORY_REVIEW_PROMPT in agent/background_review.py).
-# Matched case-sensitively against the leading content of a user/system message.
+# 后台审查测试套件提示词的特征开头
+# （对应 agent/background_review.py 中的 _SKILL_REVIEW_PROMPT 和 _MEMORY_REVIEW_PROMPT）。
+# 与用户/系统消息的前缀内容进行大小写敏感的匹配。
 _REVIEW_HARNESS_PREFIXES = (
     "Review the conversation above and update the skill library",
     "Review the conversation above and consider saving to memory",
@@ -232,12 +232,12 @@ _REVIEW_HARNESS_PREFIXES = (
 
 
 def _is_background_review_harness_message(msg: Dict[str, Any]) -> bool:
-    """True when ``msg`` is a persisted background-review harness prompt.
+    """当 ``msg`` 为持久化的后台审查测试套件提示词（background-review harness prompt）时返回 True。
 
-    These are user/system turns the forked skill/memory review agent wrote into
-    a real session in older builds (before the ``_persist_disabled`` isolation
-    fix). They instruct the agent to act as the curator under a hard tool
-    restriction, so replaying them as live history hijacks the session.
+    这些是在较旧的构建版本中（即进行 ``_persist_disabled`` 隔离修复之前），
+    分叉出的技能/内存审查 Agent 写入真实会话中的用户/系统轮次。
+    它们指示 Agent 在严格的工具限制下充当审查者（curator），
+    因此重新放放（replay）这些内容作为实时历史记录会劫持整个会话。
     """
     if not isinstance(msg, dict):
         return False
@@ -253,12 +253,12 @@ def _is_background_review_harness_message(msg: Dict[str, Any]) -> bool:
 def _strip_background_review_harness(
     messages: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Drop background-review harness messages and the curator-mode assistant
-    reply that immediately followed each one.
+    """丢弃后台审查（background-review）测试套件消息，
+    以及紧随其后的审查者模式（curator-mode）助手回复。
 
-    Walk the list once; when a harness user/system message is found, skip it and
-    also skip the next message if it is the assistant turn that answered it.
-    Everything else passes through untouched and in order.
+    对列表进行单次遍历；当发现测试套件的用户/系统消息时，跳过该消息，
+    且若下一条消息是回答它的助手轮次，也一并跳过。
+    其余所有内容均按原顺序原封不动地保留。
     """
     if not messages:
         return messages
@@ -1703,23 +1703,24 @@ class SessionDB:
         parent_session_id: str = None,
         cwd: str = None,
     ) -> None:
-        """Insert a session row, enriching NULL metadata on conflict.
+        """插入一条会话行数据，并在冲突时补充填入为 NULL 的元数据。
 
-        The gateway's ``get_or_create_session`` creates a bare row (source +
-        user_id) *before* the agent exists; the agent's later
-        ``create_session`` then carries the real ``model`` / ``model_config`` /
-        ``system_prompt``. A plain ``INSERT OR IGNORE`` silently dropped that
-        enrichment, leaving gateway sessions with NULL model/billing metadata.
-        The ``ON CONFLICT`` upsert backfills those fields via ``COALESCE`` —
-        only filling columns that are still NULL, never overwriting values an
-        earlier writer already set (so a later bare call with source="unknown"
-        can't clobber a real source/model).
+        网关（gateway）的 ``get_or_create_session`` 会在 Agent 存在*之前*
+        创建一个基础数据行（仅包含 source + user_id）；
+        随后 Agent 的 ``create_session`` 才会带上真正的
+        ``model`` / ``model_config`` / ``system_prompt``。
+        普通的 ``INSERT OR IGNORE`` 会静默丢弃这些补充信息，
+        导致网关创建的会话中模型/计费相关的元数据一直保持为 NULL。
+        通过 ``ON CONFLICT`` 形式的 Upsert 操作，并结合 ``COALESCE``
+        可以回填这些字段 — 仅填充当前仍为 NULL 的列，
+        绝不覆盖先前写入者已设置的值
+        （这样后续使用 source="unknown" 调用的基础请求就无法破坏现有的真实 source/model）。
 
-        ``chat_id``/``thread_id`` record the messaging origin (the chat/room and
-        thread the session was started in) so that gateway ``/resume`` can prove
-        a persisted, now-inactive row belongs to the caller's chat/thread before
-        switching to it (IDOR scoping — without them the ``sessions`` table has
-        no chat/thread to compare).
+        ``chat_id``/``thread_id`` 用于记录消息源
+        （即会话启动时所在的聊天室/房间以及线程），
+        以便网关在执行 ``/resume`` 切换会话前，
+        能够验证某个已持久化但处于非活跃状态的数据行确属调用者的聊天室/线程
+        （IDOR 越权访问控制 — 如果没有它们，``sessions`` 表将无法比对聊天室/线程信息）。
         """
         def _do(conn):
             conn.execute(
@@ -4237,42 +4238,39 @@ class SessionDB:
         }
 
     def resolve_resume_session_id(self, session_id: str) -> str:
-        """Redirect a resume target to the descendant session that holds the messages.
+        """将恢复目标重定向至保存有消息的后代会话（descendant session）。
 
-        Context compression ends the current session and forks a new child session
-        (linked via ``parent_session_id``). The flush cursor is reset, so the
-        child is where new messages actually land — the parent ends up with
-        ``message_count = 0`` rows unless messages had already been flushed to
-        it before compression. See #15000.
+        上下文压缩（Context compression）会结束当前会话并分叉出一个新的子会话
+        （通过 ``parent_session_id`` 关联）。由于刷新游标已被重置，
+        因此子会话才是新消息实际落盘的地方 — 除非在压缩前就已经有消息刷新到父会话中，
+        否则父会话的 ``message_count`` 数据行数量将为 0。参见 #15000。
 
-        This helper walks ``parent_session_id`` forward from ``session_id`` and
-        returns the descendant in the chain that has the **most recent** messages.
-        Unlike the original logic, it does NOT short-circuit when the starting
-        session already has messages — a descendant that was created by
-        compression may hold the continuation content and should be preferred
-        by the WebUI and gateway for ``--resume`` and session loading.
+        此辅助函数从 ``session_id`` 开始，沿着 ``parent_session_id`` 向前遍历，
+        并返回该链条中拥有**最新**消息的后代会话。
+        与最初的逻辑不同，当起始会话已经包含消息时，它不会直接中断退出 —
+        由压缩创建的后代会话可能保存着续接的对话内容，
+        因此 WebUI 和网关在处理 ``--resume`` 及会话加载时应优先选中后代会话。
 
-        If no descendant (including the starting session) has any messages,
-        the original ``session_id`` is returned unchanged.
+        如果所有后代会话（包括起始会话本身）均无任何消息，
+        则原样返回初始的 ``session_id``。
 
-        The chain is always walked via the child whose ``started_at`` is
-        latest; that matches the single-chain shape that compression creates.
-        A depth cap (32) guards against accidental loops in malformed data.
+        遍历该链条时，始终选择 ``started_at`` 最晚的子会话；
+        这与压缩操作所创建的单链结构相吻合。
+        深度限制（32 层）可防止因数据格式错误而导致的意外死循环。
         """
         if not session_id:
             return session_id
 
-        # Follow the compression-continuation chain forward to the live tip
-        # FIRST. Auto-compression ends the current session and forks a
-        # continuation child, but a long-lived parent keeps its own flushed
-        # message rows — so the empty-head walk below never redirects it, and
-        # resuming the parent id reloads the pre-compression transcript while
-        # the turns generated *after* compression (and their responses) sit in
-        # the continuation. ``get_compression_tip`` is lineage-aware: it only
-        # follows children whose parent ended with ``end_reason='compression'``
-        # (created after the parent was ended), so delegation / branch children
-        # never hijack the resume. This is the fix for the desktop "I came back
-        # and the reply isn't there" report on large sessions.
+        # 首先，沿着压缩-续接链（compression-continuation chain）向前追踪至最新的活节点（live tip）。
+        # 自动压缩会结束当前会话并分叉出一个用于续接的子会话，
+        # 但长期存在的父会话仍保留有自己已刷新的消息行 —
+        # 因此下方的空头节点遍历（empty-head walk）永远不会将其重定向，
+        # 恢复父会话 ID 会重新加载压缩前的对话记录，
+        # 而在压缩 *之后* 生成的轮次（及其回复）则保存在续接会话中。
+        # ``get_compression_tip`` 具有血统感知能力（lineage-aware）：
+        # 它只追踪那些父会话以 ``end_reason='compression'`` 结尾（且在父会话结束后创建）的子会话，
+        # 因此委派（delegation）或分支（branch）子会话绝不会劫持恢复过程。
+        # 这修复了桌面端在大型会话中出现的“我返回会话后发现回复不见了”的问题。
         try:
             tip = self.get_compression_tip(session_id)
         except Exception:
@@ -4332,12 +4330,12 @@ class SessionDB:
         include_inactive: bool = False,
     ) -> List[Dict[str, Any]]:
         """
-        Load messages in the OpenAI conversation format (role + content dicts).
-        Used by the gateway to restore conversation history.
+        按 OpenAI 对话格式（包含 role 与 content 字典）加载消息。
+        网关（gateway）使用此方法来恢复对话历史记录。
 
-        By default only active messages are returned. Pass
-        ``include_inactive=True`` to load soft-deleted (rewound) rows
-        as well. See :meth:`rewind_to_message`.
+        默认仅返回活跃的消息。传入
+        ``include_inactive=True`` 亦可加载被软删除（回退）的数据行。
+        参见 :meth:`rewind_to_message`。
         """
         session_ids = [session_id]
         if include_ancestors:
@@ -4351,14 +4349,15 @@ class SessionDB:
                 "finish_reason, reasoning, reasoning_content, reasoning_details, "
                 "codex_reasoning_items, codex_message_items, platform_message_id, observed, timestamp "
                 f"FROM messages WHERE session_id IN ({placeholders})"
-                # Order by AUTOINCREMENT id (true insertion order), NOT timestamp:
-                # append_message stamps rows with time.time(), which is not
-                # monotonic (WSL2, NTP steps, VM/laptop sleep resume). A later
-                # row can carry an earlier timestamp than its predecessor, and
-                # ORDER BY timestamp would then sort an assistant tool_calls row
-                # after its tool response, breaking tool-call/response adjacency
-                # and triggering an HTTP 400 on replay. This matches get_messages
-                # — see c03acca50 for the original fix.
+                # 按 AUTOINCREMENT id（即真实的插入顺序）排序，而非按时间戳（timestamp）排序：
+                # append_message 会使用 time.time() 给数据行打上时间戳，
+                # 但该时间并非单调递增（例如在 WSL2、NTP 时间同步、虚拟机/笔记本休眠恢复等场景下）。
+                # 靠后插入的数据行可能会携带比先前数据行更早的时间戳，
+                # 若采用 ORDER BY timestamp 排序，会导致 assistant 的 tool_calls 数据行
+                # 被排序在其工具响应（tool response）之后，
+                # 从而破坏 tool-call 与响应之间的邻近对应关系，并在重新放放（replay）时引发 HTTP 400 错误。
+                # 这与 get_messages 的处理逻辑保持一致 —
+                # 原始修复方案参见提交 c03acca50。
                 f"{active_clause} ORDER BY id",
                 tuple(session_ids),
             ).fetchall()
@@ -4383,11 +4382,12 @@ class SessionDB:
                 except (json.JSONDecodeError, TypeError):
                     logger.warning("Failed to deserialize tool_calls in conversation replay, falling back to []")
                     msg["tool_calls"] = []
-            # Surface the platform-side message id (e.g. yuanbao msg_id,
-            # telegram update_id) so platform-specific flows like recall
-            # can match by external identifier instead of having to fall
-            # back to content-match heuristics.  Exposed as ``message_id``
-            # for backward compatibility with the JSONL transcript shape.
+            # 显露平台方的消息 ID（例如元宝 msg_id、
+            # Telegram update_id），以便撤回等特定平台的流程
+            # 可以通过外部标识符进行匹配，
+            # 而不必退而求其次使用内容匹配启发式算法。
+            # 暴露为 ``message_id``，
+            # 以保持与 JSONL 副本格式的后向兼容性。
             if row["platform_message_id"]:
                 msg["message_id"] = row["platform_message_id"]
             if row["observed"]:
@@ -4423,16 +4423,15 @@ class SessionDB:
             if include_ancestors and self._is_duplicate_replayed_user_message(messages, msg):
                 continue
             messages.append(msg)
-        # DEFENSE-IN-DEPTH against background-review session pollution: a forked
-        # skill/memory review that (in older builds, before the _persist_disabled
-        # fix) shared the parent's session_id wrote its harness turn into this
-        # real session. The harness is a user/system message instructing the
-        # agent to "Review the conversation above and update the skill library /
-        # save to memory" under a hard tool restriction; re-loading it as live
-        # history makes the agent adopt the curator role and refuse the user's
-        # actual task. Strip any such harness message AND the curator-mode
-        # assistant reply immediately following it, so a polluted session
-        # resumes clean even if stray rows exist.
+        # 纵深防御机制（DEFENSE-IN-DEPTH），防止后台审查污染会话：
+        # 分叉出的技能/内存审查（在较旧的构建版本中，即进行 _persist_disabled 修复之前）
+        # 会共享父会话的 session_id，并将其测试套件（harness）轮次写入到此真实会话中。
+        # 该测试套件是一条用户/系统消息，用于指示 Agent 在严格的工具限制下
+        # “审查上述对话并更新技能库 / 保存至内存”；
+        # 将其作为实时历史记录重新加载，会导致 Agent 误入审查者（curator）角色，
+        # 从而拒绝执行用户的实际任务。
+        # 立即剥离所有此类测试套件消息及其紧随其后的审查者模式助手回复，
+        # 这样即便存在残留的异常数据行，被污染的会话也能干净地恢复。
         messages = _strip_background_review_harness(messages)
         return messages
 
@@ -4479,33 +4478,33 @@ class SessionDB:
     def rewind_to_message(
         self, session_id: str, target_message_id: int
     ) -> Dict[str, Any]:
-        """Soft-delete all messages with id >= ``target_message_id`` in *session_id*.
+        """在指定 *session_id* 中软删除所有 id >= ``target_message_id`` 的消息。
 
-        The target message itself becomes inactive as well so the caller
-        can pre-fill it as the next user prompt without it appearing
-        twice in the replayed transcript.  Rewound rows are kept on
-        disk with ``active=0`` for audit / forensic inspection — use
-        :meth:`get_messages` with ``include_inactive=True`` to see them.
+        目标消息本身也会变为非活跃状态（inactive），
+        以便调用方可以将其作为下一个用户提示词（user prompt）预填入，
+        从而避免在回放的对话记录中重复出现。
+        被回退的数据行在磁盘上保留为 ``active=0``，用于审计/法医化检验 —
+        若要查看这些数据，请将 ``include_inactive=True`` 传入并使用 :meth:`get_messages`。
 
-        Returns a dict::
+        返回一个字典（dict）：
 
             {
-                "rewound_count": int,    # number of rows newly flipped to active=0
-                "target_message": dict,  # full row dict of the target
-                "new_head_id":   int|None  # id of the last still-active row, or None
+                "rewound_count": int,    # 新切换为 active=0 的数据行数量
+                "target_message": dict,  # 目标消息的完整数据行字典
+                "new_head_id":   int|None  # 依然保持活跃的最后一条数据行的 id，若无则为 None
             }
 
-        Raises ``ValueError`` if the target message does not exist in
-        *session_id* or if its role is not ``"user"``.
+        如果目标消息在 *session_id* 中不存在，
+        或者其角色（role）不是 ``"user"``，则引发 ``ValueError``。
 
-        Always increments ``sessions.rewind_count`` — even when the
-        target is already inactive — so the counter accurately reflects
-        the number of rewind operations performed against the session.
-        Idempotent on the ``active`` flag: re-rewinding past the same
-        target is a no-op on row state but still bumps the counter.
+        始终增加 ``sessions.rewind_count`` 的计数值 —
+        即使目标消息本身已经处于非活跃状态 —
+        以使计数器准确反映针对该会话执行的回退操作次数。
+        在 ``active`` 标志上具有幂等性：对同一个目标重复执行回退，
+        不会改变数据行的状态，但依然会增加计数器。
         """
 
-        # 1) Validate target up-front (read-only, outside the write txn).
+        # 1) 预先校验目标消息（只读操作，在写入事务之外进行）。
         with self._lock:
             row = self._conn.execute(
                 "SELECT * FROM messages WHERE id = ? AND session_id = ?",

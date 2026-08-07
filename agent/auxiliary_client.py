@@ -6972,19 +6972,20 @@ def call_llm(
 
 
 def extract_content_or_reasoning(response) -> str:
-    """Extract content from an LLM response, falling back to reasoning fields.
+    """从 LLM 响应中提取内容，若内容为空则降级（fallback）获取推理字段。
 
-    Mirrors the main agent loop's behavior when a reasoning model (DeepSeek-R1,
-    Qwen-QwQ, etc.) returns ``content=None`` with reasoning in structured fields.
+    当推理模型（DeepSeek-R1、Qwen-QwQ 等）返回 ``content=None``
+    但结构化字段中包含推理过程时，
+    本函数的行为与主 Agent 循环保持一致。
 
-    Resolution order:
-      1. ``message.content`` — strip inline think/reasoning blocks, check for
-         remaining non-whitespace text.
-      2. ``message.reasoning`` / ``message.reasoning_content`` — direct
-         structured reasoning fields (DeepSeek, Moonshot, NovitaAI, etc.).
-      3. ``message.reasoning_details`` — OpenRouter unified array format.
+    解析顺序（Resolution order）：
+      1. ``message.content`` — 剥离内联的 think/reasoning 块，
+         检查是否仍包含非空白文本。
+      2. ``message.reasoning`` / ``message.reasoning_content`` — 直接读取
+         结构化推理字段（DeepSeek、Moonshot、NovitaAI 等）。
+      3. ``message.reasoning_details`` — OpenRouter 统一的数组格式。
 
-    Returns the best available text, or ``""`` if nothing found.
+    返回当前可用的最佳文本；若未找到任何内容，则返回 ``""``。
     """
     import re
 

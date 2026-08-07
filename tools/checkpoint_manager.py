@@ -1,51 +1,50 @@
 """
-Checkpoint Manager — Transparent filesystem snapshots via a single shared
-shadow git store.
+检查点管理器（Checkpoint Manager）— 通过单个共享的
+影子 Git 仓库实现的透明文件系统快照。
 
-Creates automatic snapshots of working directories before file-mutating
-operations (``write_file``, ``patch``, ``terminal`` with destructive flags),
-triggered once per conversation turn.  Provides rollback to any previous
-checkpoint.
+在执行可修改文件的操作（``write_file``、``patch``、带有破坏性标志的 ``terminal`` 命令）前，
+自动创建工作目录的快照，每个对话轮次触发一次。
+提供恢复（rollback）至任意历史检查点的功能。
 
-This is NOT a tool — the LLM never sees it.  It's transparent infrastructure
-controlled by the ``checkpoints`` config flag or ``--checkpoints`` CLI flag.
+这**不是**一个工具 — LLM 永远看不到它。
+它是由 ``checkpoints`` 配置项或 ``--checkpoints`` CLI 标志控制的透明基础设施。
 
-Storage layout (single shared store, git objects deduplicated across projects)
+存储布局（单个共享存储，Git 对象在跨项目间自动去重）
 -----------------------------------------------------------------------------
 
     ~/.hermes/checkpoints/
-        store/                          — single bare-ish git repo
-            HEAD, config, objects/      — standard git internals (shared)
-            refs/hermes/<hash16>        — per-project branch tip
-            indexes/<hash16>            — per-project git index
+        store/                          — 单个类 bare Git 仓库
+            HEAD, config, objects/      — 标准 Git 内部文件（共享）
+            refs/hermes/<hash16>        — 每个项目的分支 Head
+            indexes/<hash16>            — 每个项目的 Git 索引
             projects/<hash16>.json      — {workdir, created_at, last_touch}
-            info/exclude                — default excludes (shared)
-        .last_prune                     — auto-prune idempotency marker
-        legacy-<timestamp>/             — archived pre-v2 per-project shadow
-                                          repos (auto-migrated on first init)
+            info/exclude                — 默认排除规则（共享）
+        .last_prune                     — 自动清理的等幂性标记
+        legacy-<timestamp>/             — 归档的 v2 版本前按项目划分的影子仓库
+                                          （首次初始化时自动迁移）
 
-Why a single store?
+为什么使用单个存储？
 -------------------
 
-The pre-v2 design kept a full shadow repo per working directory.  Each one
-re-stored most of the project's files under its own ``objects/`` tree, with
-zero sharing across worktrees of the same project.  A single user with a
-dozen worktrees of the same repo burned ~40 MB each (~500 MB total) storing
-the same blobs over and over.  A single shared store lets git's content-
-addressable object DB deduplicate across projects and across turns, so adding
-a new worktree costs near-zero.
+v2 版本之前的设计是为每个工作目录保留一个完整的影子仓库。
+每个仓库都在自己的 ``objects/`` 树下重新存储项目的大部分文件，
+即使是同一个项目的不同工作树（worktree）之间也完全无法共享。
+若单个用户拥有同一个仓库的十几个工作树，
+每份都会消耗约 40 MB（总计约 500 MB），反复存储相同的 Blob 对象。
+改用单个共享存储后，Git 基于内容寻址（content-addressable）的对象数据库
+能够跨项目、跨对话轮次进行数据去重，因此新增一个工作树的成本几乎为零。
 
-The shadow store uses ``GIT_DIR`` + ``GIT_WORK_TREE`` + ``GIT_INDEX_FILE``
-so no git state leaks into the user's project directory.
+影子存储通过结合使用 ``GIT_DIR`` + ``GIT_WORK_TREE`` + ``GIT_INDEX_FILE``，
+确保不会有任何 Git 状态泄漏到用户的项目目录中。
 
-Auto-maintenance
-----------------
+自动维护
+--------
 
-Shadow state accumulates over time.  ``prune_checkpoints`` deletes refs whose
-recorded working directory no longer exists (orphan) or whose last touch is
-older than ``retention_days`` (stale), then runs ``git gc --prune=now`` to
-reclaim object storage.  A size-cap pass drops the oldest checkpoints per
-project until total store size is under ``max_total_size_mb``.
+影子状态会随着时间不断累积。``prune_checkpoints`` 会删除那些
+对应的工作目录已不存在（孤立/orphan）或最后触碰时间已超过 ``retention_days``（过期/stale）的引用（refs），
+随后运行 ``git gc --prune=now`` 来回收对象存储空间。
+如果总存储空间超出限制，容量上限清理逻辑（size-cap pass）还会逐个项目丢弃最老旧的检查点，
+直到存储库总大小降至 ``max_total_size_mb`` 以下。
 """
 
 import hashlib
@@ -606,25 +605,25 @@ def _init_shadow_repo(shadow_repo: Path, working_dir: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 class CheckpointManager:
-    """Manages automatic filesystem checkpoints.
+    """管理自动文件系统检查点。
 
-    Designed to be owned by AIAgent.  Call ``new_turn()`` at the start of
-    each conversation turn and ``ensure_checkpoint(dir, reason)`` before
-    any file-mutating tool call.  The manager deduplicates so at most one
-    snapshot is taken per directory per turn.
+    设计由 AIAgent 独占管理。请在每个对话轮次开始时
+    调用 ``new_turn()``，并在执行任何会修改文件的工具调用前
+    调用 ``ensure_checkpoint(dir, reason)``。
+    管理器会自动去重，确保每个轮次内每个目录最多只创建一个快照。
 
-    Parameters
+    参数
     ----------
     enabled : bool
-        Master switch (from config / CLI flag).
+        主开关（来自配置或 CLI 标志）。
     max_snapshots : int
-        Keep at most this many checkpoints per directory.
+        每个目录最多保留的检查点数量。
     max_total_size_mb : int
-        Hard ceiling on total store size.  Oldest checkpoints per project
-        are dropped when the store exceeds this after a commit.
+        存储库总容量的硬性上限。提交后若存储库大小超出此限制，
+        将按项目删除最老旧的检查点。
     max_file_size_mb : int
-        Skip adding any single file larger than this to a checkpoint.
-        (Implemented via ``.gitignore`` excludes + a post-stage size check.)
+        跳过将任何大于此尺寸的单个文件添加到检查点中。
+        （通过 ``.gitignore`` 排除规则以及暂存后的文件大小检查来实现。）
     """
 
     def __init__(

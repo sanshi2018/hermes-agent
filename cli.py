@@ -2778,10 +2778,10 @@ def _termux_example_image_path(filename: str = "cat.png") -> str:
 
 
 def _split_path_input(raw: str) -> tuple[str, str]:
-    r"""Split a leading file path token from trailing free-form text.
+    r"""从后续的自由文本中拆分出前导的文件路径标记（token）。
 
-    Supports quoted paths and backslash-escaped spaces so callers can accept
-    inputs like:
+    支持带有引号的路径以及通过反斜杠转义的空格，
+    以便调用方可以接收如下形式的输入：
       /tmp/pic.png describe this
       ~/storage/shared/My\ Photos/cat.png what is this?
       "/storage/emulated/0/DCIM/Camera/cat 1.png" summarize
@@ -7266,27 +7266,23 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         return last_message
     
     def undo_last(self, n: int = 1, prefill: bool = True):
-        """Back up N user turns: truncate history, soft-delete on disk, prefill.
+        """回退 N 个用户轮次：截断历史记录、在磁盘上软删除、预填输入框。
 
-        Walks backwards N user messages and discards everything from the
-        Nth-from-last user message onward (its assistant response, tool
-        calls, etc.). ``n`` defaults to 1 (the last exchange); ``/undo 3``
-        backs up three user turns. If ``n`` exceeds the number of user
-        turns, it backs up to the oldest one.
+        向后遍历 N 条用户消息，并丢弃从倒数第 N 条用户消息开始的所有内容
+        （包含其对应的助手回复、工具调用等）。
+        ``n`` 默认为 1（即上一轮对话）；使用 ``/undo 3`` 可回退三个用户轮次。
+        若 ``n`` 超过现有用户轮次的总数，则会直接回退至最最早的一条记录。
 
-        Beyond the in-memory ``conversation_history`` slice, this also:
-          • soft-deletes the truncated rows in SessionDB (``active=0``) so
-            they're hidden from re-prompts and search but kept for audit;
-          • notifies memory providers via ``on_session_switch(rewound=True)``;
-          • mirrors /branch's agent surgery (system-prompt invalidation +
-            flush-index reset);
-          • when ``prefill`` is set and an input buffer is available,
-            pre-fills the composer with the backed-up message text so it
-            can be edited and resubmitted.
+        除了对内存中的 ``conversation_history`` 进行切片截断外，还会执行以下操作：
+          • 在 SessionDB 中软删除被截断的数据行（设置 ``active=0``），
+            使其对重新提示（re-prompts）和搜索不可见，但仍保留用于审计；
+          • 通过 ``on_session_switch(rewound=True)`` 通知内存提供程序（memory providers）；
+          • 镜像 /branch 命令的 Agent 调整操作（失效系统提示词并重置 flush-index）；
+          • 当设置了 ``prefill`` 且输入缓冲区可用时，
+            将回退的消息文本预填入编辑器，以便对其进行编辑和重新提交。
 
-        ``prefill=False`` is used by callers that drive the undo
-        programmatically (e.g. checkpoint rollback) and don't want to
-        touch the user's input buffer.
+        程序化触发回退逻辑的调用方（例如检查点回滚）会使用 ``prefill=False``，
+        以避免影响用户的输入缓冲区。
         """
         if not self.conversation_history:
             print("(._.) No messages to undo.")
@@ -7307,7 +7303,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             print("(._.) No user message found to undo.")
             return
 
-        # The oldest of the collected user messages is our truncation point.
+        # 收集到的最早一条用户消息，即为我们的截断点。
         cut_idx = user_indices[-1]
         turns_undone = len(user_indices)
 
@@ -7318,8 +7314,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         # Truncate the in-memory history to before that user message.
         self.conversation_history = self.conversation_history[:cut_idx]
 
-        # Soft-delete the truncated rows on disk so re-prompts and search
-        # see the clean transcript while the rows survive for audit.
+        # 在磁盘上软删除被截断的数据行，
+        # 以便重新提示和搜索能看到干净的对话记录，
+        # 同时保留这些数据行以备审计。
         rewound_rows = 0
         if self._session_db is not None and self.session_id:
             try:
@@ -7347,8 +7344,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             except Exception as e:
                 logger.debug("undo: soft-delete failed: %s", e)
 
-        # Agent surgery: invalidate the system-prompt cache and reset the
-        # flush index so the next turn re-flushes from the truncated head.
+        # Agent 调整操作：使系统提示词缓存失效，
+        # 并重置刷新索引（flush index），
+        # 以便下一轮对话能从截断后的开头重新刷新。
         if self.agent is not None:
             if hasattr(self.agent, "_invalidate_system_prompt"):
                 try:
@@ -7360,8 +7358,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     self.agent._last_flushed_db_idx = len(self.conversation_history)
                 except Exception:
                     pass
-            # Notify memory providers — same hook /branch fires, with the
-            # rewound flag so per-turn document caches invalidate (#6672, #21910).
+            # 通知内存提供程序 — 触发与 /branch 相同的钩子函数，
+            # 并带有 rewound 标志，
+            # 以使每轮对话的文档缓存失效（#6672, #21910）。
             try:
                 _mm = getattr(self.agent, "_memory_manager", None)
                 if _mm is not None and self.session_id:

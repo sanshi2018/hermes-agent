@@ -168,31 +168,28 @@ def strip_nullable_unions(
     *,
     keep_nullable_hint: bool = True,
 ) -> Any:
-    """Collapse ``anyOf`` / ``oneOf`` nullable unions to the non-null branch.
+    """将 ``anyOf`` / ``oneOf`` 可空联合类型精简为非空分支。
 
-    MCP / Pydantic optional fields commonly arrive as::
+    MCP / Pydantic 的可选字段通常以如下形式传入：
 
         {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null}
 
-    Anthropic's tool input-schema validator rejects the null branch. Tool
-    optionality is already represented by the parent object's ``required``
-    array, so we collapse the union to the single non-null variant.
+    Anthropic 的工具输入 schema 验证器会拒绝 null 分支。
+    工具的可选性已由父对象的 ``required`` 数组表示，
+    因此我们将联合类型精简为单个非空变体。
 
-    Metadata (``title``, ``description``, ``default``, ``examples``) on the
-    outer union node is carried over to the replacement variant.
+    外层联合节点上的元数据（``title``、``description``、``default``、``examples``）
+    会被保留并转移至替换后的变体上。
 
-    Args:
-        schema: JSON-Schema fragment (dict, list, or scalar).
-        keep_nullable_hint: If True, set ``nullable: true`` on the replacement
-            to preserve the "this field may be None" signal for downstream
-            consumers that care (e.g. runtime argument coercion that maps the
-            literal string ``"null"`` to Python ``None``). Anthropic's
-            validator accepts ``nullable: true`` but strict producers may
-            prefer False.
+    参数：
+        schema: JSON-Schema 片段（字典、列表或标量）。
+        keep_nullable_hint: 若为 True，则在替换后的节点上设置 ``nullable: true``，
+            以便为关注该信号的下游消费方保留“该字段可为 None”的信息
+            （例如在运行时将字面量字符串 ``"null"`` 映射为 Python ``None`` 的参数类型强制转换）。
+            Anthropic 的验证器接受 ``nullable: true``，但严格的生成方可能更倾向于设置 False。
 
-    Returns:
-        The schema with nullable unions collapsed. Non-union nodes are
-        returned unchanged.
+    返回值：
+        精简了可空联合类型后的 schema。非联合节点将原样返回。
     """
     if isinstance(schema, list):
         return [strip_nullable_unions(item, keep_nullable_hint=keep_nullable_hint) for item in schema]

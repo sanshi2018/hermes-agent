@@ -119,16 +119,17 @@ def _entry_text(entry: dict[str, Any]) -> str:
 
 
 def validate_mcp_server_entry(name: str, entry: dict[str, Any]) -> list[str]:
-    """Return security warnings for an MCP server entry.
+    """
+    返回针对某个 MCP 服务器条目的安全警告。
 
-    Empty return means the entry is not suspicious. This is intentionally not a
-    whitelist: legitimate local MCPs can still use custom commands, Python
-    scripts, npx, uvx, etc. We block three narrow shapes only:
+    若返回为空，则表示该条目无异常。此逻辑意图上并非白名单机制：
+    合法的本地 MCP 依然可以使用自定义命令、Python 脚本、npx、uvx 等。
+    我们仅针对以下三种极其狭窄的特征进行拦截：
 
-    * a known hermes-0day IOC anywhere in command/args/env (hardcoded blocklist);
-    * a shell interpreter whose inline script invokes network egress (#45620);
-    * a shell interpreter whose inline script writes to an OS persistence
-      surface (June 2026 hermes-0day SSH/PAM/sudoers/cron shape).
+    * 命令、参数或环境变量（command/args/env）中包含已知的 hermes-0day 威胁指标（IOC，硬编码黑名单）；
+    * 命令行解释器的内联脚本（inline script）发起了网络出站连接（#45620）；
+    * 命令行解释器的内联脚本（inline script）写入了操作系统持久化层
+      （2026年6月发现的 hermes-0day SSH/PAM/sudoers/cron 攻击特征）。
     """
     if not isinstance(entry, dict):
         return []

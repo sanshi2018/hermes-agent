@@ -361,19 +361,20 @@ class ToolRegistry:
         dynamic_schema_overrides: Callable = None,
         override: bool = False,
     ):
-        """Register a tool.  Called at module-import time by each tool file.
+        """注册一个工具。在模块导入时由各个工具文件调用。
 
-        ``override=True`` is an explicit opt-in for plugins that intend to
-        replace an existing built-in tool implementation (e.g. swap the
-        default browser tool for a headed-Chrome CDP backend). Without it,
-        registrations that would shadow an existing tool from a different
-        toolset are rejected to prevent accidental overwrites.
+        ``override=True`` 是用于插件的显式选入（opt-in）选项，
+        旨在替换现有的内置工具实现
+        （例如：将默认的浏览器工具替换为带有界面的 Chrome CDP 后端）。
+        如果不显式指定该选项，
+        凡是会遮蔽来自其他工具集现有工具的注册行为都会被拒绝，
+        以防止意外覆盖。
         """
         with self._lock:
             existing = self._tools.get(name)
             if existing and existing.toolset != toolset:
-                # Allow MCP-to-MCP overwrites (legitimate: server refresh,
-                # or two MCP servers with overlapping tool names).
+                # 允许 MCP 之间的相互覆盖（合法场景：服务器刷新，
+                # 或两个 MCP 服务器拥有重名的工具）。
                 both_mcp = (
                     existing.toolset.startswith("mcp-")
                     and toolset.startswith("mcp-")

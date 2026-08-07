@@ -91,24 +91,29 @@ class OAuthNonInteractiveError(RuntimeError):
 # Module-level state
 # ---------------------------------------------------------------------------
 
-# Port used by the most recent build_oauth_auth() call.  Exposed so that
-# tests can verify the callback server and the redirect_uri share a port.
+# 最近一次 call build_oauth_auth() 调用所使用的端口。
+# 暴露此参数是为了方便测试程序验证：
+# 回调服务器与 redirect_uri 共享同一个端口。
 _oauth_port: int | None = None
-# Interactivity gate for OAuth stdin prompts. A ContextVar (NOT threading.local)
-# is required: background MCP discovery sets this on the discovery thread, but
-# the actual connect+OAuth runs on the dedicated `mcp-event-loop` thread via
-# run_coroutine_threadsafe. asyncio copies the *calling context* into the
-# scheduled coroutine, so a ContextVar propagates across that boundary while a
-# threading.local would not — see #35927. Default True (interactive allowed).
+# OAuth stdin 提示的交互开关。
+# 此处必须使用 ContextVar（而非 threading.local）：
+# 后台 MCP 发现流程会在“发现线程”上设置此变量，
+# 但实际的连接与 OAuth 流程是通过 run_coroutine_threadsafe
+# 在专用的 `mcp-event-loop` 线程上运行的。
+# asyncio 会将 *调用上下文* 复制到调度的协程中，
+# 因此 ContextVar 能够跨越线程边界传播，而 threading.local 则不行 —— 参见 #35927。
+# 默认为 True（允许交互）。
 _oauth_interactive_enabled: "contextvars.ContextVar[bool]" = contextvars.ContextVar(
     "_oauth_interactive_enabled", default=True
 )
 
-# Forces _is_interactive() past the stdin-TTY check for flows driven from a
-# GUI (dashboard/desktop REST): the browser + localhost callback server do all
-# the work there, and the stdin paste fallback degrades harmlessly (EOF is
-# swallowed by _paste_callback_reader). Suppression still wins — background
-# discovery must never start a browser flow.
+# 强制让 _is_interactive() 跳过 stdin-TTY 检查，
+# 以适应来自 GUI（仪表盘/桌面端 REST）调用的流程：
+# 浏览器与本地回调服务器会完成此处的全部工作，
+# 且 stdin 粘贴备用逻辑即便降级也不会产生有害影响
+# （EOF 会被 _paste_callback_reader 吞掉）。
+# 禁用控制（Suppression）仍具有最高优先级 ——
+# 后台发现流程绝对不能启动浏览器流程。
 _oauth_interactive_forced: "contextvars.ContextVar[bool]" = contextvars.ContextVar(
     "_oauth_interactive_forced", default=False
 )
@@ -117,10 +122,10 @@ _oauth_interactive_forced: "contextvars.ContextVar[bool]" = contextvars.ContextV
 # Skip tokens accepted at the paste prompt — exit OAuth without auth.
 _SKIP_TOKENS = frozenset({"skip", "cancel", "s", "n", "no", "q", "quit"})
 
-# Sentinel value written to result["error"] when the user skipped via stdin.
-# _wait_for_callback maps this to OAuthNonInteractiveError ("user_skipped")
-# so the MCP setup path treats it as a non-fatal "continue without this
-# server" rather than a hard failure.
+# 当用户通过 stdin 选择跳过时，写入 result["error"] 的哨兵值（Sentinel value）。
+# _wait_for_callback 会将其映射为 OAuthNonInteractiveError ("user_skipped")，
+# 从而使 MCP 配置流程将其视为非致命的“跳过此服务器并继续”状态，
+# 而不是直接判定为严重错误（hard failure）。
 _USER_SKIPPED_SENTINEL = "__hermes_user_skipped__"
 
 
@@ -200,12 +205,13 @@ def force_interactive_oauth():
 
 @contextmanager
 def suppress_interactive_oauth():
-    """Disable stdin-based OAuth prompts for the current execution context.
+    """
+    禁用当前执行上下文基于 stdin 的 OAuth 提示。
 
-    Uses a ContextVar so the suppression propagates from a background-discovery
-    thread onto the coroutine scheduled (via run_coroutine_threadsafe) on the
-    dedicated MCP event-loop thread — where the OAuth callback actually runs
-    (#35927). A threading.local would not cross that thread boundary.
+    使用 ContextVar 传递禁用状态，
+    使其能够从后台发现线程传播到在专用 MCP 事件循环线程上调度的协程中
+    （通过 run_coroutine_threadsafe）—— OAuth 回调实际上是在该线程中运行的（#35927）。
+    使用 threading.local 则无法跨越该线程边界。
     """
     token = _oauth_interactive_enabled.set(False)
     try:

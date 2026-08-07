@@ -694,19 +694,18 @@ def _looks_like_image(data: bytes) -> bool:
 
 
 def cache_image_from_bytes(data: bytes, ext: str = ".jpg") -> str:
-    """
-    Save raw image bytes to the cache and return the absolute file path.
+    """将原始图片字节保存到缓存，并返回绝对文件路径。
 
-    Args:
-        data: Raw image bytes.
-        ext:  File extension including the dot (e.g. ".jpg", ".png").
+    参数：
+        data: 原始图片字节数据。
+        ext:  包含点号的文件扩展名（例如 ".jpg"、".png"）。
 
-    Returns:
-        Absolute path to the cached image file as a string.
+    返回值：
+        作为字符串返回的缓存图片文件的绝对路径。
 
-    Raises:
-        ValueError: If *data* does not look like a valid image (e.g. an HTML
-            error page returned by the upstream server).
+    抛出：
+        ValueError: 若 *data* 看起来不像是有效的图片
+            （例如上游服务器返回的 HTML 错误页面）。
     """
     validate_inbound_media_size(len(data), media_type="image")
     if not _looks_like_image(data):

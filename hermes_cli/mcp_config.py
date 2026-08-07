@@ -1,11 +1,11 @@
 """
-MCP Server Management CLI — ``hermes mcp`` subcommand.
+MCP 服务器管理 CLI — ``hermes mcp`` 子命令。
 
-Implements ``hermes mcp add/remove/list/test/configure`` for interactive
-MCP server lifecycle management (issue #690 Phase 2).
+实现 ``hermes mcp add/remove/list/test/configure``，
+用于交互式的 MCP 服务器生命周期管理（Issue #690 第二阶段）。
 
-Relies on tools/mcp_tool.py for connection/discovery and keeps
-configuration in ~/.hermes/config.yaml under the ``mcp_servers`` key.
+依赖 tools/mcp_tool.py 进行连接与服务发现，
+并将配置保存在 ~/.hermes/config.yaml 的 ``mcp_servers`` 键下。
 """
 
 import asyncio

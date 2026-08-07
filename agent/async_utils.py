@@ -39,17 +39,18 @@ def safe_schedule_threadsafe(
     log_message: str = "Failed to schedule coroutine on loop",
     log_level: int = logging.DEBUG,
 ) -> Optional[Future]:
-    """Schedule ``coro`` on ``loop`` from a sync context, leak-safe.
+    """
+    从同步上下文在 ``loop`` 上调度 ``coro`` 协程，确保内存泄露安全。
 
-    Returns the :class:`concurrent.futures.Future` on success, or ``None`` if
-    the loop is missing or :func:`asyncio.run_coroutine_threadsafe` raised
-    (e.g. the loop was closed during a shutdown race).  In all failure paths
-    the coroutine is :meth:`close`-d so it does not trigger
-    ``"coroutine was never awaited"`` warnings or leak its frame.
+    成功时返回 :class:`concurrent.futures.Future`；
+    若事件循环丢失或 :func:`asyncio.run_coroutine_threadsafe` 抛出异常
+    （例如在关闭竞争期间事件循环被关闭），则返回 ``None``。
+    在所有失败路径中，协程都会被主动 :meth:`close`（关闭），
+    因此不会触发 ``"coroutine was never awaited"`` 警告，也不会泄漏其帧结构。
 
-    Callers retain full control over what to do with the returned future
-    (call ``.result(timeout=...)``, attach ``add_done_callback``, ignore it
-    fire-and-forget, etc.).
+    调用方保留对返回的 future 的完全控制权
+    （例如调用 ``.result(timeout=...)``、挂载 ``add_done_callback``、
+    或直接忽略以进行即发即弃操作等）。
     """
     log = logger if logger is not None else _DEFAULT_LOGGER
 

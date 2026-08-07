@@ -71,22 +71,23 @@ def _same_endpoint(a: str, b: str) -> bool:
 
 @dataclass
 class _ProviderEntry:
-    """Per-server OAuth state tracked by the manager.
+    """
+    由管理器跟踪的每个服务器的 OAuth 状态。
 
-    Fields:
-        server_url: The MCP server URL used to build the provider. Tracked
-            so we can discard a cached provider if the URL changes.
-        oauth_config: Optional dict from ``mcp_servers.<name>.oauth``.
-        provider: The ``httpx.Auth``-compatible provider wrapping the MCP
-            SDK. None until first use.
-        last_mtime_ns: Last-seen ``st_mtime_ns`` of the on-disk tokens file.
-            Zero if never read. Used by :meth:`MCPOAuthManager.invalidate_if_disk_changed`
-            to detect external refreshes.
-        lock: Serialises concurrent access to this entry's state. Bound to
-            whichever asyncio loop first awaits it (the MCP event loop).
-        pending_401: In-flight 401-handler futures keyed by the failed
-            access_token, for deduplicating thundering-herd 401s. Mirrors
-            Claude Code's ``pending401Handlers`` map.
+    字段：
+        server_url: 用于构建提供程序的 MCP 服务器 URL。跟踪此字段，
+            以便在 URL 发生变更时可以丢弃已缓存的提供程序。
+        oauth_config: 来自 ``mcp_servers.<name>.oauth`` 的可选字典。
+        provider: 封装了 MCP SDK 且兼容 ``httpx.Auth`` 的提供程序。
+            首次使用前为 None。
+        last_mtime_ns: 磁盘上 Token 文件最后一次记录的 ``st_mtime_ns``。
+            如果从未读取过则为零。由 :meth:`MCPOAuthManager.invalidate_if_disk_changed`
+            用于检测外部的刷新操作。
+        lock: 串行化对该条目状态的并发访问。绑定到最先等待它的
+            asyncio 事件循环（即 MCP 事件循环）。
+        pending_401: 以失败的 access_token 为键，正在处理中的 401 处理程序 future，
+            用于去重惊群效应（thundering-herd）导致的并发 401 错误。
+            映射了 Claude Code 的 ``pending401Handlers`` map 机制。
     """
 
     server_url: str
@@ -464,13 +465,14 @@ class MCPOAuthManager:
         server_url: str,
         oauth_config: Optional[dict],
     ) -> Optional[Any]:
-        """Return a cached OAuth provider for ``server_name`` or build one.
+        """
+        返回 ``server_name`` 对应的缓存 OAuth 提供程序，或新建一个。
 
-        Idempotent: repeat calls with the same name return the same instance.
-        If ``server_url`` changes for a given name, the cached entry is
-        discarded and a fresh provider is built.
+        具有幂等性：使用相同的名称重复调用将返回同一个实例。
+        如果给定名称的 ``server_url`` 发生变更，
+        则会丢弃缓存条目并重新构建一个新的提供程序。
 
-        Returns None if the MCP SDK's OAuth support is unavailable.
+        如果 MCP SDK 的 OAuth 支持不可用，则返回 None。
         """
         with self._entries_lock:
             entry = self._entries.get(server_name)

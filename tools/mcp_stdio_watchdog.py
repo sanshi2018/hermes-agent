@@ -1,46 +1,41 @@
 #!/usr/bin/env python3
-"""Parent-death watchdog supervisor for stdio MCP subprocesses.
+"""
+用于 stdio MCP 子进程的父进程死亡（parent-death）watchdog 监控程序。
 
-Problem this fixes (#TBD): a stdio MCP server (e.g. ``npx -y mcp-remote
-<url>``) is spawned as a direct child of the Hermes process. Hermes's own
-teardown path (``MCPServerTask.shutdown()`` / ``_kill_orphaned_mcp_children``
-at final exit) reaps it cleanly on a *graceful* exit. But if the spawning
-Hermes process dies hard — ``kill -9``, an OS-level crash, a force-quit of
-the TUI/desktop app — that teardown code never runs, and the child (plus any
-of its own descendants, e.g. mcp-remote's spawned ``node`` process) is
-orphaned. macOS has no direct equivalent of Linux's
-``prctl(PR_SET_PDEATHSIG)`` to make the kernel auto-kill a child when its
-parent dies, so nothing reaps these until the next Hermes startup's opt-in
-``_kill_orphaned_mcp_children()`` sweep — which only runs if something calls
-it. Repeated ungraceful session restarts can pile up N orphaned processes,
-all racing to hold the same upstream SSE session, producing errors like
-"Invalid request parameters" / "Received request before initialization was
-complete" on the *legitimate* new connection.
+解决的问题（#待定）：stdio MCP 服务器（例如 ``npx -y mcp-remote <url>``）
+是作为 Hermes 进程的直接子进程被派生的。Hermes 自身的清理路径
+（在最终退出时执行的 ``MCPServerTask.shutdown()`` / ``_kill_orphaned_mcp_children``）
+能在*优雅*退出时干净地回收它。但如果派生它的 Hermes 进程发生了硬死亡 ——
+例如 ``kill -9``、操作系统级崩溃、或强制退出 TUI/桌面应用 ——
+该清理代码就永远不会运行，导致子进程（及其自身的任何子代进程，
+例如 mcp-remote 派生的 ``node`` 进程）变成孤儿进程。
+macOS 没有直接等效于 Linux ``prctl(PR_SET_PDEATHSIG)`` 的机制
+来让内核在父进程死亡时自动杀掉子进程，因此除非在下一次 Hermes 启动时
+显式调用并扫描 ``_kill_orphaned_mcp_children()``（这也只有在有代码调用它时才会运行），
+否则没有任何机制回收它们。多次非优雅的会话重启可能会堆积 N 个孤儿进程，
+它们会竞争抢占同一个上游 SSE 会话，从而在*合法*的新连接上引发类似于
+“Invalid request parameters”（无效的请求参数）或
+“Received request before initialization was complete”（在初始化完成前收到了请求）等错误。
 
-Fix: don't spawn the MCP server command directly. Spawn this supervisor
-instead, which:
-  1. execs the real command as its own child (own process group via
-     ``start_new_session``, so it doesn't inherit the supervisor's
-     controlling terminal weirdly and so we can killpg it cleanly);
-  2. transparently passes stdin/stdout/stderr through — the MCP stdio
-     protocol talks directly over those pipes, so the supervisor must be a
-     no-op relay, not a bytes-in-the-middle proxy;
-  3. runs a background thread that polls the ORIGINAL parent PID using the
-     exact same orphan-detection algorithm already proven in
-     ``tui_gateway/slash_worker.py`` (``_is_orphaned``): compare current
-     ``getppid()`` against the recorded original, and guard PID reuse via
-     ``psutil`` process creation time;
-  4. the instant the original parent is gone, terminates the real child's
-     process group (SIGTERM, grace period, then SIGKILL) and exits.
+修复方案：不要直接派生 MCP 服务器命令。改为派生此监控程序，它会：
+  1. 将真正的命令作为其子进程执行（通过 ``start_new_session`` 建立独立的进程组，
+     这样它就不会异常地继承监控程序的控制终端，同时我们也能干净地对其执行 killpg）；
+  2. 透明地透传 stdin/stdout/stderr —— MCP stdio 协议直接通过这些管道通信，
+     因此监控程序必须是一个无操作的转发器（no-op relay），而不是中间字节代理（bytes-in-the-middle proxy）；
+  3. 运行一个后台线程，使用已经在 ``tui_gateway/slash_worker.py``（``_is_orphaned``）中
+     被验证过的孤儿检测算法来轮询原始父进程 PID：对比当前的 ``getppid()`` 与记录的原始 PID，
+     并通过 ``psutil`` 进程创建时间来防止 PID 复用问题；
+  4. 一旦原始父进程消失，立即终止真实子进程所在的进程组
+     （发送 SIGTERM，等待宽限期，若未退出则发送 SIGKILL）并退出。
 
-This is intentionally a thin, dependency-light script (``psutil`` only,
-already a hard dependency via ``tui_gateway/slash_worker.py``) so it starts
-fast and can't itself become a resource leak.
+这是一个有意设计的轻量级、低依赖脚本（仅依赖 ``psutil``，
+且该库已通过 ``tui_gateway/slash_worker.py`` 成为硬性依赖），
+因此它启动迅速，且本身不会成为资源泄漏点。
 
-Usage (see ``tools/mcp_tool.py::_run_stdio``)::
+用法（参见 ``tools/mcp_tool.py::_run_stdio``）::
 
-    python3 -m tools.mcp_stdio_watchdog \\
-        --ppid <original_parent_pid> --create-time <original_parent_create_time> \\
+    python3 -m tools.mcp_stdio_watchdog \
+        --ppid <original_parent_pid> --create-time <original_parent_create_time> \
         -- <real_command> <arg1> <arg2> ...
 """
 

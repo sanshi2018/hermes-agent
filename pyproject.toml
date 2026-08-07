@@ -139,6 +139,7 @@ dependencies = [
   # / pywin32 tree) ships only where it's actually used.
   "concurrent-log-handler==0.9.29; sys_platform == 'win32'",
   "mem0ai>=2.0.10",
+  "mcp>=1.26.0",
 ]
 
 [project.optional-dependencies]

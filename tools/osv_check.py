@@ -26,14 +26,15 @@ _TIMEOUT = 10  # seconds
 def check_package_for_malware(
     command: str, args: list
 ) -> Optional[str]:
-    """Check if an MCP server package has known malware advisories.
+    """检查 MCP 服务器软件包是否存在已知恶意软件公告。
 
-    Inspects the *command* (e.g. ``npx``, ``uvx``) and *args* to infer the
-    package name and ecosystem.  Queries the OSV API for MAL-* advisories.
+    通过检查 *command*（例如 ``npx``、``uvx``）与 *args*，
+    推断出软件包名称和对应的生态系统（ecosystem）。
+    进而查询 OSV API 获取 MAL-* 级别的安全公告。
 
-    Returns:
-        An error message string if malware is found, or None if clean/unknown.
-        Returns None (allow) on network errors or unrecognized commands.
+    返回值：
+        如果发现恶意软件，则返回错误信息字符串；如果安全或未知，则返回 None。
+        当发生网络错误或遇到无法识别的命令时，返回 None（放行）。
     """
     ecosystem = _infer_ecosystem(command)
     if not ecosystem:

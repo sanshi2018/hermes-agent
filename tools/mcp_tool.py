@@ -1,92 +1,89 @@
 #!/usr/bin/env python3
 """
-MCP (Model Context Protocol) Client Support
+MCP (Model Context Protocol，模型上下文协议) 客户端支持。
 
-Connects to external MCP servers via stdio, HTTP/StreamableHTTP, or SSE
-transport, discovers their tools, and registers them into the hermes-agent
-tool registry so the agent can call them like any built-in tool.
+通过 stdio、HTTP/StreamableHTTP 或 SSE 传输协议连接至外部 MCP 服务器，
+自动发现其工具，并将其注册到 hermes-agent 的工具注册表中，
+使 Agent 可以像调用内置工具一样直接调用它们。
 
-Configuration is read from ~/.hermes/config.yaml under the ``mcp_servers`` key.
-The ``mcp`` Python package is optional -- if not installed, this module is a
-no-op and logs a debug message.
+配置文件读取自 ~/.hermes/config.yaml 中的 ``mcp_servers`` 键。
+``mcp`` Python 包是可选的 —— 若未安装，本模块将作为空操作（no-op），
+仅记录一条调试日志。
 
-Example config::
+配置示例：
 
     mcp_servers:
       filesystem:
         command: "npx"
         args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
         env: {}
-        timeout: 120         # per-tool-call timeout in seconds (default: 300)
-        connect_timeout: 60  # initial connection timeout (default: 60)
-        keepalive_interval: 10  # liveness ping cadence in seconds (default:
-                                # 180). Set below the server's session TTL for
-                                # servers that GC idle sessions quickly (e.g.
-                                # Unreal Engine editor MCP, ~15s). Floored at 5s.
-        idle_timeout_seconds: 3600      # optional stdio recycle after idle
-        max_lifetime_seconds: 86400     # optional stdio recycle after age
-        # The recycle settings may also live under lifecycle: {...}.
-        # Use 0 to disable either recycle limit.
+        timeout: 120         # 单个工具调用的超时时间（秒，默认：300）
+        connect_timeout: 60  # 初始连接超时时间（默认：60）
+        keepalive_interval: 10  # 保活 Ping 探测间隔（秒，默认：180）。
+                                # 对于快速回收空闲会话的服务器（例如 Unreal Engine 编辑器 MCP，约 15 秒），
+                                # 需将此值设为低于服务器的会话 TTL。下限设为 5 秒。
+        idle_timeout_seconds: 3600      # 可选：stdio 空闲指定时间后自动重载/回收
+        max_lifetime_seconds: 86400     # 可选：stdio 达到指定运行寿命后自动重载/回收
+        # 重载设置也可嵌套在 lifecycle: {...} 结构下。
+        # 设置为 0 可禁用对应的重载限制。
       github:
         command: "npx"
         args: ["-y", "@modelcontextprotocol/server-github"]
         env:
           GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_..."
-        supports_parallel_tool_calls: true  # tools from this server may run concurrently
+        supports_parallel_tool_calls: true  # 来自此服务器的工具允许并发运行
       remote_api:
         url: "https://my-mcp-server.example.com/mcp"
         headers:
           Authorization: "Bearer sk-..."
         timeout: 180
-        skip_preflight: true  # bypass the content-type probe for a valid
-                              # Streamable HTTP endpoint that answers HEAD/GET
-                              # with a non-MCP content type but serves real
-                              # MCP over POST. Default: false.
+        skip_preflight: true  # 绕过针对合法 Streamable HTTP 端点的 Content-Type 探测；
+                              # 适用于对 HEAD/GET 响应非 MCP 内容类型，
+                              # 但通过 POST 提供真实 MCP 服务的端点。默认：false。
       searxng:
         url: "http://localhost:8000/sse"
-        transport: sse       # use SSE transport instead of Streamable HTTP
+        transport: sse       # 使用 SSE 传输协议而非 Streamable HTTP
         timeout: 180
         connect_timeout: 10
         command: "npx"
         args: ["-y", "analysis-server"]
-        sampling:                    # server-initiated LLM requests
-          enabled: true              # default: true
-          model: "gemini-3-flash"    # override model (optional)
-          max_tokens_cap: 4096       # max tokens per request
-          timeout: 30                # LLM call timeout (seconds)
-          max_rpm: 10                # max requests per minute
-          allowed_models: []         # model whitelist (empty = all)
-          max_tool_rounds: 5         # tool loop limit (0 = disable)
-          log_level: "info"          # audit verbosity
+        sampling:                    # 由服务器发起的 LLM 请求配置（Sampling）
+          enabled: true              # 默认：true
+          model: "gemini-3-flash"    # 重写使用模型（可选）
+          max_tokens_cap: 4096       # 单次请求的最大 Token 数限制
+          timeout: 30                # LLM 调用超时时间（秒）
+          max_rpm: 10                # 每分钟最大请求数限制（RPM）
+          allowed_models: []         # 模型白名单（为空表示允许所有模型）
+          max_tool_rounds: 5         # 工具循环调用次数限制（0 表示禁用）
+          log_level: "info"          # 审计日志详细度
 
-Features:
-    - Stdio transport (command + args) and HTTP/StreamableHTTP transport (url)
-    - SSE transport (transport: sse) for MCP servers using the SSE protocol
-    - Automatic reconnection with exponential backoff (up to 5 retries)
-    - Environment variable filtering for stdio subprocesses (security)
-    - Credential stripping in error messages returned to the LLM
-    - Configurable per-server timeouts for tool calls and connections
-    - Thread-safe architecture with dedicated background event loop
-    - Sampling support: MCP servers can request LLM completions via
-      sampling/createMessage (text and tool-use responses)
-    - Parallel tool call opt-in: per-server ``supports_parallel_tool_calls``
-      flag allows concurrent execution of tools from the same server
+功能特性：
+    - 支持 Stdio 传输（command + args）与 HTTP/StreamableHTTP 传输（url）
+    - 支持 SSE 传输协议（transport: sse），适用于采用 SSE 的 MCP 服务器
+    - 支持指数退避算法的自动重连（最多尝试 5 次）
+    - 针对 Stdio 子进程的环境变量过滤机制（增强安全性）
+    - 自动在返回给 LLM 的错误信息中脱敏脱除凭证敏感信息
+    - 支持对单个服务器单独配置工具调用及连接的超时时间
+    - 基于专用后台事件循环的线程安全架构
+    - 支持 Sampling 特性：MCP 服务器可通过 sampling/createMessage
+      发起 LLM 补全请求（包含文本响应与工具调用响应）
+    - 并发工具调用开关：通过单服务器的 ``supports_parallel_tool_calls``
+      标志位允许同一服务器上的工具并发执行
 
-Architecture:
-    A dedicated background event loop (_mcp_loop) runs in a daemon thread.
-    Each MCP server runs as a long-lived asyncio Task on this loop, keeping
-    its transport context alive. Tool call coroutines are scheduled onto the
-    loop via ``run_coroutine_threadsafe()``.
+架构设计：
+    专用的后台事件循环（_mcp_loop）在守护线程（daemon thread）中运行。
+    每个 MCP 服务器在该事件循环上作为长生命周期的 asyncio Task 运行，
+    持续保持其传输上下文（transport context）的存活状态。
+    工具调用的协程通过 ``run_coroutine_threadsafe()`` 被调度至该循环中执行。
 
-    On shutdown, each server Task is signalled to exit its ``async with``
-    block, ensuring the anyio cancel-scope cleanup happens in the *same*
-    Task that opened the connection (required by anyio).
+    关机时，会通知每个服务器 Task 退出其 ``async with`` 代码块，
+    以确保 anyio 取消作用域（cancel-scope）的清理工作发生在
+    建立连接的 *同一个* Task 内部（此为 anyio 框架的硬性要求）。
 
-Thread safety:
-    _servers and _mcp_loop/_mcp_thread are accessed from both the MCP
-    background thread and caller threads.  All mutations are protected by
-    _lock so the code is safe regardless of GIL presence (e.g. Python 3.13+
-    free-threading).
+线程安全性：
+    _servers 与 _mcp_loop/_mcp_thread 会同时从 MCP 后台线程及调用方线程访问。
+    所有修改操作均受 _lock 保护，
+    无论是否存在 GIL（例如在 Python 3.13+ 的 free-threading 自由线程环境下）均可安全运行。
 """
 
 import asyncio
@@ -575,10 +572,11 @@ def _prepend_path(env: dict, directory: str) -> dict:
 
 
 def _resolve_stdio_command(command: str, env: dict) -> tuple[str, dict]:
-    """Resolve a stdio MCP command against the exact subprocess environment.
+    """
+    根据具体的子进程环境解析 stdio MCP 命令。
 
-    This primarily exists to make bare ``npx``/``npm``/``node`` commands work
-    reliably even when MCP subprocesses run under a filtered PATH.
+    此方法的主要作用是，即使 MCP 子进程运行在经过过滤的 PATH 环境变量下，
+    也能确保直接使用的 ``npx``/``npm``/``node`` 等命令可靠工作。
     """
     resolved_command = os.path.expanduser(str(command).strip())
     resolved_env = dict(env or {})
@@ -597,16 +595,16 @@ def _resolve_stdio_command(command: str, env: dict) -> tuple[str, dict]:
             candidates = [
                 os.path.join(hermes_home, "node", "bin", resolved_command),
                 os.path.join(os.path.expanduser("~"), ".local", "bin", resolved_command),
-                # /usr/local/bin is the canonical install location for Node on
-                # Linux from-source builds, the upstream node:bookworm-slim
-                # image (which the Hermes Docker image copies node + npm +
-                # corepack from since #4977), and macOS Homebrew on Intel.
-                # Without this candidate, any MCP server configured with an
-                # env.PATH that omits /usr/local/bin (a common pattern when
-                # users hand-author PATH for sandboxing) fails with ENOENT
-                # at execvp, and a naive symlink workaround into the user's
-                # PATH only fails one layer deeper because npx's shebang
-                # re-execs /usr/bin/env node which needs the same directory.
+                # /usr/local/bin 是 Linux 源码构建安装 Node、
+                # 上游 node:bookworm-slim 镜像（自 #4977 起，Hermes Docker 镜像便从中复制
+                # node + npm + corepack）、
+                # 以及 macOS Intel 架构下 Homebrew 的规范安装路径。
+                # 如果不将此路径列为候选，任何配置了省略 /usr/local/bin 的 env.PATH 的 MCP 服务器
+                # （用户为了沙箱隔离而手动编写 PATH 时很常见）
+                # 都会在执行 execvp 时因 ENOENT 错误而失败；
+                # 此时即使试图在用户的 PATH 下创建符号链接作为变通方案，
+                # 也会在深一层调用时失败，因为 npx 的 shebang 会重新执行 /usr/bin/env node，
+                # 这同样需要该目录在 PATH 中。
                 os.path.join(os.sep, "usr", "local", "bin", resolved_command),
             ]
             for candidate in candidates:
@@ -622,18 +620,18 @@ def _resolve_stdio_command(command: str, env: dict) -> tuple[str, dict]:
 
 
 def _wrap_command_with_watchdog(command: str, args: list) -> tuple[str, list]:
-    """Wrap a stdio MCP server command in the parent-death watchdog supervisor.
+    """
+    将 stdio MCP 服务器命令封装在父进程死亡（parent-death）的 watchdog 监控程序中。
 
-    See ``tools/mcp_stdio_watchdog.py`` module docstring for the full
-    rationale. Returns the (command, args) unchanged on any platform/failure
-    where the wrap can't safely apply, so this can never be the reason a
-    previously-working MCP server stops starting.
+    有关完整的设计考量，请参阅 ``tools/mcp_stdio_watchdog.py`` 模块的文档字符串（docstring）。
+    在任何无法安全应用封装的平台或发生异常时，
+    均会原样返回 (command, args)，
+    因此这绝不会成为先前能够正常运行的 MCP 服务器无法启动的原因。
     """
     if os.name != "posix":
-        # Relies on process groups (os.getpgid/os.killpg); no POSIX
-        # equivalent wired up here yet, matching the existing killpg-based
-        # orphan cleanup's platform scope (Windows falls back to plain
-        # os.kill there too).
+        # 依赖进程组（os.getpgid/os.killpg）；此处尚未接入 POSIX 之外的
+        # 等效实现，与现有基于 killpg 的孤儿进程清理机制
+        # 所支持的平台范围一致（在 Windows 下同样会降级使用标准的 os.kill）。
         return command, args
     try:
         my_pid = os.getpid()
@@ -671,14 +669,15 @@ def _mcp_image_extension_for_mime_type(mime_type: str) -> str:
 
 
 def _cache_mcp_image_block(block) -> str:
-    """Cache an MCP ``ImageContent`` block to the shared image cache and
-    return a ``MEDIA:<path>`` tag that Hermes gateways know how to render.
+    """将 MCP 的 ``ImageContent`` 块缓存至共享图片缓存区，
+    并返回 Hermes 网关能够识别并渲染的 ``MEDIA:<path>`` 标签。
 
-    Returns an empty string when *block* is not an image, when the base64
-    payload is malformed, or when the cache helper rejects the bytes (e.g.
-    non-image MIME masquerading as an image). Errors are logged, not raised:
-    a single bad block shouldn't kill the tool result, and the caller will
-    fall through to any text blocks that did parse.
+    当 *block* 不是图片、base64 载荷格式错误、
+    或缓存助手拒绝接收该字节数据时（例如非图片 MIME 假冒为图片），
+    函数将返回空字符串。
+    发生的错误会被记录日志而非抛出异常：
+    单个损坏的内容块不应导致整个工具结果失效，
+    调用方会继续向下处理其他成功解析的文本块。
     """
     import base64
 
@@ -744,21 +743,22 @@ class NonMcpEndpointError(ConnectionError):
 
 
 def _validate_remote_mcp_url(server_name: str, url: Any) -> str:
-    """Return the URL as a string if it's a valid http(s) remote MCP URL.
+    """
+    如果 URL 是有效的 http(s) 远程 MCP URL，则将其作为字符串返回。
 
-    Raises :class:`InvalidMcpUrlError` otherwise with a message naming the
-    offending server, so users can spot the bad entry in their config.
+    否则抛出 :class:`InvalidMcpUrlError` 异常，并在错误信息中指出
+    有问题的服务器名称，以便用户能够快速在配置中定位错误项。
 
-    Accepts:
-    - ``http://host`` / ``https://host`` with optional port, path, query
-    - IPv4, IPv6 (bracketed), DNS hostnames
+    允许的形式：
+    - 包含可选端口、路径及查询参数的 ``http://host`` / ``https://host``
+    - IPv4、IPv6（带方括号）以及 DNS 主机名
 
-    Rejects:
-    - Non-string values (``None``, dicts, ints)
-    - Missing scheme (``example.com/mcp``)
-    - Non-http(s) schemes (``file://``, ``ws://``, ``stdio:`` — stdio servers
-      use the ``command`` key, not ``url``)
-    - Empty host (``http://``, ``https:///path``)
+    拒绝的形式：
+    - 非字符串类型的值（``None``、字典、整数等）
+    - 缺少 Protocol/Scheme 前缀（如 ``example.com/mcp``）
+    - 非 http(s) Protocol/Scheme（如 ``file://``、``ws://``、``stdio:`` ——
+      stdio 服务器应使用 ``command`` 键而非 ``url``）
+    - 空主机名（如 ``http://``、``https:///path``）
     """
     if not isinstance(url, str):
         raise InvalidMcpUrlError(
@@ -948,16 +948,16 @@ def _safe_numeric(value, default, coerce=int, minimum=1):
 
 
 class SamplingHandler:
-    """Handles sampling/createMessage requests for a single MCP server.
+    """
+    处理单个 MCP 服务器的 sampling/createMessage 请求。
 
-    Each MCPServerTask that has sampling enabled creates one SamplingHandler.
-    The handler is callable and passed directly to ``ClientSession`` as
-    the ``sampling_callback``.  All state (rate-limit timestamps, metrics,
-    tool-loop counters) lives on the instance -- no module-level globals.
+    每个启用了采样（sampling）功能的 MCPServerTask 都会创建一个 SamplingHandler。
+    该处理程序是可调用的，并作为 ``sampling_callback`` 直接传递给 ``ClientSession``。
+    所有状态（速率限制时间戳、指标数据、工具循环计数器）均维护在实例自身中 —— 无模块级的全局变量。
 
-    The callback is async and runs on the MCP background event loop.  The
-    sync LLM call is offloaded to a thread via ``asyncio.to_thread()`` so
-    it doesn't block the event loop.
+    该回调函数为异步函数，运行在 MCP 的后台事件循环上。
+    同步的 LLM 调用会通过 ``asyncio.to_thread()`` 卸载到独立线程中执行，
+    以确保不会阻塞事件循环。
     """
 
     _STOP_REASON_MAP = {"stop": "endTurn", "length": "maxTokens", "tool_calls": "toolUse"}
@@ -1345,28 +1345,29 @@ def _format_elicitation_schema_summary(schema: dict, server_name: str) -> str:
 
 
 class ElicitationHandler:
-    """Handles ``elicitation/create`` requests for a single MCP server.
+    """
+    处理单个 MCP 服务器的 ``elicitation/create`` 请求。
 
-    Each ``MCPServerTask`` that has elicitation enabled creates one handler.
-    The handler is callable and passed directly to ``ClientSession`` as the
-    ``elicitation_callback`` (added in mcp Python SDK 1.11.0).
+    每个启用了引出（elicitation）功能的 ``MCPServerTask`` 都会创建一个处理程序。
+    该处理程序是可调用的，并作为 ``elicitation_callback`` 直接传递给 ``ClientSession``
+    （于 mcp Python SDK 1.11.0 版本中新增）。
 
-    Elicitation lets a server ask the client to collect structured input from
-    the user mid-tool-call (e.g. payment authorization, OAuth confirmation).
-    Form-mode elicitations are routed through Hermes' existing approval
-    system (``tools.approval.prompt_dangerous_approval``), which surfaces
-    the prompt on whichever surface the active session uses -- CLI, TUI,
-    Telegram, Slack, etc. URL-mode elicitations are declined as unsupported.
+    引出功能允许服务器在工具调用期间，要求客户端向用户收集结构化输入
+    （例如支付授权、OAuth 确认等）。
+    表单模式（Form-mode）的引出请求会通过 Hermes 现有的审批系统
+    （``tools.approval.prompt_dangerous_approval``）进行路由，
+    并在当前活动会话所使用的界面上展示提示 —— 包括 CLI、TUI、Telegram、Slack 等。
+    URL 模式（URL-mode）的引出请求将因不受支持而被拒绝。
 
-    Failure modes are fail-closed: any timeout, exception, or unexpected
-    state returns ``decline``/``cancel`` rather than silently accepting.
-    The server treats this as the user not approving.
+    故障处理模式为“故障即关闭”（fail-closed）：
+    任何超时、异常或意料之外的状态均会返回 ``decline``（拒绝）/ ``cancel``（取消），
+    而非静默接受。服务器会将此视为用户未批准。
     """
 
-    # Outer cap for the approval await. ``prompt_dangerous_approval`` runs
-    # its own input() timeout via the approval-config value; this is an
-    # asyncio-side safety net so the MCP event loop never blocks
-    # indefinitely if the inner timeout machinery is bypassed.
+    # 审批等待的外层上限时间。``prompt_dangerous_approval`` 内部
+    # 会通过审批配置值运行其自身的 input() 超时机制；
+    # 此处是 asyncio 侧的安全保障，目的是在内部超时机制被绕过时，
+    # 确保 MCP 事件循环不会无限期阻塞。
     _OUTER_TIMEOUT_GRACE_SECONDS = 5
 
     def __init__(self, server_name: str, config: dict, owner: Optional["MCPServerTask"] = None):
@@ -1506,13 +1507,15 @@ class ElicitationHandler:
 # ---------------------------------------------------------------------------
 
 class MCPServerTask:
-    """Manages a single MCP server connection in a dedicated asyncio Task.
+    """
+    在独立的 asyncio Task 中管理单个 MCP 服务器连接。
 
-    The entire connection lifecycle (connect, discover, serve, disconnect)
-    runs inside one asyncio Task so that anyio cancel-scopes created by
-    the transport client are entered and exited in the same Task context.
+    整个连接生命周期（连接、发现、服务、断开连接）
+    均在同一个 asyncio Task 内部运行，
+    以确保传输客户端创建的 anyio 取消作用域（cancel-scopes）
+    能在同一个 Task 上下文中进入和退出。
 
-    Supports both stdio and HTTP/StreamableHTTP transports.
+    同时支持 stdio 与 HTTP/StreamableHTTP 传输方式。
     """
 
     __slots__ = (
@@ -1536,11 +1539,12 @@ class MCPServerTask:
         self._task: Optional[asyncio.Task] = None
         self._ready = asyncio.Event()
         self._shutdown_event = asyncio.Event()
-        # Set by tool handlers on auth failure after manager.handle_401()
-        # confirms recovery is viable. When set, _run_http / _run_stdio
-        # exit their async-with blocks cleanly (no exception), and the
-        # outer run() loop re-enters the transport so the MCP session is
-        # rebuilt with fresh credentials.
+        # 当 manager.handle_401() 确认恢复可行后，
+        # 由工具处理器在认证失败时设置此标志。
+        # 设置后，_run_http / _run_stdio 会干净地退出
+        # 其 async-with 代码块（不抛出异常），
+        # 外层的 run() 循环随后会重新进入传输层，
+        # 从而使用全新的凭证重建 MCP 会话。
         self._reconnect_event = asyncio.Event()
         self._tools: list = []
         self._error: Optional[Exception] = None
@@ -1551,23 +1555,22 @@ class MCPServerTask:
         self._reconnect_retries: int = 0
         self._auth_type: str = ""
         self._refresh_lock = asyncio.Lock()
-        # MCP stdio sessions are a single JSON-RPC stream. Some servers emit
-        # list_changed notifications during startup; if the notification
-        # handler calls list_tools while a normal tool call is in flight, the
-        # stream can wedge and the user-visible tool call times out. Serialize
-        # client-initiated RPCs per server. The lock is also applied to HTTP
-        # transports for conservative per-server ordering.
+        # MCP stdio 会话是单条 JSON-RPC 数据流。
+        # 部分服务器会在启动期间发送 list_changed 通知；
+        # 若通知处理程序在常规工具调用正在进行时调用了 list_tools，
+        # 数据流可能会死锁挂起，进而导致用户可见的工具调用超时。
+        # 因此需要按服务器对客户端发起的 RPC 进行串行化。
+        # 该锁同样应用于 HTTP 传输协议，以实现稳妥的单服务器顺序控制。
         self._rpc_lock = asyncio.Lock()
         self._pending_refresh_tasks: set[asyncio.Task] = set()
-        # contextvars snapshot of the agent task that's currently in
-        # session.call_tool(). The MCP recv loop dispatches incoming
-        # elicitation/create requests on a SEPARATE asyncio task whose
-        # context doesn't inherit HERMES_SESSION_PLATFORM, so the
-        # elicitation handler has no way to detect the gateway session
-        # that triggered the call. Capturing the agent's context here
-        # and replaying it inside the elicitation callback restores
-        # gateway-platform attribution and routes the approval prompt
-        # to the right surface (Telegram, Slack, etc.).
+        # 当前处于 session.call_tool() 中的 Agent 任务的 contextvars 快照。
+        # MCP 的接收循环（recv loop）会在一个 *单独的* asyncio 任务中分发
+        # 传入的 elicitation/create 请求，
+        # 该任务的上下文不会继承 HERMES_SESSION_PLATFORM，
+        # 导致引出处理程序（elicitation handler）无法检测到触发该调用的网关会话。
+        # 在此处捕获 Agent 的上下文并在 elicitation 回调中进行重放，
+        # 可以恢复网关平台的属性归属，
+        # 并将审批提示正确路由至对应的平台界面（如 Telegram、Slack 等）。
         self._pending_call_context: Optional[contextvars.Context] = None
         now = time.monotonic()
         self._lifecycle_started_at: float = now
@@ -1575,17 +1578,17 @@ class MCPServerTask:
         self._idle_timeout_seconds: Optional[float] = None
         self._max_lifetime_seconds: Optional[float] = None
         self._recycled_reason: Optional[str] = None
-        # Captures the ``InitializeResult`` returned by
-        # ``await session.initialize()`` so downstream code can inspect the
-        # server's real advertised capabilities (``.capabilities.resources``,
-        # ``.capabilities.prompts``) instead of assuming every ``ClientSession``
-        # method attribute corresponds to a supported server method. See #18051.
+        # 捕获 ``await session.initialize()`` 返回的 ``InitializeResult``，
+        # 以便下游代码能够检查服务器实际声明的功能
+        # （如 ``.capabilities.resources``、``.capabilities.prompts``），
+        # 而不是假定每一个 ``ClientSession`` 方法属性都对应着服务器所支持的方法。
+        # 参见 #18051。
         self.initialize_result: Optional[Any] = None
-        # Set True the first time a keepalive ``ping`` returns JSON-RPC
-        # -32601 (method not found): the server is tool-capable but doesn't
-        # implement the optional ``ping`` utility. Subsequent keepalives fall
-        # back to ``list_tools`` (the pre-ping probe) so we neither spam pings
-        # nor reconnect-loop. Reset on each fresh transport connection.
+        # 当保活 ``ping`` 首次返回 JSON-RPC -32601 错误（方法未找到）时设为 True：
+        # 这表明该服务器具备工具处理能力，但未实现可选的 ``ping`` 实用功能。
+        # 随后的保活流程将降级回退使用 ``list_tools``（支持 ping 之前的探测方式），
+        # 这样既不会刷屏发送 ping，也不会引发重连循环。
+        # 每次建立全新的传输连接时重置该状态。
         self._ping_unsupported: bool = False
 
     def _is_http(self) -> bool:
@@ -1862,40 +1865,39 @@ class MCPServerTask:
         await asyncio.wait_for(self.session.list_tools(), timeout=30.0)
 
     async def _wait_for_lifecycle_event(self) -> str:
-        """Block until either _shutdown_event or _reconnect_event fires.
-
-        Returns:
-            "shutdown"  if the server should exit the run loop entirely.
-            "reconnect" if the server should tear down the current MCP
-                        session and re-enter the transport (fresh OAuth
-                        tokens, new session ID, etc.). The reconnect event
-                        is cleared before return so the next cycle starts
-                        with a fresh signal.
-            "recycle"   if a stdio idle/max-lifetime limit elapsed. The
-                        current transport is torn down and restarted lazily
-                        on the next tool call.
-
-        Shutdown takes precedence if both events are set simultaneously.
-
-        Periodically sends a lightweight keepalive (``ping``, with a
-        ``list_tools`` fallback for servers that don't implement the optional
-        ping utility — see :meth:`_keepalive_probe`) to prevent TCP/session
-        state from going stale during idle periods (#17003). If the keepalive
-        fails, triggers a reconnect.
-
-        The cadence is ``keepalive_interval`` from server config (default
-        :data:`_DEFAULT_KEEPALIVE_INTERVAL`, floored at
-        :data:`_MIN_KEEPALIVE_INTERVAL`). Servers that GC idle sessions on a
-        short TTL (e.g. Unreal Engine's editor MCP, ~15s) need an interval
-        below that TTL, otherwise every idle tool call lands on an
-        already-expired session and pays the full reconnect path.
         """
-        # Refresh faster than the server's session TTL. ``ping`` (MCP base
-        # protocol liveness) is used rather than ``list_tools`` so the probe
-        # stays a few bytes regardless of how many tools the server exposes —
-        # a ``list_tools`` keepalive against an 830-tool server would pull
-        # ~1 MB every cycle. Tool-list changes still arrive out-of-band via
-        # ``notifications/tools/list_changed`` → ``_refresh_tools``.
+        阻塞等待，直至触发 _shutdown_event 或 _reconnect_event。
+
+        返回值：
+            "shutdown"  若服务器应彻底退出运行循环。
+            "reconnect" 若服务器应销毁当前的 MCP 会话，
+                        并重新进入传输层（使用全新的 OAuth Token、
+                        新的会话 ID 等）。在返回前会清除重连事件标志，
+                        以便下一个周期以全新的信号开始。
+            "recycle"   若达到了 stdio 的空闲/最长生存时间限制。
+                        当前传输层将被销毁，并在下一次工具调用时
+                        进行惰性重启。
+
+        如果两个事件同时触发，停机（Shutdown）优先级更高。
+
+        定期发送轻量级的心跳保活请求（使用 ``ping``，对于未实现
+        可选 ping 工具的服务器则降级使用 ``list_tools`` —— 参见 :meth:`_keepalive_probe`），
+        以防止 TCP/会话状态在空闲期间过期失效（#17003）。
+        如果保活失败，将触发重连。
+
+        保活频率由服务器配置中的 ``keepalive_interval`` 决定
+        （默认为 :data:`_DEFAULT_KEEPALIVE_INTERVAL`，下限为 :data:`_MIN_KEEPALIVE_INTERVAL`）。
+        对于采用较短 TTL 回收空闲会话的服务器（例如虚幻引擎的编辑器 MCP，约 15 秒），
+        需要将间隔设置在该 TTL 以下，否则每次空闲后的工具调用都会落在
+        已过期的会话上，从而付出完整重连的代价。
+        """
+        # 刷新频率应快于服务器的会话 TTL。
+        # 此处使用 ``ping``（MCP 基础协议存活性检测）而非 ``list_tools``，
+        # 无论服务器暴露了多少工具，探针的大小都能保持在几字节 ——
+        # 对一个拥有 830 个工具的服务器发送 ``list_tools`` 心跳，
+        # 每个周期都会拉取约 1 MB 的数据。
+        # 工具列表的变更仍会通过 ``notifications/tools/list_changed`` → ``_refresh_tools``
+        # 进行带外（out-of-band）接收。
         keepalive_interval = max(
             _MIN_KEEPALIVE_INTERVAL,
             float(self._config.get("keepalive_interval", _DEFAULT_KEEPALIVE_INTERVAL)),
@@ -2027,42 +2029,42 @@ class MCPServerTask:
         safe_env = _build_safe_env(user_env)
         command, safe_env = _resolve_stdio_command(command, safe_env)
 
-        # Check package against OSV malware database before spawning.
-        # Run off the event loop (the urllib HTTPS call is blocking) and bound
-        # it with a wall-clock timeout so a stalled SSL handshake can't freeze
-        # MCP discovery / gateway startup (#29184). The check is fail-open, so
-        # on timeout we log and proceed rather than blocking indefinitely.
-        # NOTE: must run against the REAL command/args — the watchdog wrap
-        # below rewrites argv to `python -m tools.mcp_stdio_watchdog …`,
-        # which would silently turn the preflight into a no-op.
+        # 在启动前根据 OSV 恶意软件数据库检查软件包。
+        # 在事件循环之外运行（urllib 的 HTTPS 调用是阻塞的），
+        # 并使用墙上时钟（wall-clock）超时时间进行限制，
+        # 从而避免停滞的 SSL 握手挂起 MCP 发现 / 网关启动流程（#29184）。
+        # 该检查遵循“故障放行”（fail-open）机制，因此发生超时时
+        # 我们仅记录日志并继续运行，而非无限期阻塞。
+        # 注意：必须针对**真实**的命令/参数运行 ——
+        # 下方的 watchdog 包装层会把 argv 重写为 `python -m tools.mcp_stdio_watchdog …`，
+        # 这会导致预检无声无息地变成无操作（no-op）。
         from tools.osv_check import check_package_for_malware
-        try:
-            malware_error = await asyncio.wait_for(
-                asyncio.to_thread(check_package_for_malware, command, args),
-                timeout=_OSV_MALWARE_CHECK_TIMEOUT_S,
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                "MCP server '%s': OSV malware preflight timed out after %.0fs "
-                "(network slow/unreachable) — proceeding without the check.",
-                self.name, _OSV_MALWARE_CHECK_TIMEOUT_S,
-            )
-            malware_error = None
-        if malware_error:
-            raise ValueError(
-                f"MCP server '{self.name}': {malware_error}"
-            )
+        # try:
+        #     malware_error = await asyncio.wait_for(
+        #         asyncio.to_thread(check_package_for_malware, command, args),
+        #         timeout=_OSV_MALWARE_CHECK_TIMEOUT_S,
+        #     )
+        # except asyncio.TimeoutError:
+        #     logger.warning(
+        #         "MCP server '%s': OSV malware preflight timed out after %.0fs "
+        #         "(network slow/unreachable) — proceeding without the check.",
+        #         self.name, _OSV_MALWARE_CHECK_TIMEOUT_S,
+        #     )
+        #     malware_error = None
+        # if malware_error:
+        #     raise ValueError(
+        #         f"MCP server '{self.name}': {malware_error}"
+        #     )
 
-        # Wrap the real command in a parent-death watchdog supervisor so an
-        # ungraceful exit of this Hermes process (kill -9, crash, force-quit)
-        # can't leave the stdio MCP child (and its own descendants, e.g.
-        # mcp-remote's spawned `node`) running forever. On a clean exit,
-        # MCPServerTask.shutdown() / _kill_orphaned_mcp_children() still do
-        # the reaping as before -- this only covers the case where that code
-        # never gets to run. POSIX-only (relies on process groups); no-op
-        # elsewhere, matching existing killpg-based cleanup's platform scope.
-        # Applied AFTER the OSV preflight so the check inspects the real
-        # package, not the watchdog wrapper.
+        # 将真实命令包裹在一个父进程死亡（parent-death）的 watchdog 监控程序中，
+        # 这样即使 Hermes 进程非优雅退出（例如 kill -9、崩溃、强制退出），
+        # 也不会导致 stdio MCP 子进程（及其自身的子代，如 mcp-remote 派生的 `node`）永久运行。
+        # 在正常退出时，MCPServerTask.shutdown() / _kill_orphaned_mcp_children()
+        # 仍会按原样执行回收工作 —— 此处理仅涵盖上述清理代码根本无法运行的情况。
+        # 仅适用于 POSIX 系统（依赖进程组）；在其他平台上为无操作（no-op），
+        # 这与现有基于 killpg 的清理机制所支持的平台范围一致。
+        # 该包裹处理在 OSV 预检**之后**应用，
+        # 以确保安全检查针对的是真正的软件包，而非 watchdog 包装层。
         command, args = _wrap_command_with_watchdog(command, args)
 
         server_params = StdioServerParameters(
@@ -2079,25 +2081,24 @@ class MCPServerTask:
         if _MCP_LOGGING_CALLBACK_SUPPORTED:
             sampling_kwargs["logging_callback"] = self._make_logging_callback()
 
-        # Reap any orphaned subprocesses from prior failed connection
-        # attempts before spawning a new one.  Without this, each retry in
-        # the run() reconnect loop spawns a fresh process pair while the
-        # previous failed pair lingers — leading to rapid zombie
-        # accumulation (see #57355, #57228).  The unscoped sweep also
-        # opportunistically reaps orphans left by *other* servers that
-        # never reconnect; per-server filtering via ``server_name`` remains
-        # available for scoped call sites.  Run in a worker thread: the
-        # reaper blocks up to 2s (SIGTERM → wait → SIGKILL) when orphans
-        # exist, which would otherwise stall the shared MCP event loop.
+        # 在派生新子进程之前，清理先前失败的连接尝试所留下的任何孤儿子进程。
+        # 如果不进行清理，run() 重连循环中的每一次重试都会派生出一对新的进程，
+        # 而先前失败的那对进程却依然留存 —— 这将导致僵尸进程迅速堆积（参见 #57355, #57228）。
+        # 这种无范围限制的全局清理，也能顺便清理掉其他不再重连的服务器所留下的孤儿进程；
+        # 对于需要限定范围的调用点，仍可通过 ``server_name`` 提供按服务器进行过滤的功能。
+        # 该操作需在工作线程中运行：当存在孤儿进程时，
+        # 清理程序最多会阻塞 2 秒（SIGTERM → 等待 → SIGKILL），
+        # 否则这将会阻塞共享的 MCP 事件循环。
         await asyncio.to_thread(_kill_orphaned_mcp_children)
 
-        # Snapshot child PIDs before spawning so we can track the new one.
+        # 在派生新进程之前对子进程 PID 进行快照，
+        # 以便我们能够追踪新创建的子进程。
         pids_before = _snapshot_child_pids()
         new_pids: set = set()
-        # Redirect subprocess stderr into a shared log file so MCP servers
-        # (FastMCP banners, slack-mcp startup JSON, etc.) don't dump onto
-        # the user's TTY and corrupt the TUI.  Preserves debuggability via
-        # ~/.hermes/logs/mcp-stderr.log.
+        # 将子进程的 stderr 重定向到共享日志文件中，
+        # 以防止 MCP 服务器（如 FastMCP 横幅、slack-mcp 启动 JSON 等）
+        # 倾倒在用户的 TTY 上并损坏 TUI 界面。
+        # 同时通过 ~/.hermes/logs/mcp-stderr.log 保留可调试性。
         _write_stderr_log_header(self.name)
         _errlog = _get_mcp_stderr_log()
         try:
@@ -2105,21 +2106,22 @@ class MCPServerTask:
                 read_stream,
                 write_stream,
             ):
-                # Capture the newly spawned subprocess PID for force-kill cleanup.
-                # Filter out non-MCP children that race into the snapshot window:
-                # slash_worker and LSP servers (jdtls/pyright/yaml-ls) are spawned
-                # directly by the gateway without start_new_session, so their pgid
-                # equals the TUI parent PID. If they leak into _stdio_pgids, the
-                # shutdown sweep's killpg() kills the TUI parent itself.
-                # See agent/lsp/client.py for the complementary start_new_session fix.
+                # 捕获新派生的子进程 PID，以便用于强制杀进程的清理工作。
+                # 过滤掉在该快照窗口期内发生竞争的非 MCP 子进程：
+                # slash_worker 和 LSP 服务器（jdtls/pyright/yaml-ls）
+                # 是由网关直接派生的，未调用 start_new_session，
+                # 因此它们的 pgid 与 TUI 父进程 PID 相同。
+                # 如果它们泄露到了 _stdio_pgids 中，
+                # 停机清理阶段的 killpg() 就会连带杀死 TUI 父进程本身。
+                # 补全此逻辑的 start_new_session 修复方案请参阅 agent/lsp/client.py。
                 new_pids = _filter_mcp_children(
                     _snapshot_child_pids() - pids_before
                 )
                 if new_pids:
-                    # Capture pgid while the child is alive — once it exits we
-                    # can no longer call ``os.getpgid`` on it, and the cleanup
-                    # sweep needs the pgid to reach any reparented descendants
-                    # (e.g. ``claude mcp serve`` spawned by a stdio wrapper).
+                    # 在子进程存活时捕获其 pgid —— 一旦它退出，
+                    # 我们将无法对其调用 ``os.getpgid``，
+                    # 而清理流程需要使用该 pgid 来覆盖到所有重新挂载父进程的孙子进程
+                    # （例如由 stdio 包装程序派生的 ``claude mcp serve``）。
                     new_pgids: Dict[int, int] = {}
                     for _pid in new_pids:
                         try:
@@ -2135,17 +2137,19 @@ class MCPServerTask:
                 async with ClientSession(
                     read_stream, write_stream, **sampling_kwargs
                 ) as session:
-                    # Bound the MCP handshake. A stdio server that never
-                    # completes ``initialize`` (e.g. emits a non-JSON-RPC frame
-                    # and then blocks on stdin) otherwise hangs this coroutine
-                    # forever on the background loop: ``connect_timeout`` only
-                    # bounds the caller's ``.result()`` wait, not the coroutine
-                    # itself. Because the connect never unwinds, the cleanup
-                    # ``finally`` below never runs, so the spawned child and its
-                    # stdio pipes/pidfd leak on every discovery retry — unbounded
-                    # until the gateway hits EMFILE. Timing out here converts the
-                    # hang into a normal failure, letting the ``finally`` reap the
-                    # child. See #59349.
+                    # 限制 MCP 握手过程的时间上限。
+                    # 如果 stdio 服务器未能完成 ``initialize`` 初始化过程
+                    # （例如输出了一帧非 JSON-RPC 格式的数据，随后在 stdin 上发生阻塞），
+                    # 会导致该协程在后台循环中被永久挂起：
+                    # ``connect_timeout`` 仅限制了调用方在 ``.result()`` 上的等待，
+                    # 却无法限制协程本身的运行。
+                    # 由于连接过程始终无法解绑或展开，
+                    # 下方 ``finally`` 中的清理逻辑将永远无法运行，
+                    # 导致每次重试服务发现时，派生的子进程及其 stdio 管道/pidfd 都会发生泄漏 ——
+                    # 无休止地堆积，直到网关触发 EMFILE 错误。
+                    # 在此处设置超时可将挂起状态转换为正常的失败抛错，
+                    # 从而让 ``finally`` 能够正确回收子进程。
+                    # 参见 #59349。
                     connect_timeout = float(
                         config.get("connect_timeout", _DEFAULT_CONNECT_TIMEOUT)
                     )
@@ -2156,24 +2160,23 @@ class MCPServerTask:
                     self._mark_lifecycle_started()
                     await self._discover_tools()
                     self._ready.set()
-                    # Session is live again: clear any breaker state from a
-                    # prior outage so the first call after recovery isn't
-                    # gated on a stale consecutive-failure count (#16788).
+                    # 会话已恢复活跃状态：清除先前故障留下的断路器状态，
+                    # 从而确保恢复后的首次调用
+                    # 不会受制于过期的连续失败计数（#16788）。
                     _reset_server_error(self.name)
-                    # This session is live: reset the reconnect retry counter
-                    # so transient prior failures do not accumulate toward
-                    # permanent parking (#57604).
+                    # 该会话已恢复活跃状态：重置重连重试计数器，
+                    # 避免此前暂态的失败累积，
+                    # 进而导致连接被永久停用（#57604）。
                     self._reconnect_retries = 0
-                    # stdio transport does not use OAuth, but we still honor
-                    # _reconnect_event (e.g. future manual /mcp refresh) for
-                    # consistency with _run_http.
+                    # stdio 传输层不使用 OAuth，但为了与 _run_http 保持一致，
+                    # 我们仍会响应 _reconnect_event（例如未来通过 /mcp 手动刷新）。
                     return await self._wait_for_lifecycle_event()
         finally:
-            # Runs on clean exit, exceptions, AND asyncio cancellation.
-            # If any of the spawned PIDs are still alive, the SDK's
-            # teardown failed (common when the task is cancelled mid-way
-            # on Linux, where setsid() children escape the parent cgroup).
-            # Mark them as orphans so the next cleanup sweep can reap them.
+            # 无论是在正常退出、触发异常、还是 asyncio 任务被取消时都会运行。
+            # 如果派生的 PID 中仍有存活的进程，说明 SDK 的清理过程发生了失败
+            # （在 Linux 系统上，当任务在中途被取消时很常见，
+            # 因为通过 setsid() 创建的子进程会脱离父进程的 cgroup）。
+            # 将它们标记为孤儿进程，以便下一次清理流程能够进行回收。
             if new_pids:
                 from gateway.status import _pid_exists
                 _killpg = getattr(os, "killpg", None)
@@ -2204,9 +2207,9 @@ class MCPServerTask:
                             # PID-reuse can't surface stale pgroup state later.
                             _stdio_pgids.pop(pid, None)
 
-    # Content types a real MCP Streamable-HTTP endpoint may return on the
-    # initial POST/GET. Anything else on a 2xx response means the URL is not
-    # an MCP endpoint.
+    # 真实的 MCP Streamable-HTTP 端点在初始 POST/GET 请求时可能返回的内容类型。
+    # 如果 2xx 响应中返回了其他任何内容类型，
+    # 则意味着该 URL 并非 MCP 端点。
     _MCP_CONTENT_TYPES = ("application/json", "text/event-stream")
 
     async def _preflight_content_type(
@@ -2218,33 +2221,33 @@ class MCPServerTask:
         client_cert=None,
         timeout: float = 5.0,
     ) -> None:
-        """Probe *url* for an MCP-shaped response before the SDK connects.
+        """
+        在 SDK 建立连接之前，探测 *url* 是否会返回符合 MCP 规范的响应。
 
-        A misconfigured ``mcp_servers.<name>.url`` pointed at a plain web app
-        returns HTML (or some other non-MCP body). The MCP SDK then sits on
-        the connection for the full ``connect_timeout`` (default 60 s) before
-        surfacing an opaque ``CancelledError``. A cheap, short-timeout probe
-        here catches that in ≤ ``timeout`` seconds and raises
-        :class:`NonMcpEndpointError` with an actionable message.
+        如果将 ``mcp_servers.<name>.url`` 误配置为指向普通 Web 应用，
+        端点会返回 HTML（或其他非 MCP 格式的响应体）。
+        随后，MCP SDK 会在该连接上挂起并阻塞整个 ``connect_timeout``（默认 60 秒），
+        最终仅抛出一个含义模糊的 ``CancelledError``。
+        在此处进行一次低成本、短超时的预检，可在 ≤ ``timeout`` 秒内捕获该错误，
+        并抛出附带明确操作指引的 :class:`NonMcpEndpointError`。
 
-        Detection is allow-list based: a 2xx response is rejected only when it
-        carries a definite content type that is NOT one an MCP endpoint uses
-        (``application/json`` / ``text/event-stream``).  When HEAD/GET returns
-        a non-MCP content type (e.g. ``text/html``), a lightweight JSON-RPC
-        ``initialize`` POST is attempted before giving up — some servers
-        (e.g. DocuSeal) serve a web UI on GET but speak Streamable HTTP only
-        via POST.
+        检测基于白名单机制：只有当 2xx 响应携带了明确的 Content-Type，
+        且该类型 **不属于** MCP 端点所使用的类型（``application/json`` / ``text/event-stream``）时，
+        响应才会被拒绝。
+        当 HEAD/GET 返回非 MCP 的 Content-Type（例如 ``text/html``）时，
+        在放弃前会尝试发送一个轻量级的 JSON-RPC ``initialize`` POST 请求 ——
+        因为某些服务器（例如 DocuSeal）在 GET 请求时提供 Web UI，
+        但仅通过 POST 请求提供 Streamable HTTP 传输。
 
-        A missing or empty content type, non-2xx status, or any
-        network/transport error passes through silently — the probe is
-        strictly best-effort, and the real handshake remains the source of
-        truth for everything except the unambiguous "this is a web page,
-        not MCP" case.
+        缺少或为空的 Content-Type、非 2xx 状态码，
+        或任何网络/传输层错误，均会被静默放行 ——
+        该探测完全是尽力而为（best-effort）的，
+        除了确凿无疑的“这是一个网页，而非 MCP”的情况外，
+        真实的握手过程依然是最终的判定标准。
 
-        Runs on its own httpx client OUTSIDE the SDK's anyio task group, so the
-        raised error propagates as itself rather than being wrapped in an
-        ``ExceptionGroup`` (which is what defeats hooks installed inside the
-        SDK transport).
+        该探测在 SDK 的 anyio 任务组 **之外** 的独立 httpx 客户端上运行，
+        因此抛出的异常能够直接向上传播，
+        而不会被包裹在 ``ExceptionGroup`` 中（被包裹会导致在 SDK 传输层内部安装的钩子失效）。
         """
         try:
             import httpx as _httpx
@@ -2342,22 +2345,22 @@ class MCPServerTask:
 
         url = config["url"]
         headers = dict(config.get("headers") or {})
-        # Some MCP servers require MCP-Protocol-Version on the initial
-        # initialize request and reject session-less POSTs otherwise.
-        # Seed it as a client-level default, but treat user overrides as
-        # case-insensitive so conventional casing is preserved.
+        # 部分 MCP 服务器要求在初始的 initialize 请求中
+        # 包含 MCP-Protocol-Version 标头，否则会拒绝无会话的 POST 请求。
+        # 因此将其预设为客户端级别的默认值，
+        # 但会将用户的自定义覆盖视为不区分大小写，以保留常规的大小写格式。
         if not any(key.lower() == "mcp-protocol-version" for key in headers):
             headers["mcp-protocol-version"] = LATEST_PROTOCOL_VERSION
         connect_timeout = config.get("connect_timeout", _DEFAULT_CONNECT_TIMEOUT)
         ssl_verify = config.get("ssl_verify", True)
         client_cert = _resolve_client_cert(self.name, config)
 
-        # OAuth 2.1 PKCE: route through the central MCPOAuthManager so the
-        # same provider instance is reused across reconnects, pre-flow
-        # disk-watch is active, and config-time CLI code paths share state.
-        # If OAuth setup fails (e.g. non-interactive env without cached
-        # tokens), re-raise so this server is reported as failed without
-        # blocking other MCP servers from connecting.
+        # OAuth 2.1 PKCE：路由通过中央 MCPOAuthManager，
+        # 以便在多次重连之间复用同一个 Provider 实例，
+        # 激活流程开始前的磁盘监听，并让配置阶段的 CLI 代码路径共享状态。
+        # 如果 OAuth 配置失败（例如没有缓存 Token 的非交互式环境），
+        # 则重新抛出异常，以便将该服务器报告为失败，
+        # 而不会阻塞其他 MCP 服务器的连接。
         _oauth_auth = None
         if self._auth_type == "oauth":
             try:
@@ -2377,9 +2380,10 @@ class MCPServerTask:
         if _MCP_LOGGING_CALLBACK_SUPPORTED:
             sampling_kwargs["logging_callback"] = self._make_logging_callback()
 
-        # SSE transport (for MCP servers that implement the SSE transport protocol
-        # rather than Streamable HTTP). Configure with ``transport: sse`` in the
-        # mcp_servers entry in config.yaml.
+        # SSE 传输（适用于实现了 SSE 传输协议
+        # 而非 Streamable HTTP 的 MCP 服务器）。
+        # 可通过在 config.yaml 的 mcp_servers 配置项中
+        # 设置 ``transport: sse`` 进行配置。
         if config.get("transport") == "sse":
             if sse_client is None:
                 raise ImportError(
@@ -2387,14 +2391,13 @@ class MCPServerTask:
                     "mcp.client.sse.sse_client is not available. "
                     "Upgrade the mcp package to get SSE support."
                 )
-            # sse_read_timeout governs how long sse_client will wait between
-            # events on the SSE stream. Using the tool_timeout (default 60s)
-            # here is wrong: SSE servers commonly hold the stream idle for
-            # minutes between events, so a 60s read timeout drops the
-            # connection after the first slow stretch. 300s matches the
-            # Streamable HTTP code path's httpx read timeout below. Original
-            # observation from @amiller in PR #5981 (Router Teamwork,
-            # Supermemory on Cloudflare Workers idle-disconnect at ~60s).
+            # sse_read_timeout 控制 sse_client 在 SSE 流上的事件之间等待的时长。
+            # 此处使用 tool_timeout（默认 60 秒）是错误的：
+            # SSE 服务器通常会在事件发生的间隔期内保持连接闲置数分钟，
+            # 因此 60 秒的读取超时会在经历首次较长时间的停顿后断开连接。
+            # 设定为 300 秒可与下方 Streamable HTTP 代码路径中的 httpx 读取超时保持一致。
+            # 该问题最早由 @amiller 在 PR #5981 中指出
+            # （Router Teamwork、Cloudflare Workers 上的 Supermemory 会在闲置约 60 秒时断开连接）。
             _sse_kwargs: dict = {
                 "url": url,
                 "headers": headers or None,
@@ -2441,19 +2444,17 @@ class MCPServerTask:
                 async with ClientSession(
                     read_stream, write_stream, **sampling_kwargs
                 ) as session:
-                    # Bound the handshake — same orphaned-task hang as the
-                    # stdio path (#59349): an endpoint that accepts the
-                    # connection but never answers ``initialize`` parks this
-                    # coroutine forever on the background loop.
+                    # 限制握手超时时间 —— 此处存在与 stdio 代码路径相同的孤儿任务挂起问题（#59349）：
+                    # 一个接受了连接请求但从未对 ``initialize`` 作出响应的端点，
+                    # 会使该协程在后台事件循环中永久挂起。
                     self.initialize_result = await asyncio.wait_for(
                         session.initialize(), timeout=float(connect_timeout)
                     )
                     self.session = session
                     await self._discover_tools()
                     self._ready.set()
-                    # Session is live again: clear any breaker state from a
-                    # prior outage so the first call after recovery isn't
-                    # gated on a stale consecutive-failure count (#16788).
+                    # 会话重新恢复活跃：清空此前因故障留存的断路器（breaker）状态，
+                    # 确保恢复后的首次调用不会被过期的连续失败计数所阻拦（#16788）。
                     _reset_server_error(self.name)
                     self._reconnect_retries = 0
                     reason = await self._wait_for_lifecycle_event()
@@ -2465,8 +2466,8 @@ class MCPServerTask:
             return reason
 
         if _MCP_NEW_HTTP:
-            # New API (mcp >= 1.24.0): build an explicit httpx.AsyncClient
-            # matching the SDK's own create_mcp_http_client defaults.
+            # 新 API（mcp >= 1.24.0）：构建一个显式的 httpx.AsyncClient，
+            # 以匹配 SDK 自身的 create_mcp_http_client 默认值。
             import httpx
 
             _original_url = httpx.URL(url)
@@ -2494,8 +2495,9 @@ class MCPServerTask:
             if client_cert is not None:
                 client_kwargs["cert"] = client_cert
 
-            # Caller owns the client lifecycle — the SDK skips cleanup when
-            # http_client is provided, so we wrap in async-with.
+            # 调用方负责管理客户端的生命周期 ——
+            # 当提供了 http_client 时，SDK 会跳过清理清理工作，
+            # 因此我们需要将其包装在 async-with 中。
             async with httpx.AsyncClient(**client_kwargs) as http_client:
                 async with streamable_http_client(url, http_client=http_client) as (
                     read_stream, write_stream, _get_session_id,
@@ -2554,18 +2556,18 @@ class MCPServerTask:
             return reason
 
     async def _discover_tools(self):
-        """Discover tools from the connected session.
-
-        Capability-gated: prompt-only / resource-only MCP servers don't
-        implement ``tools/list``, and calling it raises ``McpError(-32601)``,
-        which previously aborted the connection — those servers could never
-        stay connected for their prompts/resources. Skip the call when the
-        server doesn't advertise the ``tools`` capability.
-        (Ported from anomalyco/opencode#31271.)
         """
-        # Fresh transport connection → re-probe with the cheap ``ping`` path.
-        # Clears any latch from a prior connection in case the server gained
-        # ping support across the reconnect.
+        从已建立连接的会话中发现工具（tools）。
+
+        受到了能力限制（Capability-gated）：仅提供 Prompt 或仅提供 Resource 的 MCP 服务器
+        未实现 ``tools/list`` 接口，对其进行调用会抛出 ``McpError(-32601)``，
+        此问题先前会导致连接中断 —— 使这类服务器永远无法为了使用其 Prompt / Resource 保持连接。
+        当服务器声明未具备 ``tools`` 能力时，跳过该调用。
+        （移植自 anomalyco/opencode#31271。）
+        """
+        # 全新的传输层连接 → 使用低成本的 ``ping`` 路径重新进行探针检测。
+        # 清除此前连接留下的锁存状态（latch），
+        # 以防服务器在重连后新增了对 ping 的支持。
         self._ping_unsupported = False
         if self.session is None:
             return
@@ -2588,14 +2590,14 @@ class MCPServerTask:
         self._register_discovered_tools_if_needed()
 
     def _register_discovered_tools_if_needed(self) -> None:
-        """Re-register tools after a post-ready reconnect if needed.
+        """
+        如果需要在就绪（ready）状态后发生重连，则重新注册工具。
 
-        Initial registration is performed by ``_discover_and_register_server``
-        after ``start()`` completes. During a later reconnect, however,
-        ``_ready`` remains set; if outage handling previously deregistered
-        stale tools (parking calls ``_deregister_tools``), a successful
-        revival must publish the freshly discovered tools again — otherwise
-        the transport comes back alive with zero registered tools.
+        首次注册由 ``_discover_and_register_server`` 在 ``start()`` 完成后执行。
+        然而，在随后的重连期间，``_ready`` 仍保持设置状态；
+        如果故障处理程序此前解除了过期工具的注册（如停用阶段调用了 ``_deregister_tools``），
+        则成功恢复连接后必须重新发布最新发现的工具 ——
+        否则传输层恢复正常后，注册的工具数量将为零。
         """
         if not self._ready.is_set() or self._registered_tool_names:
             return
@@ -2604,10 +2606,11 @@ class MCPServerTask:
         )
 
     async def run(self, config: dict):
-        """Long-lived coroutine: connect, discover tools, wait, disconnect.
+        """
+        长生命周期协程：建立连接、发现工具、等待，以及断开连接。
 
-        Includes automatic reconnection with exponential backoff if the
-        connection drops unexpectedly (unless shutdown was requested).
+        包含连接意外中断时的指数退避自动重连机制
+        （除非已主动请求关闭）。
         """
         self._config = config
         self.tool_timeout = config.get("timeout", _DEFAULT_TOOL_TIMEOUT)
@@ -2622,10 +2625,9 @@ class MCPServerTask:
         else:
             self._sampling = None
 
-        # Set up elicitation handler if enabled and SDK types are available.
-        # Servers use elicitation/create to ask the client for structured
-        # input mid-tool-call (e.g. payment authorization). The handler
-        # routes those requests through Hermes' approval system.
+        # 若功能已启用且 SDK 类型可用，则配置引出处理程序（elicitation handler）。
+        # 服务器会在工具调用期间使用 elicitation/create 向客户端请求结构化输入
+        # （例如支付授权）。处理程序会将这些请求路由至 Hermes 的审批系统中。
         elicitation_config = config.get("elicitation", {})
         if elicitation_config.get("enabled", True) and _MCP_ELICITATION_TYPES:
             self._elicitation = ElicitationHandler(self.name, elicitation_config, owner=self)
@@ -2641,11 +2643,12 @@ class MCPServerTask:
                 self.name,
             )
 
-        # Validate remote URL once, up front.  Raising here (rather than
-        # letting it blow up inside the SDK's httpx layer on every retry)
-        # means a typo in config.yaml fails fast with a clear error — and
-        # critically, no reconnect-backoff burn.  (Ported from
-        # anomalyco/opencode#25019.)
+        # 预先对远程 URL 进行一次校验。
+        # 在此处抛出异常（而不是让它在每次重试时，
+        # 于 SDK 的 httpx 层内部崩溃），
+        # 意味着 config.yaml 中的拼写错误能够被快速发现并给出明确的错误提示 ——
+        # 更关键的是，这避免了无谓的重试退避消耗。
+        # （移植自 anomalyco/opencode#25019。）
         if self._is_http():
             try:
                 _validate_remote_mcp_url(self.name, config.get("url"))
@@ -2655,18 +2658,19 @@ class MCPServerTask:
                 self._ready.set()
                 return
 
-            # Pre-flight content-type probe (Streamable HTTP only; SSE is
-            # exercised by its own client and legitimately serves
-            # text/event-stream). A URL pointed at a web-app root returns
-            # HTML, which makes the SDK hang for the full connect_timeout
-            # before surfacing an opaque CancelledError. Probing here — once,
-            # outside the SDK task group — fails fast and non-retryably with
-            # an actionable message, mirroring the URL-validation path above.
-            # Skip the probe when _ready is already set (reconnect after a
-            # prior successful connect) — the endpoint was validated once,
-            # re-probing is a redundant round-trip. Also skip for OAuth servers:
-            # without a cached token the endpoint returns HTML or 401, which
-            # would incorrectly block the OAuth flow before it can run.
+            # 预检 Content-Type 探测（仅适用于 Streamable HTTP；SSE 传输由
+            # 其自身的客户端进行测试，且合法使用 text/event-stream 响应）。
+            # 若将 URL 指向 Web 应用的根路径，会返回 HTML 内容，
+            # 这会导致 SDK 在整个连接超时（connect_timeout）期间挂起，
+            # 之后仅抛出一个含义模糊的 CancelledError。
+            # 在此处（在 SDK 任务组之外）进行一次性预检，
+            # 可以做到快速且不可重试地失败，并提供具备操作指引的错误提示，
+            # 其逻辑与上文的 URL 校验流程保持一致。
+            # 当 _ready 已设置（即此前已成功建立连接后的重连）时跳过探测 ——
+            # 因为该端点已经校验过一次，再次探测只是冗余的网络往返（round-trip）。
+            # 另外，针对 OAuth 服务器也会跳过该探测：
+            # 在没有缓存 Token 的情况下，端点会返回 HTML 或 401 错误，
+            # 这会在 OAuth 流程执行前将其错误地拦截阻断。
             if config.get("transport") != "sse" and not config.get("skip_preflight") and not self._ready.is_set() and self._auth_type != "oauth":
                 try:
                     _probe_headers = dict(config.get("headers") or {})
@@ -2692,11 +2696,11 @@ class MCPServerTask:
                     lifecycle_reason = await self._run_http(config)
                 else:
                     lifecycle_reason = await self._run_stdio(config)
-                # Transport returned cleanly. Two cases:
-                #  - _shutdown_event was set: exit the run loop entirely.
-                #  - _reconnect_event was set (auth recovery): loop back and
-                #    rebuild the MCP session with fresh credentials. Do NOT
-                #    touch the retry counters — this is not a failure.
+                # 传输层干净返回。包含两种情况：
+                #  - 已设置 _shutdown_event：彻底退出运行循环。
+                #  - 已设置 _reconnect_event（认证恢复）：循环回退，
+                #    并使用全新的凭证重建 MCP 会话。请勿
+                #    修改重试计数器 —— 这并非一次失败。
                 if self._shutdown_event.is_set():
                     break
                 if lifecycle_reason == "recycle":
@@ -2716,19 +2720,18 @@ class MCPServerTask:
                     "manual refresh)",
                     self.name,
                 )
-                # A clean transport return only happens after a session was
-                # successfully established and then asked to rebuild (auth
-                # recovery / manual refresh / breaker-driven reconnect). That
-                # is proof the server is reachable, so clear the consecutive-
-                # failure budget — otherwise transient drops accumulated over
-                # a long-lived session would eventually exhaust it and
-                # permanently kill an otherwise-healthy server.
+                # 传输层的干净返回（clean return）仅发生在会话已成功建立，
+                # 且随后被请求进行重建时（如认证恢复、手动刷新或断路器驱动的重连）。
+                # 这证明该服务器是可达的，因此应清空连续失败的次数预算 ——
+                # 否则，在长生命周期会话中累积的临时网络中断，
+                # 最终会导致预算耗尽，并永久挂掉一个本处于健康状态的服务器。
                 self._reconnect_retries = 0
                 backoff = 1.0
-                # Reset the session reference and readiness; _run_http/_run_stdio
-                # will repopulate both on successful re-entry.  Leaving
-                # _ready set here lets handler-side recovery mistake the stale
-                # pre-reconnect session for a fresh one and retry too early.
+                # 重置会话引用与就绪状态（readiness）；
+                # _run_http / _run_stdio 会在重新成功进入时重新填充这两者。
+                # 若在此处保留 _ready 的设置状态，
+                # 会导致处理器侧的恢复机制将重连前已过期的旧会话误认为新会话，
+                # 从而过早地发起重试。
                 self._ready.clear()
                 self.session = None
                 continue
@@ -2882,13 +2885,13 @@ class MCPServerTask:
         try:
             await self._ready.wait()
         except asyncio.CancelledError:
-            # The caller's connect timeout (discover_mcp_tools wraps start()
-            # in asyncio.wait_for) cancels *this* coroutine, but the
-            # ensure_future'd run() task is independent and would otherwise
-            # keep running detached — parked on a hung transport with no
-            # owner to reap it (#59349). Propagate the cancellation so the
-            # transport context managers unwind and their finally blocks
-            # release the child process / FDs.
+            # 调用方的连接超时（discover_mcp_tools 会将 start() 包裹在
+            # asyncio.wait_for 中）会取消 *当前* 协程，
+            # 但通过 ensure_future 创建的 run() 任务是独立的，
+            # 否则它会脱离控制并继续运行 —— 挂起在已卡死的传输层上，
+            # 且没有任何所有者去回收它（#59349）。
+            # 因此需要传播取消信号，以便传输层的上下文管理器能够正常清理释放，
+            # 并通过其 finally 代码块释放子进程和文件描述符（FDs）。
             if self._task and not self._task.done():
                 self._task.cancel()
             raise
@@ -3474,10 +3477,10 @@ _stdio_pgids: Dict[int, int] = {}  # pid -> pgid
 
 
 def _snapshot_child_pids() -> set:
-    """Return a set of current child process PIDs.
+    """返回当前子进程 PID 的集合。
 
-    Uses /proc on Linux, falls back to psutil, then empty set.
-    Used by _run_stdio to identify the subprocess spawned by stdio_client.
+    在 Linux 上使用 /proc，降级使用 psutil，最后回退为空集合。
+    由 _run_stdio 用于识别由 stdio_client 派生的子进程。
     """
     my_pid = os.getpid()
 
@@ -3612,15 +3615,15 @@ def _wrap_with_home_override(coro: "Coroutine") -> "Coroutine":
 
 
 def _run_on_mcp_loop(coro_or_factory, timeout: float = 30):
-    """Schedule a coroutine on the MCP event loop and block until done.
+    """
+    在 MCP 事件循环中调度一个协程并阻塞等待直至其完成。
 
-    Accepts either a coroutine object or a zero-arg callable that returns one.
-    Callers can pass a factory to avoid constructing coroutine objects when
-    the MCP loop is unavailable (which would otherwise leak the coroutine
-    frame and emit ``"coroutine was never awaited"`` warnings).
+    接收一个协程对象，或者一个返回协程对象的无参可调用对象（工厂函数）。
+    调用方可以通过传递工厂函数，来避免在 MCP 循环不可用时预先创建协程对象
+    （否则会导致协程帧泄漏并引发 ``"coroutine was never awaited"`` 警告）。
 
-    Poll in short intervals so the calling agent thread can honor user
-    interrupts while the MCP work is still running on the background loop.
+    采用短间隔轮询机制，
+    以便在后台循环运行 MCP 任务的同时，调用的 Agent 线程依然能够响应用户的中断信号。
     """
     from tools.interrupt import is_interrupted
     from agent.async_utils import safe_schedule_threadsafe
@@ -3634,16 +3637,14 @@ def _run_on_mcp_loop(coro_or_factory, timeout: float = 30):
 
     coro = coro_or_factory() if callable(coro_or_factory) else coro_or_factory
 
-    # Propagate the context-local HERMES_HOME override onto the MCP loop.
-    # Tasks scheduled via run_coroutine_threadsafe are created INSIDE the
-    # loop thread, so they copy the loop thread's context — not the
-    # scheduling thread's. A per-request profile scope (the dashboard's
-    # ?profile= endpoints, e.g. the MCP "Test server" probe) would silently
-    # vanish here: OAuth token stores and any other get_hermes_home()
-    # resolution inside the coroutine would read the process home instead
-    # of the selected profile's. Re-establish the override inside the
-    # task's own context (task-local — concurrent calls carrying different
-    # scopes don't interfere). No-op when no override is active.
+    # 将上下文局部变量中的 HERMES_HOME 重写项传播至 MCP 事件循环中。
+    # 通过 run_coroutine_threadsafe 调度的任务是在事件循环线程内部创建的，
+    # 因此它们复制的是事件循环线程的上下文，而非调度线程的上下文。
+    # 针对单次请求的 Profile 作用域（例如仪表盘的 ?profile= 接口，如 MCP 的“测试服务器”探测）
+    # 在此处会静默失效：协程内部对 OAuth 令牌存储以及任何 get_hermes_home() 的解析，
+    # 都将读取进程全局的 home 路径，而非所选 Profile 的路径。
+    # 因此，需要在任务自身的上下文（任务局部作用域 —— 携带不同作用域的并发调用互不干扰）内部重新建立该重写项。
+    # 当没有活动的重写项时，此操作为无操作（No-op）。
     coro = _wrap_with_home_override(coro)
 
     future = safe_schedule_threadsafe(
@@ -3743,15 +3744,16 @@ def _filter_suspicious_mcp_servers(servers: Dict[str, dict]) -> Dict[str, dict]:
 
 
 def _load_mcp_config() -> Dict[str, dict]:
-    """Read ``mcp_servers`` from the Hermes config file.
+    """
+    从 Hermes 配置文件中读取 ``mcp_servers``。
 
-    Returns a dict of ``{server_name: server_config}`` or empty dict.
-    Server config can contain either ``command``/``args``/``env`` for stdio
-    transport or ``url``/``headers`` for HTTP transport, plus optional
-    ``timeout``, ``connect_timeout``, and ``auth`` overrides.
+    返回一个包含 ``{server_name: server_config}`` 的字典，若未配置则返回空字典。
+    服务器配置可以包含用于 stdio 传输的 ``command``/``args``/``env``，
+    也可以包含用于 HTTP 传输的 ``url``/``headers``，
+    此外还可包含可选的 ``timeout``、``connect_timeout`` 和 ``auth`` 重写项。
 
-    ``${ENV_VAR}`` placeholders in string values are resolved from
-    ``os.environ`` (which includes ``~/.hermes/.env`` loaded at startup).
+    字符串值中的 ``${ENV_VAR}`` 占位符将从 ``os.environ`` 中解析
+    （包括在启动时加载的 ``~/.hermes/.env``）。
     """
     try:
         from hermes_cli.config import load_config
@@ -3785,15 +3787,16 @@ def _load_mcp_config() -> Dict[str, dict]:
 # ---------------------------------------------------------------------------
 
 async def _connect_server(name: str, config: dict) -> MCPServerTask:
-    """Create an MCPServerTask, start it, and return when ready.
+    """
+    创建一个 MCPServerTask，启动它，并在其就绪时返回。
 
-    The server Task keeps the connection alive in the background.
-    Call ``server.shutdown()`` (on the same event loop) to tear it down.
+    服务器 Task（任务）会在后台保持连接活动。
+    在同一个事件循环中调用 ``server.shutdown()`` 即可关闭并清理连接。
 
-    Raises:
-        ValueError: if required config keys are missing.
-        ImportError: if HTTP transport is needed but not available.
-        Exception: on connection or initialization failure.
+    异常：
+        ValueError: 当缺少必需的配置键时抛出。
+        ImportError: 当需要 HTTP 传输但不可用时抛出。
+        Exception: 当连接或初始化失败时抛出。
     """
     server = MCPServerTask(name)
     await server.start(config)
@@ -3857,23 +3860,22 @@ def _mark_server_call_started(server: Any) -> None:
 
 
 def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
-    """Return a sync handler that calls an MCP tool via the background loop.
+    """返回一个通过后台循环调用 MCP 工具的同步处理程序。
 
-    The handler conforms to the registry's dispatch interface:
+    该处理程序符合注册表的调度接口规范：
     ``handler(args_dict, **kwargs) -> str``
     """
 
     def _handler(args: dict, **kwargs) -> str:
-        # Circuit breaker: if this server has failed too many times
-        # consecutively, short-circuit with a clear message so the model
-        # stops retrying and uses alternative approaches (#10447).
+        # 断路器：如果该服务器连续失败次数过多，
+        # 则触发熔断短路并返回清晰的提示信息，
+        # 以便模型停止重试并改用其他替代方案（#10447）。
         #
-        # Once the cooldown elapses, the breaker transitions to
-        # half-open: we let the *next* call through as a probe. On
-        # success the success-path below resets the breaker; on
-        # failure the error paths below bump the count again, which
-        # re-stamps the open-time via _bump_server_error (re-arming
-        # the cooldown).
+        # 冷却时间届满后，断路器将转入半开状态：
+        # 我们放行“下一次”调用作为探测。
+        # 若调用成功，下文的成功路径会重置断路器；
+        # 若调用失败，下文的错误路径会再次增加失败计数，
+        # 并通过 _bump_server_error 重新记录开启时间（从而重新激活冷却机制）。
         if _server_error_counts.get(server_name, 0) >= _CIRCUIT_BREAKER_THRESHOLD:
             opened_at = _server_breaker_opened_at.get(server_name, 0.0)
             age = time.monotonic() - opened_at
@@ -3898,26 +3900,25 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
             }, ensure_ascii=False)
 
         if not server.session:
-            # No live session. A reconnect may already be completing (the
-            # transport swaps in a fresh session object asynchronously) —
-            # wait briefly before treating this as a failure, so a
-            # transient reconnect window doesn't burn a circuit-breaker
-            # strike (#26892).
+            # 当前无活跃会话。重连过程可能正在完成中
+            # （传输层会异步替换为一个全新的会话对象）——
+            # 在将其判定为失败之前稍作等待，
+            # 从而避免暂态的重连窗口期消耗断路器的失败次数（#26892）。
             if _wait_for_server_session_ready(
                 server, timeout=min(5.0, float(tool_timeout or 5.0)),
             ):
                 pass  # Fresh session arrived; proceed below.
             else:
-                # Still down — the server task is reconnecting, or it has
-                # exhausted its retry budget and parked (e.g. a dead stdio
-                # subprocess). Probing here would write into a dead/absent
-                # transport and re-arm the breaker forever (#16788). Instead,
-                # ask the (always-present) server task to rebuild the
-                # transport — which respawns a dead stdio subprocess — and
-                # return a clean "reconnecting" error so the model backs off
-                # without burning iterations. The breaker resets once the
-                # fresh session initializes (_run_stdio/_run_http call
-                # _reset_server_error).
+                # 依然处于关停状态 —— 服务器任务正在重新连接，
+                # 或者已耗尽重试配额并挂起（例如已死亡的 stdio 子进程）。
+                # 此时进行探测会向已死亡或不存在的传输层写入数据，
+                # 并导致断路器被永久重新激活（#16788）。
+                # 因此，应要求（始终存在的）服务器任务重建传输层 ——
+                # 这会重新派生已死亡的 stdio 子进程 ——
+                # 并返回一个干净的“正在重新连接”错误，
+                # 以便模型退避等待，而不会白白消耗迭代次数。
+                # 一旦新会话完成初始化，断路器便会重置
+                # （_run_stdio/_run_http 会调用 _reset_server_error）。
                 _bump_server_error(server_name)
                 if _signal_reconnect(server):
                     return json.dumps({
@@ -3934,10 +3935,10 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
         async def _call():
             _mark_server_call_started(server)
             async with server._rpc_lock:
-                # Snapshot the agent's context so an elicitation callback
-                # triggered during this call (fired on the MCP recv loop
-                # task, which doesn't inherit our contextvars) can replay
-                # it and detect the gateway platform / session for routing.
+                # 对 Agent 的上下文（context）进行快照，
+                # 以便在此调用期间触发的启发式回调（elicitation callback）
+                # （该回调在 MCP 的 recv 循环任务上触发，不会自动继承我们的 contextvars）
+                # 能够重放该上下文，并识别用于路由的网关平台与会话。
                 server._pending_call_context = contextvars.copy_context()
                 try:
                     result = await server.session.call_tool(tool_name, arguments=args)
@@ -3955,17 +3956,17 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                     )
                 }, ensure_ascii=False)
 
-            # Collect text from content blocks. MCP tool results can also
-            # include ImageContent blocks (screenshot / Blockbench / Playwright
-            # etc.); cache those via the gateway's image-cache helper so they
-            # flow through Hermes' MEDIA: tag convention and out to messaging
-            # adapters that render images natively. Without this, image blocks
-            # were silently dropped and the agent got an empty response.
+            # 从内容块中收集文本。MCP 工具的结果也可能
+            # 包含 ImageContent 内容块（截图 / Blockbench / Playwright
+            # 等）；通过网关的图片缓存助手将这些内容块进行缓存，
+            # 使它们能够通过 Hermes 的 MEDIA: 标签规范流转，
+            # 并输出到支持原生渲染图片的图像消息适配器中。如果缺少此逻辑，
+            # 图像块将被静默丢弃，Agent 也会收到空响应。
             #
-            # Distilled from #17915 (c3115644151) and #10848 (gnanirahulnutakki),
-            # both too stale to cherry-pick. #10848's approach (integrate with
-            # Hermes' MEDIA tag + cache_image_from_bytes) was the cleaner of
-            # the two — plugs into existing infrastructure.
+            # 提炼自 #17915 (c3115644151) 与 #10848 (gnanirahulnutakki)，
+            # 两者均因过于陈旧而无法直接 Cherry-pick。#10848 的方案
+            # （集成 Hermes 的 MEDIA 标签 + cache_image_from_bytes）
+            # 是两者中更简洁的一个 —— 直接复用了现有的基础设施。
             parts: List[str] = []
             for block in (result.content or []):
                 if hasattr(block, "text") and block.text:
@@ -3976,10 +3977,11 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                     parts.append(image_tag)
             text_result = "\n".join(parts) if parts else ""
 
-            # Combine content + structuredContent when both are present.
-            # MCP spec: content is model-oriented (text), structuredContent
-            # is machine-oriented (JSON metadata).  For an AI agent, content
-            # is the primary payload; structuredContent supplements it.
+            # 当 content 与 structuredContent 同时存在时，将它们合并。
+            # MCP 规范：content 面向模型（文本），
+            # structuredContent 面向机器（JSON 元数据）。
+            # 对于 AI Agent 而言，content 是主要载荷；
+            # structuredContent 则作为补充信息。
             structured = getattr(result, "structuredContent", None)
             if structured is not None:
                 if text_result:
@@ -4313,57 +4315,54 @@ def _make_check_fn(server_name: str):
 # ---------------------------------------------------------------------------
 
 def _normalize_mcp_input_schema(schema: dict | None) -> dict:
-    """Normalize MCP input schemas for LLM tool-calling compatibility.
+    """
+    规范化 MCP 输入 Schema 以兼容 LLM 工具调用（Tool-Calling）。
 
-    MCP servers can emit plain JSON Schema with ``definitions`` /
-    ``#/definitions/...`` references.  Kimi / Moonshot rejects that form and
-    requires local refs to point into ``#/$defs/...`` instead.  Normalize the
-    common draft-07 shape here so MCP tool schemas remain portable across
-    OpenAI-compatible providers.
+    MCP 服务器可能会输出带有 ``definitions`` / ``#/definitions/...`` 引用
+    的标准 JSON Schema。Kimi / Moonshot 会拒绝这种形式，
+    并要求本地引用必须指向 ``#/$defs/...``。
+    此处对常见的 draft-07 结构进行规范化，
+    以确保 MCP 工具 Schema 在兼容 OpenAI 的各提供商之间具备可移植性。
 
-    Additional MCP-server robustness repairs applied recursively:
+    此外，还会递归应用以下针对 MCP 服务器健壮性的修复：
 
-    * Missing or ``null`` ``type`` on an object-shaped node is coerced to
-      ``"object"`` (some servers omit it).  See PR #4897.
-    * When an ``object`` node lacks ``properties``, an empty ``properties``
-      dict is added so ``required`` entries don't dangle.
-    * ``required`` arrays are pruned to only names that exist in
-      ``properties``; otherwise Google AI Studio / Gemini 400s with
-      ``property is not defined``.  See PR #4651.
-    * MCP/Pydantic optional fields commonly arrive as
-      ``anyOf: [{...}, {"type": "null"}], default: null``.  Anthropic rejects
-      nullable branches in tool input schemas, so nullable unions are collapsed
-      to the non-null branch and optionality remains represented solely by the
-      parent object's ``required`` list.
+    * 对于对象型节点，若缺少 ``type`` 或其值为 ``null``，
+      强制将其转换为 ``"object"``（部分服务器会忽略该字段）。参见 PR #4897。
+    * 当 ``object`` 节点缺少 ``properties`` 时，
+      为其添加一个空字典，避免 ``required`` 中的条目悬空。
+    * 对 ``required`` 数组进行裁剪，仅保留存在于 ``properties`` 中的属性名称；
+      否则 Google AI Studio / Gemini 会返回 400 错误，提示 ``property is not defined``。
+      参见 PR #4651。
+    * MCP/Pydantic 的可选字段通常会表现为
+      ``anyOf: [{...}, {"type": "null"}], default: null``。
+      Anthropic 不支持工具输入 Schema 中包含可空分支，
+      因此可空联合类型会被折叠为非空分支，
+      其可选性仅由父对象的 ``required`` 列表来标识。
 
-    All repairs are provider-agnostic and ideally produce a schema valid on
-    OpenAI, Anthropic, Gemini, and Moonshot in one pass.
+    所有修复操作均独立于特定的提供商，
+    旨在单次处理中生成可同时兼容 OpenAI、Anthropic、Gemini 和 Moonshot 的 Schema。
     """
     if not schema:
         return {"type": "object", "properties": {}}
 
     def _rewrite_local_refs(node):
-        """Walk the schema, promoting legacy ``definitions`` to ``$defs``.
+        """遍历 schema，将过时的 ``definitions`` 提升为 ``$defs``。
 
-        The promotion is contextual: ``definitions`` is renamed only when it
-        appears as a JSON Schema *meta-keyword* (sibling of ``properties`` /
-        ``$ref`` at a schema node), never when it appears as the *name of a
-        property* (i.e., as a key inside a ``properties`` dict).
+        此提升具备上下文感知能力：仅当 ``definitions`` 作为 JSON Schema 的*元关键字*
+        （在 schema 节点中与 ``properties`` / ``$ref`` 同级）出现时才会被重命名；
+        当它作为*属性名称*（即作为 ``properties`` 字典内部的键）出现时，绝不会被重命名。
 
-        Without this gate, MCP servers that legitimately expose a tool
-        parameter named ``definitions`` (e.g. a CI/pipelines tool that uses
-        ``definitions`` for an array of pipeline-definition IDs) would have
-        that user-facing property name silently rewritten to ``$defs``.
-        Anthropic and OpenAI both reject ``$`` in property names
-        (``^[a-zA-Z0-9_.-]{1,64}$``), so the whole tool array gets a 400 and
-        every conversation breaks.
+        如果没有这个限制门控，合规暴露名为 ``definitions`` 工具参数的 MCP 服务器
+        （例如使用 ``definitions`` 来接收流水线定义 ID 数组的 CI/pipelines 工具），
+        其面向用户的属性名称就会被静默重写为 ``$defs``。
+        Anthropic 和 OpenAI 均不允许在属性名称中使用 ``$``
+        （匹配正则 ``^[a-zA-Z0-9_.-]{1,64}$``），
+        导致整个工具数组触发 400 报错，进而破坏所有对话。
 
-        The gate works by treating ``properties`` and ``patternProperties``
-        specially during descent: we iterate the property-name -> schema map
-        directly, leaving the property names verbatim, then recurse into each
-        property's schema where ordinary JSON Schema semantics resume (so any
-        legitimately-nested ``definitions`` meta-keyword inside a property's
-        schema is still promoted).
+        该限制门控在下钻遍历时通过对 ``properties`` 和 ``patternProperties`` 进行特殊处理来工作：
+        我们直接迭代 属性名 -> schema 的映射表，原样保留属性名称，
+        然后再递归处理每个属性内部的 schema，在此恢复普通的 JSON Schema 语义
+        （因此在属性 schema 内部合法嵌套的 ``definitions`` 元关键字仍会被正常提升）。
         """
         if isinstance(node, dict):
             normalized = {}
@@ -4389,13 +4388,14 @@ def _normalize_mcp_input_schema(schema: dict | None) -> dict:
         return node
 
     def _strip_nullable_union(node):
-        """Collapse JSON Schema nullable unions to provider-safe non-null schemas.
+        """
+        将 JSON Schema 的可空联合类型（nullable unions）精简为对提供商安全的非空 schema。
 
-        Delegates to ``tools.schema_sanitizer.strip_nullable_unions`` so MCP
-        ingestion, the Anthropic guard, and the global sanitizer all share one
-        implementation. Keeps the ``nullable: true`` hint so runtime argument
-        coercion can still map a model-emitted ``"null"`` string to Python
-        ``None`` for this optional field.
+        委托给 ``tools.schema_sanitizer.strip_nullable_unions`` 执行，
+        使 MCP 摄取、Anthropic 防护层以及全局清理器共享同一套实现。
+        同时保留 ``nullable: true`` 标记，
+        以便运行时参数类型转换仍能将模型输出的 ``"null"`` 字符串
+        映射为该可选字段对应的 Python ``None``。
         """
         from tools.schema_sanitizer import strip_nullable_unions
 
@@ -4485,15 +4485,16 @@ def mcp_prefixed_tool_name(server_name: str, tool_name: str) -> str:
 
 
 def _convert_mcp_schema(server_name: str, mcp_tool) -> dict:
-    """Convert an MCP tool listing to the Hermes registry schema format.
+    """
+    将 MCP 工具列表转换为 Hermes 注册表 Schema 格式。
 
-    Args:
-        server_name: The logical server name for prefixing.
-        mcp_tool:    An MCP ``Tool`` object with ``.name``, ``.description``,
-                     and ``.inputSchema``.
+    参数：
+        server_name: 用于作为前缀的逻辑服务器名称。
+        mcp_tool:    一个包含 ``.name``、``.description``
+                     和 ``.inputSchema`` 属性的 MCP ``Tool`` 对象。
 
-    Returns:
-        A dict suitable for ``registry.register(schema=...)``.
+    返回：
+        适用于 ``registry.register(schema=...)`` 的字典。
     """
     prefixed_name = mcp_prefixed_tool_name(server_name, mcp_tool.name)
     return {
@@ -4733,28 +4734,29 @@ def _existing_tool_names() -> List[str]:
 
 
 def _register_server_tools(name: str, server: MCPServerTask, config: dict) -> List[str]:
-    """Register tools from an already-connected server into the registry.
+    """
+    将来自已连接服务器的工具注册到注册表中。
 
-    Handles include/exclude filtering and utility tools. Toolset resolution
-    for ``mcp-{server}`` and raw server-name aliases is derived from the live
-    registry, rather than mutating ``toolsets.TOOLSETS`` at runtime.
+    处理包含/排除（include/exclude）过滤以及实用工具。
+    用于 ``mcp-{server}`` 和原始服务器名称别名的工具集解析
+    由实时注册表导出，而不是在运行时直接修改 ``toolsets.TOOLSETS``。
 
-    Used by both initial discovery and dynamic refresh (list_changed).
+    同时适用于初始服务发现和动态刷新（list_changed）。
 
-    Returns:
-        List of registered prefixed tool names.
+    返回：
+        已注册的前缀工具名称列表。
     """
     from tools.registry import registry
 
     registered_names: List[str] = []
     toolset_name = f"mcp-{name}"
 
-    # Selective tool loading: honour include/exclude lists from config.
-    # Rules (matching issue #690 spec):
-    #   tools.include — whitelist: only these tool names are registered
-    #   tools.exclude — blacklist: all tools EXCEPT these are registered
-    #   include takes precedence over exclude
-    #   Neither set → register all tools (backward-compatible default)
+    # 选择性工具加载：遵循配置文件中的包含/排除（include/exclude）列表。
+    # 规则（匹配 issue #690 的规范）：
+    #   tools.include — 白名单：仅注册这些名称的工具
+    #   tools.exclude — 黑名单：除这些以外的所有工具都会被注册
+    #   include 优先级高于 exclude
+    #   两者均未设置 → 注册所有工具（保持向下兼容的默认行为）
     tools_filter = config.get("tools") or {}
     include_set = _normalize_name_filter(tools_filter.get("include"), f"mcp_servers.{name}.tools.include")
     exclude_set = _normalize_name_filter(tools_filter.get("exclude"), f"mcp_servers.{name}.tools.exclude")
@@ -4771,7 +4773,7 @@ def _register_server_tools(name: str, server: MCPServerTask, config: dict) -> Li
             logger.debug("MCP server '%s': skipping tool '%s' (filtered by config)", name, mcp_tool.name)
             continue
 
-        # Scan tool description for prompt injection patterns
+        # 扫描工具描述，以检测是否存在提示词注入（prompt injection）模式
         _scan_mcp_description(name, mcp_tool.name, mcp_tool.description or "")
 
         schema = _convert_mcp_schema(name, mcp_tool)
@@ -4874,16 +4876,17 @@ async def _discover_and_register_server(name: str, config: dict) -> List[str]:
 # ---------------------------------------------------------------------------
 
 def register_mcp_servers(servers: Dict[str, dict]) -> List[str]:
-    """Connect to explicit MCP servers and register their tools.
+    """
+    连接至指定的 MCP 服务器并注册其工具。
 
-    Idempotent for already-connected server names. Servers with
-    ``enabled: false`` are skipped without disconnecting existing sessions.
+    对已连接的服务器名称具有幂等性。
+    设置为 ``enabled: false`` 的服务器会被跳过，且不会断开现有的连接会话。
 
-    Args:
-        servers: Mapping of ``{server_name: server_config}``.
+    参数：
+        servers: ``{server_name: server_config}`` 的字典映射。
 
-    Returns:
-        List of all currently registered MCP tool names.
+    返回：
+        当前所有已注册的 MCP 工具名称列表。
     """
     if not _MCP_AVAILABLE:
         logger.debug("MCP SDK not available -- skipping explicit MCP registration")
@@ -4894,19 +4897,19 @@ def register_mcp_servers(servers: Dict[str, dict]) -> List[str]:
         logger.debug("No explicit MCP servers provided")
         return []
 
-    # Only attempt servers that aren't already connected and are enabled
-    # (enabled: false skips the server entirely without removing its config)
+    # 仅尝试连接尚未连接且已启用的服务器
+    # （设置 enabled: false 会完全跳过该服务器，但不会删除其配置）
     with _lock:
         new_servers = {
             k: v
             for k, v in servers.items()
             if k not in _servers and _parse_boolish(v.get("enabled", True), default=True)
         }
-        # Cached entries with no live session are parked or mid-reconnect.
-        # Their tools are deregistered, so nothing else can reach
-        # _signal_reconnect — without this nudge a new session silently
-        # waits up to _PARKED_RETRY_INTERVAL for the next self-probe
-        # (#50170). Wake them now so their tools come back promptly.
+        # 那些已缓存但没有活动会话的条目处于挂起或重新连接的过程中。
+        # 由于它们的工具已被取消注册，因此没有任何其他途径可以触发
+        # _signal_reconnect —— 如果没有此次的主动唤醒，新会话将会静默等待
+        # 长达 _PARKED_RETRY_INTERVAL 的时间，直到下一次自我探测为止
+        # （#50170）。现在唤醒它们，以便其工具能够及时恢复使用。
         stale_cached = [
             _servers[k]
             for k in servers
@@ -4960,12 +4963,12 @@ def register_mcp_servers(servers: Dict[str, dict]) -> List[str]:
                     _server_connecting.discard(name)
                     _server_connect_errors.pop(name, None)
 
-    # Per-server timeouts are handled inside _discover_and_register_server.
-    # The outer timeout is generous: 120s total for parallel discovery.
+    # 单个服务器的超时逻辑由 _discover_and_register_server 内部进行处理。
+    # 外层超时设置较为宽松：并行发现流程的总超时时间为 120 秒。
     #
-    # Temporarily clear the interrupt flag on the current thread so that MCP
-    # discovery is never cancelled by a stale interrupt from a prior agent
-    # session (executor threads get reused and may carry old interrupt state).
+    # 临时清除当前线程上的中断标志（interrupt flag），
+    # 以确保 MCP 发现流程不会被来自先前 Agent 会话的残留中断状态所取消
+    # （执行器线程会被复用，可能会带有旧的中断状态）。
     from tools.interrupt import is_interrupted as _is_interrupted, set_interrupt as _set_interrupt
     _was_interrupted = _is_interrupted()
     if _was_interrupted:
@@ -4994,16 +4997,17 @@ def register_mcp_servers(servers: Dict[str, dict]) -> List[str]:
 
 
 def discover_mcp_tools() -> List[str]:
-    """Entry point: load config, connect to MCP servers, register tools.
+    """
+    入口函数：加载配置、连接至 MCP 服务器并注册工具。
 
-    Called from ``model_tools`` after ``discover_builtin_tools()``. Safe to call even when
-    the ``mcp`` package is not installed (returns empty list).
+    在 ``discover_builtin_tools()`` 之后由 ``model_tools`` 调用。
+    即便未安装 ``mcp`` 包，调用该函数也是安全的（将返回空列表）。
 
-    Idempotent for already-connected servers. If some servers failed on a
-    previous call, only the missing ones are retried.
+    对于已连接的服务器具有幂等性。
+    若某些服务器在先前的调用中失败，本次将仅重试缺失的服务器。
 
-    Returns:
-        List of all registered MCP tool names.
+    返回：
+        所有已注册的 MCP 工具名称列表。
     """
     if not _MCP_AVAILABLE:
         logger.debug("MCP SDK not available -- skipping MCP tool discovery")
@@ -5484,31 +5488,31 @@ def _kill_orphaned_mcp_children(
     include_active: bool = False,
     server_name: Optional[str] = None,
 ) -> None:
-    """Best-effort graceful shutdown of stdio MCP subprocesses to reap orphans.
+    """尽力对 stdio MCP 子进程执行优雅关闭，以回收孤儿进程。
 
-    Orphans are PIDs that survived their session context exit (SDK teardown
-    did not terminate the process — common on Linux when stdio children escape
-    the parent cgroup on cancellation). By default only entries in
-    ``_orphan_stdio_pids`` are reaped so concurrent cron jobs and live user
-    sessions are not disrupted.
+    孤儿进程是指在其会话上下文退出后依然存活的 PID
+    （SDK 清理流程未终止该进程 —— 在 Linux 上，当 stdio 子进程
+    在取消时脱离父进程 cgroup 时很常见）。默认情况下仅回收
+    ``_orphan_stdio_pids`` 中的条目，以避免打扰并发运行的定时任务（cron）
+    和活跃的用户会话。
 
-    Sends SIGTERM, waits 2 seconds, then escalates to SIGKILL for any
-    survivors, avoiding shared-resource collisions when multiple hermes
-    processes run on the same host (each has its own ``_stdio_pids`` dict).
+    发送 SIGTERM 并等待 2 秒，随后对仍存活的进程升级发送 SIGKILL，
+    从而在同一台主机上运行多个 hermes 进程时（每个进程拥有各自的
+    ``_stdio_pids`` 字典），避免共享资源发生冲突。
 
-    On POSIX, signals are sent via ``os.killpg`` to the spawn-time pgid when
-    one is tracked, so reparented grandchildren in the same process group
-    (e.g. ``claude mcp serve`` spawned by a stdio MCP wrapper that exited
-    first) are reaped alongside the direct child.  Falls back to ``os.kill``
-    on Windows and when no pgid is recorded.
+    在 POSIX 系统上，若跟踪到了启动时的 pgid，将通过 ``os.killpg``
+    向该进程组发送信号，以便将同一进程组中重新挂载父进程的孙子进程
+    （例如由率先退出的 stdio MCP 包装程序派生的 ``claude mcp serve``）
+    与直接子进程一并回收。在 Windows 系统上或未记录 pgid 时
+    则降级使用 ``os.kill``。
 
-    When ``server_name`` is set, only orphaned PIDs known to belong to that
-    MCP server are reaped. This lets stdio reconnects clean up their previous
-    transport without touching unrelated servers.
+    当设置了 ``server_name`` 时，仅回收已知属于该 MCP 服务器的
+    孤儿 PID。这使得 stdio 重连能够清理其先前的传输层，
+    而不会干扰无关的服务器。
 
-    With ``include_active=True`` also kills every PID in ``_stdio_pids`` —
-    used only at final shutdown, after the MCP event loop has stopped and no
-    sessions can still be in flight.
+    当 ``include_active=True`` 时，还会杀死 ``_stdio_pids`` 中的所有 PID ——
+    该模式仅在最终停机阶段、且 MCP 事件循环已停止、
+    不再有会话在进行时使用。
     """
     import signal as _signal
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from contextlib import nullcontext
 from typing import Optional
@@ -128,3 +129,10 @@ def join_mcp_discovery(timeout: "float | None" = None) -> bool:
         return True
     thread.join(timeout=timeout)
     return not thread.is_alive()
+
+#
+logger = logging.getLogger(__name__)
+start_background_mcp_discovery(logger= logger,thread_name ="SanShi")
+
+# await forever
+threading.Event().wait()

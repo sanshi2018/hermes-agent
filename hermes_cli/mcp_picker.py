@@ -1,19 +1,19 @@
-"""MCP picker — interactive `hermes mcp picker` (also the default `hermes mcp`).
+"""
+MCP 选择器 — 交互式 `hermes mcp picker`（亦作为默认的 `hermes mcp` 命令）。
 
-Lists every catalog entry plus any custom MCP servers the user has added via
-``hermes mcp add``, lets them pick one, and routes to install / enable /
-disable / uninstall / configure-tools flows.
+列出所有目录条目以及用户通过 ``hermes mcp add`` 添加的任何自定义 MCP 服务器，
+允许用户选择其中之一，并引导至对应的 安装 / 启用 / 禁用 / 卸载 / 配置工具 流程。
 
-Mirrors the `hermes plugin` picker UX: arrow keys to navigate, ENTER on a row
-to act on it. The action depends on current status:
+镜像了 `hermes plugin` 选择器的用户体验：
+方向键导航，在某一行按回车键进行操作。具体操作取决于当前状态：
 
-  not installed (catalog)   → install  (clone/bootstrap if needed, prompt for creds)
-  installed / disabled      → enable
-  installed / enabled       → submenu: configure tools / disable / uninstall / reinstall
-  custom (non-catalog)      → submenu: configure tools / enable / disable / remove
+  未安装（目录项）     → 安装（如有需要则进行克隆/初始化引导，并提示输入凭证）
+  已安装 / 已禁用     → 启用
+  已安装 / 已启用     → 子菜单：配置工具 / 禁用 / 卸载 / 重新安装
+  自定义（非目录项）   → 子菜单：配置工具 / 启用 / 禁用 / 移除
 
-The picker loops until the user hits ESC/q so they can manage multiple
-entries in one session.
+选择器会保持循环运行，直到用户按下 ESC 或 q 键退出，
+从而方便用户在单次会话中管理多个服务器条目。
 """
 
 from __future__ import annotations

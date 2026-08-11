@@ -7,32 +7,28 @@
 本模块围绕以下设计约束构建
 （完整原理解释请参阅 ``openclaw-tool-search-report``）：
 
-* Core tools defined in ``toolsets._HERMES_CORE_TOOLS`` are *never* deferred.
-  Always-load means always-load. No exceptions.
-* Tiered disclosure (July 2026 plan): the moment ANY deferrable (MCP/plugin)
-  tools are present, they hide behind the bridge. What scales with catalog
-  size is the *listing*, not the activation decision:
-    - Tier 0 — no MCP/plugin tools: pure passthrough, everything eager.
-    - Tier 1 — deferred tools whose catalog listing fits the listing budget
-      (``min(threshold_pct`` of context — default 5% — ``, listing_max_tokens)``):
-      bridge + skills-style listing (name + short description per tool),
-      degrading to a names-only listing when the full form is over budget.
-    - Tier 2 — per-tool listing over budget even names-only (e.g.
-      Cloudflare's flat API surface, ~3,300 tools whose names alone are
-      ~32K tokens): bare bridge + a one-line-per-server summary (server
-      name + tool count) so the model still knows WHICH domains are
-      reachable; individual tools are discoverable only via ``tool_search``.
-* The catalog is stateless across turns and tools-array assemblies. It is
-  rebuilt from the current tool-defs list every time. This is the lesson
-  from OpenClaw's cron regression (openclaw/openclaw#84141): a session-keyed
-  catalog that drifts out of sync with the live tool registry produces
-  silent tool dropouts.
-* Bridge tools route through ``model_tools.handle_function_call`` exactly
-  like a direct call, so guardrails, plugin pre/post hooks, approval flows,
-  and tool-result truncation all fire identically.
-* Display and trajectory unwrap is implemented here so the user (CLI activity
-  feed, gateway, saved trajectories) always sees the underlying tool, not
-  the bridge.
+* 定义在 ``toolsets._HERMES_CORE_TOOLS`` 中的核心工具**绝不**延迟加载。
+  “总是加载”即意味着总是加载，无一例外。
+* 分层披露（2026年7月计划）：
+一旦存在**任何**可延迟加载的（MCP/插件）工具，
+它们就会隐藏在桥接器（bridge）之后。
+随着目录规模扩展的是**列表展示（listing）**，而非激活决策：
+    - 层级 0 (Tier 0) — 无 MCP/插件工具：纯透传，所有工具均为即时加载（eager）。
+    - 层级 1 (Tier 1) — 可延迟工具的目录列表符合预算限制
+      （``min(上下文的 threshold_pct`` — 默认 5% — ``, listing_max_tokens)``）：
+      提供桥接器 + skills 风格的列表（每个工具包含名称 + 简短描述）；当完整形式超出预算时，降级为仅包含名称的列表。
+    - 层级 2 (Tier 2) — 即使仅展示名称，逐工具列表仍然超出预算
+    （例如 Cloudflare 的扁平化 API 接口，约 3,300 个工具，仅名称就占约 32K token）：
+    仅提供基础桥接器 + 每个服务器一行的摘要（服务器名称 + 工具数量），
+    以便模型依然明确**哪些**领域是可达的；单个工具只能通过 ``tool_search`` 进行探索。
+* 目录（catalog）在多轮对话与工具数组构建之间是无状态的。每次都会根据当前的工具定义列表重新构建。
+这是从 OpenClaw 的 cron 业务回归问题（openclaw/openclaw#84141）中吸取的教训：
+以会话为键（session-keyed）的目录一旦与实时工具注册表不同步，就会导致工具静默失效或遗漏。
+* 桥接工具与直接调用完全一致，均通过 ``model_tools.handle_function_call`` 进行路由，
+因此安全护栏（guardrails）、插件前置/后置钩子（pre/post hooks）、审批流（approval flows）
+以及工具结果截断（tool-result truncation）的触发机制完全相同。
+* 显示与轨迹解包（trajectory unwrap）在此处实现，因此用户（CLI 活动日志、网关、保存的执行轨迹）
+看到的始终是底层的具体工具，而非桥接器。
 """
 
 from __future__ import annotations
@@ -277,14 +273,13 @@ def should_activate(
 ) -> bool:
     """决定当前装配（assembly）是否应当启用工具搜索功能。
 
-    ``"off"`` skips unconditionally. ``"on"`` and ``"auto"`` activate whenever
-    at least one deferrable tool exists (there's no point swapping a no-op).
+    ``"off"`` 表示无条件跳过。
+    只要存在至少一个可延迟加载的工具，``"on"`` 和 ``"auto"`` 就会激活（因为替换无操作的空集毫无意义）。
 
-    Tiered-disclosure semantics (July 2026): the presence of ANY MCP/plugin
-    tool activates the bridge — schemas always defer. What the threshold now
-    controls is the *listing budget* (see :func:`listing_token_budget`), not
-    activation. ``context_length`` is retained in the signature for
-    backward compatibility with existing callers.
+    分层披露语义（2026年7月）：
+    只要存在**任何** MCP/插件工具就会激活桥接器（bridge）—— Schema 始终延迟加载。
+    阈值现在控制的是**列表展示预算（listing budget）**（参见 :func:`listing_token_budget`），而非激活逻辑。
+    签名中保留 ``context_length`` 是为了向后兼容现有的调用方。
     """
     if config.enabled == "off":
         return False
@@ -912,16 +907,14 @@ def dispatch_tool_describe(args: Dict[str, Any],
 
 
 def scoped_deferrable_names(tool_defs: List[Dict[str, Any]]) -> frozenset[str]:
-    """Return the set of deferrable tool names present in ``tool_defs``.
+    """返回 ``tool_defs`` 中包含的可延迟加载工具名称集合。
 
-    ``tool_defs`` is expected to be the *pre-assembly* tool list for the
-    current session's toolset scope (i.e. what
-    ``get_tool_definitions(skip_tool_search_assembly=True)`` returns for the
-    session's enabled/disabled toolsets). The resulting set is the universe of
-    tools the session may legitimately reach through ``tool_call``. Used as a
-    scoping gate by both the ``model_tools`` bridge dispatch and the
-    ``tool_executor`` unwrap so a restricted-toolset session can never invoke
-    an out-of-scope tool via the bridge.
+    ``tool_defs`` 应当是当前会话工具集作用域内**预组装（pre-assembly）**前的工具列表
+    （即为会话已启用/禁用的工具集调用 ``get_tool_definitions(skip_tool_search_assembly=True)`` 所返回的内容）。
+    由此产生的集合是该会话可以通过 ``tool_call`` 合法调用的全部工具范围。
+
+    该集合被 ``model_tools`` 桥接分发与 ``tool_executor`` 解包机制共同用作作用域安全闸门，
+    以确保处于受限工具集环境下的会话绝不能通过桥接器调用超出作用域的工具。
     """
     names: set[str] = set()
     for td in tool_defs:

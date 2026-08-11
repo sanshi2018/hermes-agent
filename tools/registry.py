@@ -1,17 +1,18 @@
-"""Central registry for all hermes-agent tools.
+"""hermes-agent 所有工具的中央注册表。
 
-Each tool file calls ``registry.register()`` at module level to declare its
-schema, handler, toolset membership, and availability check.  ``model_tools.py``
-queries the registry instead of maintaining its own parallel data structures.
+每个工具文件都会在模块层级调用 ``registry.register()``，
+以声明其 Schema、处理程序（handler）、所属工具集以及可用性检查机制。
+``model_tools.py`` 会查询此注册表，
+而不是去维护一套自己平行的独立数据结构。
 
-Import chain (circular-import safe):
-    tools/registry.py  (no imports from model_tools or tool files)
+导入链（无循环导入风险）：
+    tools/registry.py  （不导入 model_tools 或任何工具文件）
            ^
-    tools/*.py  (import from tools.registry at module level)
+    tools/*.py  （在模块层级从 tools.registry 导入）
            ^
-    model_tools.py  (imports tools.registry + all tool modules)
+    model_tools.py  （导入 tools.registry 及所有工具模块）
            ^
-    run_agent.py, cli.py, batch_runner.py, etc.
+    run_agent.py, cli.py, batch_runner.py 等
 """
 
 import ast
@@ -97,13 +98,17 @@ class ToolEntry:
         self.description = description
         self.emoji = emoji
         self.max_result_size_chars = max_result_size_chars
-        # Optional zero-arg callable returning a dict of schema overrides
-        # applied at get_definitions() time. Use for fields that depend on
-        # runtime config (e.g. delegate_task's description must reflect the
-        # user's current delegation.max_concurrent_children / max_spawn_depth
-        # so the model isn't told the wrong limits). The callable is invoked
-        # on every get_definitions() call; results are merged shallow on top
-        # of the base schema before the {"type": "function", ...} wrap.
+        # 可选的无参可调用对象（callable），
+        # 返回在调用 get_definitions() 时应用的 Schema 覆盖字典。
+        #
+        # 适用于依赖运行时配置的字段
+        # （例如 delegate_task 的描述必须反映用户当前设置的
+        # delegation.max_concurrent_children / max_spawn_depth，
+        # 以避免模型获取到错误的限制信息）。
+        #
+        # 该可调用对象会在每次调用 get_definitions() 时被触发；
+        # 其返回的结果会在包装成 {"type": "function", ...} 之前，
+        # 浅合并（shallow merge）到基础 Schema 之上。
         self.dynamic_schema_overrides = dynamic_schema_overrides
 
 
@@ -203,23 +208,25 @@ class ToolRegistry:
 
     def __init__(self):
         self._tools: Dict[str, ToolEntry] = {}
-        # Durable map: plugin module namespace (handler.__globals__["__name__"])
-        # -> operator opt-in for built-in override. Populated at plugin load and
-        # never cleared, so a plugin's override authorization is bound to the
-        # code that defined the handler, independent of WHEN the register() call
-        # happens (sync during load, or a delayed/threaded callback afterwards).
+        # 持久化映射表：插件模块命名空间（handler.__globals__["__name__"]）
+        # -> 用于覆盖内置功能的运算符显式选择（opt-in）策略。
+        #
+        # 该映射表在插件加载时填充且永不清空，
+        # 因此插件的覆盖授权会严格绑定到定义处理程序（handler）的代码上，
+        # 无论 register() 何时被调用
+        # （无论是在加载期间同步调用，还是在之后通过延迟/线程回调调用）。
         self._plugin_override_policy: Dict[str, bool] = {}
         self._toolset_checks: Dict[str, Callable] = {}
         self._toolset_aliases: Dict[str, str] = {}
-        # MCP dynamic refresh can mutate the registry while other threads are
-        # reading tool metadata, so keep mutations serialized and readers on
-        # stable snapshots.
+        # MCP 的动态刷新机制可能会在其他线程读取工具元数据时对注册表进行修改，
+        # 因此需要保持修改操作的序列化执行，
+        # 并确保读取者始终基于稳定的快照进行访问。
         self._lock = threading.RLock()
-        # Monotonically-increasing generation counter. Bumped on every
-        # mutation (register / deregister / register_toolset_alias / MCP
-        # refresh). External callers (e.g. get_tool_definitions) can memoize
-        # against it: a cache entry keyed on the generation is valid for as
-        # long as the generation hasn't changed.
+        # 单调递增的代际计数器（generation counter）。
+        # 每当发生变更操作（如注册、注销、注册工具集别名、MCP 刷新）时该值都会自增。
+        #
+        # 外部调用方（例如 get_tool_definitions）可以基于它进行缓存记忆：
+        # 只要该代际计数没有改变，以该代际值为键（key）的缓存条目就一直有效。
         self._generation: int = 0
 
     def _snapshot_state(self) -> tuple[List[ToolEntry], Dict[str, Callable]]:
@@ -442,20 +449,24 @@ class ToolRegistry:
             self._generation += 1
 
     def deregister(self, name: str) -> None:
-        """Remove a tool from the registry.
+        """从注册表中移除一个工具。
 
-        Also cleans up the toolset check if no other tools remain in the
-        same toolset.  Used by MCP dynamic tool discovery to nuke-and-repave
-        when a server sends ``notifications/tools/list_changed``.
+        如果该工具集中不再包含其他工具，
+        同时会清理相关的工具集检查。
 
-        Gated by the same operator opt-in policy ``register(override=True)``
-        enforces. Without this, a plugin could bypass that gate entirely by
-        deregistering a tool it doesn't own and then calling plain
-        ``register()`` over the now-empty slot — ``register()`` only runs its
-        override check when an ``existing`` entry is present, so removing it
-        first skips the check altogether. MCP toolsets (``mcp-*``) are exempt:
-        dynamic tool discovery legitimately nukes-and-repaves its own tools on
-        every refresh and has no plugin-override concept.
+        供 MCP 动态工具发现机制在服务器发送 ``notifications/tools/list_changed`` 信号时，
+        用于进行全量更新（彻底清空并重新填充）。
+
+        受与 ``register(override=True)`` 相同的运算符显式选择（opt-in）策略约束。
+        若无此约束，插件可能会通过注销非自身拥有的工具，
+        随后在已清空的槽位上调用普通 ``register()``，
+        从而彻底绕过该策略门禁——因为 ``register()`` 仅在存在 ``existing``（现有条目）时才运行覆盖检查，
+        若提前移除条目便会完全跳过此检查。
+
+        MCP 工具集（``mcp-*``）在此受豁免：
+        动态工具发现机制在每次刷新时，
+        理应合法地对其自身工具进行全量重建，
+        且不涉及插件覆盖的概念。
         """
         with self._lock:
             entry = self._tools.get(name)
@@ -464,13 +475,14 @@ class ToolRegistry:
             if not entry.toolset.startswith("mcp-"):
                 caller_mod = self._caller_module()
                 owner = self._plugin_owner_of(entry.handler)
-                # Ownership check: bind to the plugin package root
-                # (``hermes_plugins.{name}``), not the exact module string.
-                # A handler defined in ``hermes_plugins.pkg.handlers`` is
-                # still owned by the ``hermes_plugins.pkg`` package — exact
-                # string equality would wrongly block root-module cleanup code
-                # from removing tools registered by a submodule of the same
-                # plugin (egilewski review on #55840).
+                # 所有权检查：绑定到插件包根目录（``hermes_plugins.{name}``），
+                # 而不是精确的模块字符串。
+                #
+                # 定义在 ``hermes_plugins.pkg.handlers`` 中的处理程序（handler），
+                # 其所有权依然属于 ``hermes_plugins.pkg`` 包——
+                # 如果使用精确的字符串相等校验，会导致根模块的清理代码
+                # 错误地无法移除由同一插件的子模块所注册的工具
+                # （参照 #55840 中 egilewski 的 Code Review 意见）。
                 caller_root = ".".join(caller_mod.split(".")[:2])
                 owner_root = ".".join(owner.split(".")[:2]) if owner else ""
                 same_plugin = bool(owner and caller_root == owner_root)
@@ -493,8 +505,8 @@ class ToolRegistry:
                         f"opt-in (allow_tool_override)."
                     )
             del self._tools[name]
-            # Drop the toolset check and aliases if this was the last tool in
-            # that toolset.
+            # 如果这是该工具集中的最后一个工具，
+            # 则移除对应工具集的校验及别名。
             toolset_still_exists = any(
                 e.toolset == entry.toolset for e in self._tools.values()
             )
@@ -566,12 +578,14 @@ class ToolRegistry:
 
     @staticmethod
     def _normalize_handler_result(name: str, result):
-        """Enforce the result shapes supported by the agent tool pipeline.
+        """强制约束 Agent 工具流水线所支持的结果格式。
 
-        Normal tool results are strings.  The sole structured exception is the
-        multimodal envelope consumed by the agent executor.  Returning every
-        other value as a string error keeps logging, hooks, budgeting, and
-        persistence from receiving values they cannot safely slice or size.
+        常规的工具返回结果应为字符串。
+        唯一的结构化例外，是供 Agent 执行器（executor）调用的多模态包（multimodal envelope）。
+
+        将其他所有返回值都作为字符串类型的错误返回，
+        可以防止日志记录、钩子函数（hooks）、预算管理以及持久化模块
+        接收到无法安全进行切片或大小计算的值。
         """
         if isinstance(result, str):
             return result
@@ -596,13 +610,13 @@ class ToolRegistry:
         }, ensure_ascii=False)
 
     def dispatch(self, name: str, args: dict, **kwargs) -> str | dict:
-        """Execute a tool handler by name.
+        """按名称执行指定的工具处理程序（handler）。
 
-        * Async handlers are bridged automatically via ``_run_async()``.
-        * Handler results are normalized to a string or supported multimodal
-          envelope before leaving the registry.
-        * All exceptions are caught and returned as ``{"error": "..."}``
-          for consistent error format.
+        * 异步处理程序（Async handlers）会自动通过 ``_run_async()`` 进行桥接适配。
+        * 处理程序的返回结果在离开注册表前，
+          会被规范化（normalize）为字符串或受支持的多模态包（multimodal envelope）。
+        * 所有捕获到的异常都会以 ``{"error": "..."}`` 的统一格式返回，
+          以保证错误输出格式的一致性。
         """
         entry = self.get_entry(name)
         if not entry:
@@ -750,20 +764,19 @@ registry = ToolRegistry()
 
 
 # ---------------------------------------------------------------------------
-# Helpers for tool response serialization
+# 工具响应序列化辅助函数
 # ---------------------------------------------------------------------------
-# Every tool handler must return a JSON string.  These helpers eliminate the
-# boilerplate ``json.dumps({"error": msg}, ensure_ascii=False)`` that appears
-# hundreds of times across tool files.
+# 每个工具处理程序（handler）都必须返回一个 JSON 字符串。
+# 这些辅助函数消除了在各个工具文件中
+# 出现数百次的模板化代码 ``json.dumps({"error": msg}, ensure_ascii=False)``。
 #
-# Usage:
+# 使用方法：
 #   from tools.registry import registry, tool_error, tool_result
 #
 #   return tool_error("something went wrong")
 #   return tool_error("not found", code=404)
 #   return tool_result(success=True, data=payload)
-#   return tool_result(items)            # pass a dict directly
-
+#   return tool_result(items)            # 直接传递字典对象
 
 def tool_error(message, **extra) -> str:
     """Return a JSON error string for tool handlers.

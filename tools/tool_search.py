@@ -1,28 +1,28 @@
-"""Progressive tool disclosure ("tool search") for Hermes Agent.
+"""Hermes Agent 的渐进式工具显露机制（“工具搜索”）。
 
-When enabled, MCP and non-core plugin tools are replaced in the model-visible
-tools array by three bridge tools — ``tool_search``, ``tool_describe``,
-``tool_call`` — and surfaced on demand. Core Hermes tools never defer.
+启用后，模型可见的工具数组中的 MCP 工具和非核心插件工具，
+会被三个桥接工具 —— ``tool_search``、``tool_describe``、``tool_call`` 所替代，
+并按需进行显露。Hermes 的核心工具绝不延迟加载。
 
-Design constraints this module is built around (see ``openclaw-tool-search-report``
-for the full rationale):
+本模块围绕以下设计约束构建
+（完整原理解释请参阅 ``openclaw-tool-search-report``）：
 
-* Core tools defined in ``toolsets._HERMES_CORE_TOOLS`` are *never* deferred.
-  Always-load means always-load. No exceptions.
-* The threshold gate runs every assembly: when deferrable tools would consume
-  less than ``threshold_pct`` of the model's context window (default 10%),
-  tool search is a no-op and the tools array passes through unchanged.
-* The catalog is stateless across turns and tools-array assemblies. It is
-  rebuilt from the current tool-defs list every time. This is the lesson
-  from OpenClaw's cron regression (openclaw/openclaw#84141): a session-keyed
-  catalog that drifts out of sync with the live tool registry produces
-  silent tool dropouts.
-* Bridge tools route through ``model_tools.handle_function_call`` exactly
-  like a direct call, so guardrails, plugin pre/post hooks, approval flows,
-  and tool-result truncation all fire identically.
-* Display and trajectory unwrap is implemented here so the user (CLI activity
-  feed, gateway, saved trajectories) always sees the underlying tool, not
-  the bridge.
+* 定义在 ``toolsets._HERMES_CORE_TOOLS`` 中的核心工具*绝对不会*被延迟加载。
+  始终加载即意味着始终加载，绝无例外。
+* 阈值门控会在每次装配时运行：当可延迟加载的工具
+  占用的模型上下文窗口比例低于 ``threshold_pct``（默认为 10%）时，
+  工具搜索将作为空操作（no-op）跳过，工具数组保持不变并直接传递。
+* 目录（catalog）在多轮对话以及工具数组装配之间是无状态的。
+  它每次都会基于当前的工具定义列表重新构建。
+  这是吸取了 OpenClaw 定时任务（cron）回归问题（openclaw/openclaw#84141）的教训：
+  与实时工具注册表不同步的会话键控（session-keyed）目录，
+  会导致工具静默失效脱落。
+* 桥接工具与直接调用完全一样，均通过 ``model_tools.handle_function_call`` 进行路由，
+  因此安全防护（guardrails）、插件前置/后置钩子（hooks）、审批流程
+  以及工具结果截断等机制，都会以完全一致的方式被触发。
+* 显示和轨迹解包（trajectory unwrap）均在此处实现，
+  以确保用户（CLI 活动推送、网关、保存的轨迹）
+  看到的始终是底层实际调用的工具，而非桥接工具。
 """
 
 from __future__ import annotations
@@ -147,10 +147,11 @@ def load_config() -> ToolSearchConfig:
 
 
 def _core_tool_names() -> frozenset[str]:
-    """Return the set of tool names that must NEVER be deferred.
+    """返回绝对不能延迟加载（NEVER be deferred）的工具名称集合。
 
-    Imported lazily because ``toolsets`` imports from ``tools.registry``
-    and we don't want a hard cycle.
+    此处采用延迟导入（imported lazily），
+    因为 ``toolsets`` 模块导入了 ``tools.registry``，
+    这样做可以避免产生硬循环依赖（hard cycle）。
     """
     try:
         from toolsets import _HERMES_CORE_TOOLS
@@ -214,12 +215,12 @@ def classify_tools(tool_defs: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]
 
 
 def estimate_tokens_from_schemas(tool_defs: Iterable[Dict[str, Any]]) -> int:
-    """Estimate the token cost of a tool-defs list via the chars/4 rule.
+    """通过“字符数 / 4”规则估算工具定义（tool-defs）列表的 Token 消耗。
 
-    Cheap and stable across providers. The number doesn't need to be exact —
-    it gates the activate/skip decision, and a typical 200K context with a
-    10% threshold means the decision flips around 20K tokens of schema.
-    Order-of-magnitude precision is fine.
+    该方法成本低且跨提供商表现稳定。
+    此数值无需绝对精确 —— 它仅用于决定是否启用或跳过（工具搜索），
+    在典型的 200K 上下文中，设 10% 为阈值意味着决策点大约位于 20K 架构（schema）Token 左右。
+    数量级级别的精度便已足够。
     """
     total_chars = 0
     for td in tool_defs:
@@ -235,12 +236,13 @@ def should_activate(
     deferrable_tokens: int,
     context_length: Optional[int],
 ) -> bool:
-    """Decide whether tool search should activate for the current assembly.
+    """决定当前装配（assembly）是否应当启用工具搜索功能。
 
-    ``"off"`` skips unconditionally. ``"on"`` activates unconditionally
-    (as long as there is at least one deferrable tool — there's no point
-    swapping a no-op). ``"auto"`` activates when the deferrable schemas
-    would consume ``threshold_pct`` of context or more.
+    ``"off"`` 会无条件跳过工具搜索。
+    ``"on"`` 会无条件启用工具搜索
+    （只要存在至少一个可延迟加载的工具 —— 毕竟替换一个空操作是没有意义的）。
+    ``"auto"`` 则会在可延迟加载的工具 Schema 所占用的上下文比例
+    达到或超过 ``threshold_pct`` 时自动启用。
     """
     if config.enabled == "off":
         return False

@@ -1,24 +1,27 @@
-"""MCP catalog — curated, Nous-approved MCP servers shipped with the repo.
+"""MCP 目录（catalog）—— 随本代码库（repo）附带的、经 Nous 批准的精选 MCP 服务器。
 
-Mirrors the optional-skills/ pattern: each catalog entry lives under
-``optional-mcps/<name>/manifest.yaml`` and ships disabled. Users discover
-entries via ``hermes mcp catalog`` or the interactive ``hermes mcp picker``,
-and install them with ``hermes mcp install <name>`` (or by toggling in the
-picker, which flows them through any required env/OAuth setup).
+镜像自 optional-skills/ 模式：
+每个目录条目都存放于 ``optional-mcps/<name>/manifest.yaml`` 路径下，
+且默认处于禁用状态。
 
-Catalog policy:
-- Entries are added only by merging a PR into hermes-agent. Presence in the
-  ``optional-mcps/`` directory = Nous approval. No community tier, no trust
-  signals beyond "it's in the catalog".
-- Manifests pin transport details (commands, args, refs). MCPs are never
-  auto-updated; users explicitly re-run ``hermes mcp install <name>`` to
-  pull a new manifest version after a repo update.
-- Secrets prompted at install time go to ``~/.hermes/.env`` (the
-  .env-is-for-secrets rule). Non-secret env vars also go to .env to keep
-  one credential store.
+用户可通过 ``hermes mcp catalog`` 或交互式的 ``hermes mcp picker`` 来发现这些条目，
+并通过 ``hermes mcp install <name>`` 进行安装
+（或在 picker 界面中切换选中，从而引导其完成所有必要的环境变量/OAuth 配置）。
 
-See website/docs/user-guide/mcp-catalog.md for user docs.
-See references/mcp-catalog.md (this repo's skill) for the manifest schema.
+目录规范与策略（Catalog policy）：
+- 只有通过合并 PR 到 hermes-agent 中才能添加新条目。
+  只要存在于 ``optional-mcps/`` 目录下，即代表获得了 Nous 的批准。
+  这里没有社区分级，除“已收录于目录中”之外没有任何信任信号。
+- 清单（Manifests）文件会固定传输细节（指令、参数、引用 refs）。
+  MCP 服务器绝不会自动更新；
+  在代码库更新后，用户需要显式地重新运行 ``hermes mcp install <name>``，
+  以拉取并应用新的 Manifest 版本。
+- 在安装时提示输入的敏感信息/密钥（Secrets）会写入 ``~/.hermes/.env``
+  （遵循 .env 仅用于存放密钥的规则）。
+  非敏感的环境变量也会存入 .env 中，以保持凭据存储位置的统一。
+
+用户文档请参阅：website/docs/user-guide/mcp-catalog.md
+Manifest Schema 架构请参阅：references/mcp-catalog.md（本代码库的 skill 说明）
 """
 
 from __future__ import annotations

@@ -1535,18 +1535,19 @@ def unregister_gateway_notify(session_key: str) -> None:
 def resolve_gateway_approval(session_key: str, choice: str,
                              resolve_all: bool = False,
                              reason: Optional[str] = None) -> int:
-    """Called by the gateway's /approve or /deny handler to unblock
-    waiting agent thread(s).
+    """由网关的 /approve 或 /deny 处理程序调用，
+    用于解除处于等待状态的 Agent 线程的阻塞。
 
-    When *resolve_all* is True every pending approval in the session is
-    resolved at once (``/approve all``).  Otherwise only the oldest one
-    is resolved (FIFO).
+    当 *resolve_all* 为 True 时，
+    会一次性解决该会话中的所有未决审批（即 ``/approve all``）。
+    否则，仅解决最早提交的那一个（遵循先进先出/FIFO 原则）。
 
-    *reason* is an optional free-text explanation attached to an explicit
-    deny (``/deny <reason>``).  It is relayed back to the agent in the
-    BLOCKED message so it can adapt instead of only hearing "denied".
+    *reason* 是附带在显式拒绝（``/deny <reason>``）中的可选自定义文本说明。
+    它会被转发回 Agent 的 BLOCKED 消息中，
+    以便 Agent 能够做出相应调整，
+    而不是仅仅接收到一个“已拒绝”的答复。
 
-    Returns the number of approvals resolved (0 means nothing was pending).
+    返回被解决的审批数量（返回 0 表示当前没有未决的审批）。
     """
     with _lock:
         queue = _gateway_queues.get(session_key)
@@ -2519,18 +2520,17 @@ def _format_tirith_description(tirith_result: dict) -> str:
 
 def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
                             *, surface: str = "gateway") -> dict:
-    """Enqueue *approval_data*, notify the user, and block the calling agent
-    thread until the request is resolved or the gateway approval timeout
-    elapses — firing pre/post approval hooks and cleaning up the queue entry.
+    """将 *approval_data* 入队，通知用户，
+    并阻塞调用的 Agent 线程，直至请求被解决或网关审批超时 ——
+    在此期间会触发审批前/后钩子函数（hooks），并清理队列条目。
 
-    Shared by the terminal command guard (``check_all_command_guards``) and
-    the execute_code guard (``check_execute_code_guard``) so the fiddly
-    heartbeat-polling wait loop lives in one place.
+    由终端命令防护（``check_all_command_guards``）
+    与代码执行防护（``check_execute_code_guard``）共享此逻辑，
+    从而将较为繁琐的心跳轮询等待循环统一在一处维护。
 
-    Returns ``{"resolved": bool, "choice": str|None}`` on completion, or
-    ``{"resolved": False, "choice": None, "notify_failed": True}`` if the
-    notify callback raised.  Persistence of an approved choice and building
-    the final tool-facing result dict remain the caller's responsibility.
+    处理完成后返回 ``{"resolved": bool, "choice": str|None}``；
+    如果通知回调引发异常，则返回 ``{"resolved": False, "choice": None, "notify_failed": True}``。
+    持久化已批准的选项以及构建最终面向工具的返回字典，仍由调用方负责。
     """
     command = approval_data.get("command", "")
     description = approval_data.get("description", "")
@@ -2569,11 +2569,13 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
         _drop_entry()
         return {"resolved": False, "choice": None, "notify_failed": True}
 
-    # Block until the user responds or the canonical approval timeout elapses
-    # (default 60s). Poll in short slices so we can fire activity heartbeats
-    # every ~10s to the agent's inactivity tracker — otherwise the gateway
-    # watchdog kills the agent while the user is still responding. Mirrors
-    # _wait_for_process() cadence.
+    # 阻塞线程，直至用户做出响应，
+    # 或达到规范的审批超时时间（默认为 60 秒）。
+    #
+    # 进行短时间片（slice）的轮询，
+    # 以便每隔约 10 秒向 Agent 的无活动跟踪器（inactivity tracker）发送一次活动心跳 ——
+    # 否则，当用户还在进行响应时，网关看门狗（watchdog）就会强制终止 Agent。
+    # 此处的轮询节奏与 _wait_for_process() 保持一致。
     timeout = _get_approval_timeout()
 
     try:
@@ -2586,13 +2588,16 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
     _activity_state = {"last_touch": _now, "start": _now}
     resolved = False
     while True:
-        # Respect interrupt signals (e.g. /stop, /new, or an inactivity
-        # timeout from the gateway) so a pending approval doesn't keep the
-        # session wedged on threading.Event.wait() until the 5-minute approval
-        # timeout. The wait runs on the agent's execution thread, which is the
-        # exact thread AIAgent.interrupt() flags — so is_interrupted() here
-        # sees the signal. Resolve as "deny" so the agent loop receives a
-        # normal denial and unwinds cleanly (#8697).
+        # 响应中断信号（例如 /stop、/new，或来自网关的无活动超时），
+        # 从而避免未决的审批（pending approval）将会话一直卡在 threading.Event.wait() 上，
+        # 直至触发 5 分钟的审批超时。
+        #
+        # 该等待过程运行在 Agent 的执行线程上，
+        # 这正是 AIAgent.interrupt() 发送标记信号的同一个线程 ——
+        # 因此此处的 is_interrupted() 可以感知到该中断信号。
+        #
+        # 将其解析为 "deny"（拒绝），
+        # 以便 Agent 循环能够收到正常的拒绝结果并完成干净的退出/清理操作（#8697）。
         if is_interrupted():
             logger.info(
                 "Approval wait interrupted by user signal — "
@@ -2615,9 +2620,13 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
     _drop_entry()
 
     choice = entry.result
-    # Normalize outcome for the post hook. Unresolved (timeout) and None both
-    # mean the user never responded; report that explicitly so plugins can
-    # distinguish timeout from explicit deny.
+    # 规范化后续钩子函数（post hook）的处理结果。
+    #
+    # 未解决（超时）以及返回 None，
+    # 均代表用户从未做出响应；
+    #
+    # 对此进行显式汇报，
+    # 以便插件能够明确区分“超时”与“显式拒绝”这两种情况。
     _outcome = "timeout" if not resolved else (choice if choice else "timeout")
     _fire_approval_hook(
         "post_approval_response",
@@ -3310,19 +3319,20 @@ def request_elicitation_consent(
     timeout_seconds: int | None = None,
     surface: str = "mcp-elicitation",
 ) -> str:
-    """Route an MCP elicitation request to whichever approval surface owns
-    the active session and return a normalized result.
+    """将 MCP 引导（elicitation）请求路由至拥有当前活动会话的审批平台，
+    并返回规范化的结果。
 
-    Gateway sessions (Telegram, Slack, Discord, etc.) go through
-    ``_await_gateway_decision`` so the notify_cb posts a message and the
-    agent thread blocks until the user responds via the platform UI.
-    CLI/TUI sessions go through ``prompt_dangerous_approval``.
+    网关会话（如 Telegram、Slack、Discord 等）会通过 ``_await_gateway_decision`` 进行处理，
+    使得 notify_cb 发送一条消息，
+    且 Agent 线程会保持阻塞，直至用户通过该平台的 UI 界面做出响应。
+    CLI/TUI 会话则通过 ``prompt_dangerous_approval`` 进行处理。
 
-    Always fails closed: missing notify_cb in a gateway session, timeouts,
-    and exceptions all map to ``"decline"`` so a server treats them as
-    "user did not approve" rather than retrying or hanging.
+    始终遵循安全失败（fails closed）原则：
+    网关会话中缺失 notify_cb、超时以及出现异常情况，
+    均会映射为 ``"decline"``（拒绝），
+    以确保服务器将其视为“用户未批准”，而非不断重试或陷入挂起状态。
 
-    Returns one of ``"accept" | "decline" | "cancel"``.
+    返回结果为 ``"accept" | "decline" | "cancel"`` 之一。
     """
     try:
         session_key = get_current_session_key()

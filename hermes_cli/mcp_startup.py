@@ -130,9 +130,9 @@ def join_mcp_discovery(timeout: "float | None" = None) -> bool:
     thread.join(timeout=timeout)
     return not thread.is_alive()
 
+# #
+# logger = logging.getLogger(__name__)
+# start_background_mcp_discovery(logger= logger,thread_name ="SanShi")
 #
-logger = logging.getLogger(__name__)
-start_background_mcp_discovery(logger= logger,thread_name ="SanShi")
-
-# await forever
-threading.Event().wait()
+# # await forever
+# threading.Event().wait()

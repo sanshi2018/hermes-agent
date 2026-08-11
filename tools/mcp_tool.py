@@ -1319,11 +1319,11 @@ class SamplingHandler:
 # ---------------------------------------------------------------------------
 
 def _format_elicitation_schema_summary(schema: dict, server_name: str) -> str:
-    """Render a JSON-schema-ish requested_schema to a human-readable field list.
+    """将类似于 JSON-schema 的 requested_schema 渲染为易读的字段列表。
 
-    Elicitation schemas are restricted to a flat object with named top-level
-    properties. We surface field names, types, and descriptions so the user
-    can tell what the server is asking for before approving.
+    引导（Elicitation） Schema 仅限于包含具名顶层属性的扁平对象（flat object）。
+    我们会展示字段名称、类型和描述信息，
+    以便用户在批准之前能够清楚了解服务器正在请求哪些数据。
     """
     props = schema.get("properties") if isinstance(schema, dict) else None
     if not isinstance(props, dict) or not props:
@@ -1372,13 +1372,14 @@ class ElicitationHandler:
 
     def __init__(self, server_name: str, config: dict, owner: Optional["MCPServerTask"] = None):
         self.server_name = server_name
-        # Per-elicitation timeout. Default 5 min mirrors the gateway approval
-        # default so users on async surfaces (Telegram, Slack) have time to
-        # respond before the server gives up.
+        # 单次引导（elicitation）的超时时间。
+        # 默认 5 分钟，与网关审批的默认值保持一致，
+        # 以便异步平台（如 Telegram、Slack）上的用户
+        # 在服务器放弃前有足够的时间做出响应。
         self.timeout = _safe_numeric(config.get("timeout", 300), 300, float)
-        # Back-reference to the MCPServerTask so we can read the agent's
-        # captured contextvars snapshot at elicitation time. Optional so
-        # the handler stays unit-testable in isolation.
+        # 对 MCPServerTask 的反向引用，
+        # 以便在发起引导（elicitation）时读取 Agent 捕获的 contextvars 快照。
+        # 该字段为可选字段，以确保处理程序（handler）保持可单独进行单元测试。
         self.owner = owner
         self.metrics = {
             "requests": 0,
@@ -1392,19 +1393,21 @@ class ElicitationHandler:
         return {"elicitation_callback": self}
 
     async def __call__(self, context, params):
-        """Elicitation callback invoked by the MCP SDK.
+        """MCP SDK 调用的引导（Elicitation）回调函数。
 
-        Conforms to ``ElicitationFnT`` protocol. Returns ``ElicitResult``
-        or ``ErrorData``.
+        符合 ``ElicitationFnT`` 协议。
+        返回 ``ElicitResult`` 或 ``ErrorData``。
         """
         self.metrics["requests"] += 1
 
-        # URL-mode elicitations point the user to an external URL for
-        # sensitive out-of-band flows (OAuth, payment processing). Honouring
-        # them requires opening a browser to that URL and waiting for the
-        # server's notifications/elicitation/complete -- out of scope for
-        # the initial implementation. Decline cleanly so the server does
-        # not hang.
+        # URL 模式的引导（elicitations）会将用户重定向至外部 URL，
+        # 以处理敏感的带外流程（如 OAuth、支付流程）。
+        #
+        # 响应此类引导需要打开浏览器访问该 URL，
+        # 并等待服务器发送 notifications/elicitation/complete 通知——
+        # 这超出了初始实现的作用域范围。
+        #
+        # 因此此处进行干净的处理拒接（Decline），以避免服务器挂起。
         mode = getattr(params, "mode", "form")
         if mode == "url":
             logger.info(
@@ -1426,9 +1429,9 @@ class ElicitationHandler:
             self.server_name, _sanitize_error(message)[:200],
         )
 
-        # Lazy import: tools.approval is imported very early during process
-        # bootstrap; matching the lazy pattern used by _fire_approval_hook
-        # avoids any chance of import-order coupling.
+        # 延迟导入（Lazy import）：tools.approval 在进程引导启动阶段导入得非常早；
+        # 采用与 _fire_approval_hook 相同的延迟导入模式，
+        # 可以避免出现任何与导入顺序相关的耦合风险。
         try:
             from tools.approval import request_elicitation_consent
         except Exception as exc:  # pragma: no cover -- defensive
@@ -1439,19 +1442,19 @@ class ElicitationHandler:
             self.metrics["errors"] += 1
             return ElicitResult(action="decline")
 
-        # Offload the sync consent flow to a worker thread. Running it
-        # inline would freeze the MCP background event loop, blocking every
-        # other RPC on this session. request_elicitation_consent() routes
-        # itself to the right surface (gateway notify_cb for Telegram /
-        # Slack / etc., prompt_dangerous_approval for CLI / TUI) and
-        # normalizes the answer to one of accept / decline / cancel.
+        # 将同步模式的许可授权流程（consent flow）卸载至工作线程中执行。
+        # 如果直接在主流程中内联运行，将会冻结 MCP 的后台事件循环，
+        # 从而阻塞该会话（session）上的所有其他 RPC 请求。
         #
-        # The recv-loop task that fires this callback does NOT inherit
-        # the agent's contextvars (HERMES_SESSION_PLATFORM etc.). When
-        # the MCP tool wrapper captured the agent's context onto
-        # owner._pending_call_context we replay it here via
-        # contextvars.Context.run so the gateway-platform detection in
-        # request_elicitation_consent picks up the right session.
+        # request_elicitation_consent() 会自行路由至正确的接入平台
+        # （针对 Telegram / Slack 等平台路由至网关 notify_cb；针对 CLI / TUI 路由至 prompt_dangerous_approval），
+        # 并将返回的结果统一规范化为 accept（接受）、decline（拒绝）或 cancel（取消）之一。
+        #
+        # 触发此回调函数的接收循环任务（recv-loop task）
+        # 并不会继承 Agent 的上下文变量（如 HERMES_SESSION_PLATFORM 等）。
+        # 当 MCP 工具包装器将 Agent 的上下文捕获并保存至 owner._pending_call_context 时，
+        # 我们在此处通过 contextvars.Context.run 对其进行重放（replay），
+        # 以确保 request_elicitation_consent 中的网关平台检测机制能够获取到正确的会话信息。
         captured = getattr(self.owner, "_pending_call_context", None) if self.owner else None
 
         def _invoke_consent() -> str:
@@ -1462,8 +1465,8 @@ class ElicitationHandler:
                     timeout_seconds=int(self.timeout),
                     surface=f"mcp-elicitation/{self.server_name}",
                 )
-            # Context.run can only execute a context once — copy to allow
-            # multiple elicitations within a single tool call.
+            # Context.run 只能将同一个上下文执行一次 ——
+            # 对其进行复制（copy）以允许在单次工具调用中发起多次引导（elicitations）。
             return captured.copy().run(
                 request_elicitation_consent,
                 message,
@@ -2899,13 +2902,15 @@ class MCPServerTask:
             raise self._error
 
     async def shutdown(self):
-        """Signal the Task to exit and wait for clean resource teardown."""
+        """向 Task 发送退出信号，
+        并等待资源完成干净的清理释放。"""
         self._shutdown_event.set()
-        # Defensive: if _wait_for_lifecycle_event is blocking, we need ANY
-        # event to unblock it. _shutdown_event alone is sufficient (the
-        # helper checks shutdown first), but setting reconnect too ensures
-        # there's no race where the helper misses the shutdown flag after
-        # returning "reconnect".
+        # 防御性设计：如果 _wait_for_lifecycle_event 处于阻塞状态，
+        # 我们需要任意事件来将其解除阻塞。
+        #
+        # 仅靠 _shutdown_event 就已经足够了（辅助函数会优先检查 shutdown），
+        # 但同时设置 reconnect 能确保不会发生竞态条件——
+        # 即避免出现辅助函数在返回 "reconnect" 之后错过 shutdown 标志的情况。
         self._reconnect_event.set()
         if self._task and not self._task.done():
             try:
@@ -2929,13 +2934,15 @@ class MCPServerTask:
         self.session = None
 
     def _deregister_tools(self) -> None:
-        """Drop this server's tools from the global registry (idempotent).
+        """从全局注册表中移除该服务器的工具（幂等操作）。
 
-        Pulls the server's tool schemas out of the registry so the agent
-        stops advertising them to the model. Called on shutdown AND when the
-        reconnect budget is exhausted, so a dead server never leaves phantom
-        tool definitions bloating the prompt cache and producing "not
-        connected" errors on every turn.
+        将该服务器的工具 Schema 从注册表中拔除，
+        从而让 Agent 停止向模型宣告这些工具可用。
+
+        在服务关闭以及重连次数耗尽时均会调用此方法，
+        以确保已失效的服务器不会留下“幽灵”工具定义，
+        避免其占用并膨胀 Prompt 缓存，
+        同时防止在后续每轮对话中引发“未连接”错误。
         """
         from tools.registry import registry
 
@@ -5439,11 +5446,14 @@ def _reinject_post_build_tools(agent, tools_list: list, name_set: set) -> set:
 
 
 def shutdown_mcp_servers():
-    """Close all MCP server connections and stop the background loop.
+    """关闭所有 MCP 服务器连接并停止后台循环。
 
-    Each server Task is signalled to exit its ``async with`` block so that
-    the anyio cancel-scope cleanup happens in the same Task that opened it.
-    All servers are shut down in parallel via ``asyncio.gather``.
+    每个服务器任务（Task）都会收到退出信号，
+    以退出其 ``async with`` 代码块，
+    从而确保 anyio 取消作用域（cancel-scope）的清理工作
+    在打开它的同一个 Task 中执行。
+
+    所有服务器都会通过 ``asyncio.gather`` 进行并行关闭。
     """
     with _lock:
         servers_snapshot = list(_servers.values())

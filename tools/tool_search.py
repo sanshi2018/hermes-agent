@@ -292,11 +292,12 @@ def listing_token_budget(
     config: ToolSearchConfig,
     context_length: Optional[int],
 ) -> int:
-    """Effective token budget for the embedded catalog listing.
+    """嵌入式目录列表（catalog listing）的有效 Token 预算。
 
-    ``min(listing_max_tokens, threshold_pct% of context)``. Without a known
-    context size, the percentage leg falls back to a fixed 10K cutoff
-    (5% of a typical 200K window).
+    计算方式为 ``min(listing_max_tokens, context 的 threshold_pct%)``。
+    在上下文大小未知的情况下，
+    按百分比计算的这一项将退回使用固定的 10K 截断值
+    （即典型 200K 上下文窗口的 5%）。
     """
     if context_length and context_length > 0:
         pct_leg = int(context_length * (config.threshold_pct / 100.0))
@@ -472,11 +473,11 @@ _SENTENCE_END_RE = re.compile(r"[.!?\n]")
 
 
 def _short_desc(description: str, max_chars: int = 60) -> str:
-    """First sentence of a tool description, clipped to ``max_chars``.
+    """工具描述的第一句话，截断至 ``max_chars`` 字符长度。
 
-    Mirrors the skills-listing convention: one terse line per capability.
-    Whitespace is collapsed; a hard clip never cuts mid-word unless the
-    first word itself exceeds the budget.
+    遵循技能列表（skills-listing）的规范约定：每项能力占用精炼的一行。
+    空白字符会被压缩合并；
+    除非首个单词本身就超出了预算，否则硬截断绝不会切断单词内部。
     """
     text = " ".join((description or "").split())
     if not text:
@@ -505,29 +506,26 @@ def build_catalog_listing(
     *,
     max_tokens: int = 20000,
 ) -> Optional[str]:
-    """Render a skills-style manifest of the deferred catalog.
+    """渲染被延迟加载的工具目录（deferred catalog）清单，其风格与技能（skills）列表保持一致。
 
-    One line per tool — ``name: short description`` — grouped under a
-    heading per source (MCP server / plugin toolset), exactly like the
-    bundled-skills listing in the system prompt:
+    每个工具占用一行 —— ``名称: 简短描述`` —— 并按来源（MCP 服务器 / 插件工具集）分类归纳在各自的标题下，
+    格式与系统提示词（system prompt）中内置的技能列表完全相同：
 
-        github tools: (44)
-        - create_issue: Open a new issue in a GitHub repository.
-        - merge_pull_request: Merge an open pull request.
+        github 工具: (44)
+        - create_issue: 在 GitHub 仓库中创建一个新 issue。
+        - merge_pull_request: 合并一个处于打开状态的 pull request。
         ...
 
-    Ordering is deterministic (groups and tools sorted by name) so the
-    rendered block is byte-stable across assemblies of the same catalog —
-    this keeps the request prefix cacheable across turns.
+    排序机制是确定性的（分组和工具均按名称排序），
+    因此对于相同的目录，渲染后的文本块在多次装配之间具备字节级稳定性 ——
+    这使得请求前缀能够在多轮对话中保持可缓存（cacheable）。
 
-    Token-budget fallbacks (cheap chars/4 estimate, same rule as the
-    activation gate):
-      1. full listing (names + short descriptions)
-      2. names-only listing, still grouped
-      3. server-level summary — one line per MCP server / plugin toolset
-         (name + tool count), so the model always knows WHICH domains are
-         reachable through the bridge even when per-tool names don't fit
-      4. ``None`` — only when the summary itself exceeds the budget
+    Token 预算下的退避/降级方案（基于简易的“字符数 / 4”估算，与启用门控使用相同的规则）：
+      1. 完整列表（名称 + 简短描述）
+      2. 仅名称列表（仍按来源分组）
+      3. 服务器层级的摘要列表 —— 每个 MCP 服务器 / 插件工具集占用一行（名称 + 工具数量），
+         使得模型即使在单工具名称放不下的情况下，也能始终明确通过桥接工具有哪些领域是可达的
+      4. ``None`` —— 仅当摘要列表本身也超出预算时才会返回
     """
     text, _form = build_catalog_listing_with_form(deferrable, max_tokens=max_tokens)
     return text
@@ -538,18 +536,20 @@ def build_catalog_listing_with_form(
     *,
     max_tokens: int = 20000,
 ) -> Tuple[Optional[str], str]:
-    """Like :func:`build_catalog_listing` but also reports the form used.
+    """类似于 :func:`build_catalog_listing`，但同时会汇报所使用的生成形式（form）。
 
-    Returns ``(text, form)`` where ``form`` is ``"full"`` (names + short
-    descriptions), ``"names"`` (names-only fallback), ``"mixed"`` (per-server
-    degradation: small servers keep per-tool lines, oversized servers
-    collapse to a name + tool-count summary line), ``"groups"`` (every
-    server summarized), or ``"none"`` (over budget in every form).
+    返回 ``(text, form)``，其中 ``form`` 的取值可能为：
+    - ``"full"``（名称 + 简短描述）
+    - ``"names"``（退而求其次的仅名称列表）
+    - ``"mixed"``（按服务器降级：小型服务器保留单工具行，超大服务器折叠为“名称 + 工具数量”摘要行）
+    - ``"groups"``（所有服务器均被汇总）
+    - ``"none"``（在任何形式下均超出预算）
 
-    Degradation is PER SERVER, not global: one huge server (Cloudflare's
-    3,320 flat tools) must not cost a small co-attached server (Linear's 24)
-    its listing. Greedy fit, smallest rendered group first, is deterministic
-    for a given catalog — byte-stable across assemblies, cache-safe.
+    降级策略是“按服务器（PER SERVER）”应用的，而非全局降级：
+    某个大型服务器（如 Cloudflare 的 3,320 个扁平工具）不应导致同时挂载的小型服务器（如 Linear 的 24 个）失去其列表展示。
+
+    按照渲染后体积从小到大的顺序进行贪心拟合（Greedy fit），
+    对于给定的目录而言是确定性的 —— 跨装配具备字节级稳定性，对缓存安全。
     """
     if not deferrable:
         return None, "none"
@@ -601,10 +601,11 @@ def build_catalog_listing_with_form(
     if fits(assemble(modes)):
         return assemble(modes), "names"
 
-    # 3. Per-server degradation: collapse the LARGEST rendered groups to
-    #    summary lines first, keeping per-tool names for small servers.
-    #    Deterministic: size then label. One oversized server (Cloudflare)
-    #    must not cost a small co-attached server (Linear) its listing.
+    # 3. 按服务器进行降级：优先将渲染体积“最大”的服务器分组
+    #    折叠为摘要行，同时为小型服务器保留单工具名称列表。
+    #    具有确定性：按体积大小排序，其次按标签名排序。
+    #    某个超大的服务器（如 Cloudflare）不应导致
+    #    同时挂载的小型服务器（如 Linear）失去其列表展示。
     by_size = sorted(groups, key=lambda lbl: (-len(render_group(lbl, "names")), lbl))
     for lbl in by_size:
         modes[lbl] = "summary"
@@ -621,21 +622,28 @@ def bridge_tool_schemas(
     listing: Optional[str] = None,
     listing_form: str = "",
 ) -> List[Dict[str, Any]]:
-    """Build the bridge tool schemas to inject in place of deferred tools.
+    """构建用于替代延迟加载工具（deferred tools）的桥接工具 Schema。
 
-    The schemas are intentionally short — every byte added here is a byte
-    the user pays on every turn. Descriptions are tuned to be unambiguous
-    about the call sequence the model should follow.
+    这些 Schema 被特意设计得十分简短 —— 此处每增加一个字节，
+    用户在每一轮对话中都需要为此付出 Token 成本。
+    描述文本经过专门调优，以明确且无歧义地指引模型应当遵循的调用顺序。
 
-    When ``listing`` is provided (see :func:`build_catalog_listing`), it is
-    embedded in the ``tool_search`` description so every deferred capability
-    stays *visible* by name — the skills-listing pattern — closing the
-    "model doesn't know what it doesn't know" gap while full parameter
-    schemas remain deferred. ``listing_form`` selects the framing: per-tool
-    forms ("full"/"names") tell the model it may skip the search when it
-    sees the exact name; the server-summary form ("groups") tells it which
-    DOMAINS are reachable and that search is mandatory for tool discovery.
+    当提供 ``listing``（参见 :func:`build_catalog_listing`）时，
+    它会被嵌入到 ``tool_search`` 的描述中，
+    从而使每个被延迟加载的能力都能通过名称保持*可见* —— 遵循技能列表（skills-listing）模式 ——
+    在完整的参数 Schema 保持延迟加载状态的同时，填补了“模型不知道自己不知道什么”的缺陷。
+    ``listing_form`` 用于选择呈现形式：
+    单工具形式（"full"/"names"）告知模型在看到确切名称时可以跳过搜索；
+    服务器摘要形式（"groups"）则告知模型有哪些领域（DOMAINS）是可达的，
+    以及必须通过搜索来进行工具发现。
     """
+    # desc_search = (
+    #     f"搜索 {deferred_count} 个按需加载的附加工具。"
+    #     "返回最多 ``limit`` 条包含名称和描述的匹配项。"
+    #     f"随后可使用 `{TOOL_DESCRIBE_NAME}` 来加载工具的完整参数 Schema，"
+    #     f"再使用 `{TOOL_CALL_NAME}` 进行调用。"
+    #     "位于本系统提示词顶部的工具属于已就绪状态，无需再进行搜索。"
+    # )
     desc_search = (
         f"Search {deferred_count} additional tools that are loaded on demand. "
         "Returns up to ``limit`` matches with name and description. Follow "
@@ -643,6 +651,13 @@ def bridge_tool_schemas(
         f"then `{TOOL_CALL_NAME}` to invoke it. Tools listed at the top of this "
         "system prompt are already available and do not need to be searched."
     )
+    # if listing and listing_form == "groups":
+    #     desc_search += (
+    #             "\n\n下列服务器已连接，其工具均可通过此桥接接口使用。"
+    #             "对于属于这些领域的任何请求，请优先在此处进行搜索 —— "
+    #             "在未进行搜索前，切勿声称该能力不可用，"
+    #             "也不要直接使用通用工具（如终端或浏览器）来替代。\n\n" + listing
+    #     )
     if listing and listing_form == "groups":
         desc_search += (
             "\n\nThe servers below are connected and their tools ARE available "
@@ -651,6 +666,13 @@ def bridge_tool_schemas(
             "not substitute a generic tool (terminal/browser) without "
             "searching.\n\n" + listing
         )
+    # elif listing:
+    #     desc_search += (
+    #         "\n\n所有被延迟加载的能力均已在下方列出。"
+    #         "如果某个工具名称出现在此处，切勿声称其不可用 —— "
+    #         f"请直接使用 `{TOOL_DESCRIBE_NAME}` 进行加载"
+    #         f"（当你已经看到确切的工具名称时，可以跳过 `{TOOL_SEARCH_NAME}` 步骤）。"
+    #     )
     elif listing:
         desc_search += (
             "\n\nEvery deferred capability is listed below. If a tool name "
@@ -658,6 +680,11 @@ def bridge_tool_schemas(
             f"`{TOOL_DESCRIBE_NAME}` (skip `{TOOL_SEARCH_NAME}` when you "
             "already see the exact name)."
         )
+        # if listing_form == "mixed":
+        #     desc_search += (
+        #         " 对于标注为“名称未列出（names not listed）”的服务器，其工具同样存在 —— "
+        #         f"在得出任何功能缺失的结论之前，请先通过 `{TOOL_SEARCH_NAME}` 来查找它们。"
+        #     )
         if listing_form == "mixed":
             desc_search += (
                 " For servers marked 'names not listed', the tools exist "
@@ -665,6 +692,16 @@ def bridge_tool_schemas(
                 "concluding anything is missing."
             )
         desc_search += "\n\n" + listing
+    # desc_describe = (
+    #     f"加载由 `{TOOL_SEARCH_NAME}` 返回的某个工具的完整 JSON Schema。"
+    #     f"在工具参数未知的情况下，该操作是执行 `{TOOL_CALL_NAME}` 前的必要步骤。"
+    # )
+    # desc_call = (
+    #     "通过给定的参数和名称调用被延迟加载的工具。"
+    #     f"参数的结构形式需与工具的 Schema 保持一致（参见 `{TOOL_DESCRIBE_NAME}`）。"
+    #     "策略校验、钩子函数（hooks）以及审批流程的执行方式，"
+    #     "与任何直接列出的工具完全一致。"
+    # )
     desc_describe = (
         f"Load the full JSON schema for one tool returned by `{TOOL_SEARCH_NAME}`. "
         f"Required before `{TOOL_CALL_NAME}` if the tool's parameters are unknown."
@@ -752,10 +789,10 @@ class AssemblyResult:
     deferred_count: int = 0
     deferred_tokens: int = 0
     threshold_tokens: int = 0
-    # Disclosure tier actually applied:
-    #   0 = passthrough (no deferrable tools, or tool_search off)
-    #   1 = bridge + catalog listing (full or names-only)
-    #   2 = bare bridge — catalog too large for any listing form
+    # 实际应用的显露分层（Disclosure tier）：
+    #   0 = 直接穿透模式（无待延迟加载的工具，或已关闭 tool_search）
+    #   1 = 桥接 + 目录列表模式（完整或仅名称列表）
+    #   2 = 仅桥接模式 —— 目录体积过大，超出任何列表形式的承载限制
     tier: int = 0
     listing_form: str = "none"  # "full" | "names" | "none"
 

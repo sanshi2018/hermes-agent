@@ -346,11 +346,13 @@ def _compute_tool_definitions(
     if enabled_toolsets is not None:
         effective_enabled_toolsets = list(enabled_toolsets)
         if os.environ.get("HERMES_KANBAN_TASK") and "kanban" not in effective_enabled_toolsets:
-            # Dispatcher-spawned workers are scoped by HERMES_KANBAN_TASK and
-            # must always receive the lifecycle handoff tools. Assignee
-            # profiles may intentionally restrict their normal chat toolsets
-            # (for token/cost reasons), but that should not strip the kanban
-            # worker's completion/block/heartbeat surface.
+            # 由调度器（Dispatcher）派生的工作线程/进程（workers）
+            # 其作用域由 HERMES_KANBAN_TASK 限定，
+            # 且必须始终接收生命周期交接工具（lifecycle handoff tools）。
+            #
+            # 尽管被指派者的配置文件（Assignee profiles）
+            # 可能会出于 Token 消耗或成本考虑，有意限制其常规聊天工具集，
+            # 但这绝不应剥离看板 Worker 自身的“完成/阻塞/心跳”等关键功能接口。
             effective_enabled_toolsets.append("kanban")
         for toolset_name in effective_enabled_toolsets:
             if validate_toolset(toolset_name):
@@ -489,16 +491,17 @@ def _compute_tool_definitions(
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("Schema sanitization skipped: %s", e)
 
-    # ── Tool Search (progressive disclosure) ────────────────────────────
-    # Conditionally replace MCP + plugin (non-core) tools with three bridge
-    # tools (tool_search / tool_describe / tool_call) when the deferrable
-    # surface exceeds the configured threshold (default 10% of context
-    # window). Core Hermes tools (toolsets._HERMES_CORE_TOOLS) are NEVER
-    # deferred. See tools/tool_search.py for full design notes.
+    # ── 工具搜索（渐进式显露） ──────────────────────────────────
+    # 当可延迟加载的工具规模超过配置的阈值（默认为上下文窗口的 10%）时，
+    # 有条件地将 MCP 及插件（非核心）工具替换为三个桥接工具
+    # （tool_search / tool_describe / tool_call）。
     #
-    # This is deliberately the last step before returning — sanitization
-    # has already normalized schemas, and the assembly is idempotent in
-    # case some caller invokes get_tool_definitions twice.
+    # Hermes 核心工具（toolsets._HERMES_CORE_TOOLS）绝不延迟加载。
+    # 完整的设计说明请参阅 tools/tool_search.py。
+    #
+    # 这被特意设计为返回之前的最后一步 ——
+    # 此时净化处理（sanitization）已完成了 Schema 的规范化，
+    # 且装配逻辑具备等幂性，以防某些调用方重复调用 get_tool_definitions。
     try:
         from tools.tool_search import assemble_tool_defs, load_config as _load_ts_config
         ts_cfg = _load_ts_config()

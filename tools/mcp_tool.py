@@ -420,14 +420,13 @@ def _env_ref_name(ref: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _build_safe_env(user_env: Optional[dict]) -> dict:
-    """Build a filtered environment dict for stdio subprocesses.
+    """为 stdio 子进程构建一个经过过滤的环境变量字典。
 
-    Only passes through safe baseline variables (PATH, HOME, etc.) and XDG_*
-    variables from the current process environment, plus any variables
-    explicitly specified by the user in the server config.
+    仅从当前进程环境中传递安全的基准变量（如 PATH、HOME 等）
+    以及 XDG_* 变量，再加上用户在服务器配置中明确指定的任何变量。
 
-    This prevents accidentally leaking secrets like API keys, tokens, or
-    credentials to MCP server subprocesses.
+    这可以防止将 API 密钥、令牌或凭据等敏感信息
+    意外泄露给 MCP 服务器子进程。
     """
     env = {}
     for key, value in os.environ.items():
@@ -1018,12 +1017,12 @@ class SamplingHandler:
         return "\n".join(item.text for item in items if hasattr(item, "text"))
 
     def _convert_messages(self, params) -> List[dict]:
-        """Convert MCP SamplingMessages to OpenAI format.
+        """将 MCP SamplingMessages 转换为 OpenAI 格式。
 
-        Uses ``msg.content_as_list`` (SDK helper) so single-block and
-        list-of-blocks are handled uniformly.  Dispatches per block type
-        with ``isinstance`` on real SDK types when available, falling back
-        to duck-typing via ``hasattr`` for compatibility.
+        使用 ``msg.content_as_list``（SDK 辅助函数）
+        以统一处理单块（single-block）和多块列表（list-of-blocks）。
+        在 SDK 实际类型可用时，通过 ``isinstance`` 按块类型进行分发；
+        为保证兼容性，同时降级使用 ``hasattr`` 进行鸭子类型判断（duck-typing）。
         """
         messages: List[dict] = []
         for msg in params.messages:
@@ -1187,13 +1186,13 @@ class SamplingHandler:
     # -- Main callback -------------------------------------------------------
 
     async def __call__(self, context, params):
-        """Sampling callback invoked by the MCP SDK.
+        """由 MCP SDK 调用的采样回调函数。
 
-        Conforms to ``SamplingFnT`` protocol.  Returns
-        ``CreateMessageResult``, ``CreateMessageResultWithTools``, or
-        ``ErrorData``.
+        符合 ``SamplingFnT`` 协议。
+        返回 ``CreateMessageResult``、``CreateMessageResultWithTools``
+        或 ``ErrorData``。
         """
-        # Rate limit
+        # 速率限制
         if not self._check_rate_limit():
             logger.warning(
                 "MCP server '%s' sampling rate limit exceeded (%d/min)",
@@ -1599,18 +1598,18 @@ class MCPServerTask:
         return "url" in self._config
 
     def _advertises_tools(self) -> bool:
-        """Whether the server advertises the ``tools`` capability.
+        """服务器是否宣告其具备 ``tools`` 能力。
 
-        Per the MCP spec, ``InitializeResult.capabilities.tools`` is non-None
-        iff the server implements the ``tools/*`` request family. Prompt-only
-        or resource-only servers omit it, and calling ``tools/list`` against
-        them raises ``McpError(-32601 Method not found)`` — which previously
-        killed the connection during discovery and made every keepalive fail.
-        (Ported from anomalyco/opencode#31271.)
+        根据 MCP 规范，当且仅当服务器实现了 ``tools/*`` 请求族时，
+        ``InitializeResult.capabilities.tools`` 才为非 None 值。
+        仅提供提示词（prompt-only）或仅提供资源（resource-only）的服务器会省略该项；
+        若对此类服务器调用 ``tools/list``，将抛出 ``McpError(-32601 Method not found)`` 异常
+        —— 此异常此前会在服务发现过程中中断连接，并导致后续所有心跳保活（keepalive）失败。
+        （移植自 anomalyco/opencode#31271。）
 
-        Returns True when no capability info was captured (legacy fallback:
-        preserve the old always-call-list_tools behavior rather than regress
-        any server that was working before this gate).
+        当未获取到任何能力信息时返回 True
+        （旧版退避机制：保留原有的“总是调用 list_tools”行为，
+        以避免影响在该门控机制引入前已能正常工作的服务器）。
         """
         init_result = self.initialize_result
         caps = getattr(init_result, "capabilities", None) if init_result is not None else None
@@ -1718,11 +1717,12 @@ class MCPServerTask:
         return _on_log
 
     def _make_message_handler(self):
-        """Build a ``message_handler`` callback for ``ClientSession``.
+        """为 ``ClientSession`` 构建一个 ``message_handler`` 回调函数。
 
-        Dispatches on notification type.  Only ``ToolListChangedNotification``
-        triggers a refresh; prompt and resource change notifications are
-        logged as stubs for future work.
+        根据通知（notification）类型进行分发处理。
+        仅当收到 ``ToolListChangedNotification`` 时才会触发刷新；
+        提示词（prompt）和资源（resource）变更通知则作为存根（stubs）记录在日志中，
+        以供未来扩展使用。
         """
         async def _handler(message):
             try:
@@ -1736,19 +1736,18 @@ class MCPServerTask:
                                 "MCP server '%s': received tools/list_changed notification",
                                 self.name,
                             )
-                            # Some servers (notably mongodb-mcp-server) emit
-                            # tools/list_changed immediately after initialize,
-                            # while the client may already be executing another
-                            # request. Refreshing synchronously inside the SDK
-                            # notification handler can race with that request
-                            # and wedge the stdio JSON-RPC stream, making all
-                            # subsequent tool calls time out. Do the refresh in
-                            # a separate task and let the handler return
-                            # promptly.
+                            # 某些服务器（尤其是 mongodb-mcp-server）会在 initialize 完成后
+                            # 立即发送 tools/list_changed 通知，
+                            # 而此时客户端可能正在执行另一个请求。
+                            # 在 SDK 通知处理函数内部进行同步刷新，
+                            # 可能会与该请求产生竞态条件（race condition），
+                            # 从而导致 stdio JSON-RPC 流卡死（wedge），
+                            # 使后续所有的工具调用全部超时。
+                            # 因此，请在单独的任务中执行刷新，并让处理函数立即返回。
                             self._schedule_tools_refresh()
-                            # Yield one loop tick so tests and short-lived
-                            # notification contexts can observe the scheduled
-                            # refresh without awaiting the full server RPC.
+                            # 让出一次事件循环 Tick，
+                            # 以便测试和短生命周期的通知上下文
+                            # 无需等待完整的服务器 RPC 即可观察到已调度的刷新任务。
                             await asyncio.sleep(0)
                         case PromptListChangedNotification():
                             logger.debug("MCP server '%s': prompts/list_changed (ignored)", self.name)
@@ -1761,19 +1760,20 @@ class MCPServerTask:
         return _handler
 
     async def _refresh_tools(self):
-        """Re-fetch tools from the server and update the registry.
+        """重新从服务器拉取工具列表并更新注册表。
 
-        Called when the server sends ``notifications/tools/list_changed``.
-        The lock prevents overlapping refreshes from rapid-fire notifications.
-        After the initial ``await`` (list_tools), all mutations are synchronous
-        — atomic from the event loop's perspective.
+        当服务器发送 ``notifications/tools/list_changed`` 通知时被调用。
+        互斥锁可防止在高频触发的通知下发生重叠刷新。
+        在首次 ``await`` (list_tools) 之后，所有的变更均为同步操作
+        —— 从事件循环的角度来看具备原子性。
         """
         from tools.registry import registry
 
         if not self._advertises_tools():
-            # A server that doesn't implement tools/* should never send
-            # tools/list_changed, but guard anyway — calling tools/list
-            # would raise McpError(-32601).
+            # 未实现 tools/* 协议规范的服务器绝不应该发送
+            # tools/list_changed 通知；
+            # 但此处仍做防护处理 —— 否则直接调用 tools/list
+            # 会抛出 McpError(-32601) 异常。
             return
 
         async with self._refresh_lock:
@@ -1785,13 +1785,12 @@ class MCPServerTask:
                 tools_result = await self.session.list_tools()
             new_mcp_tools = tools_result.tools if hasattr(tools_result, "tools") else []
 
-            # 2. Re-register with fresh tool list. Avoid nuke-and-repave for
-            # all names: live agent turns may already have tool-call IDs
-            # pointing at existing handler functions. Replacing entries
-            # in-place is enough for unchanged names and avoids transient
-            # "tool not connected" / stale-handler races during startup
-            # notifications. Tools absent from the fresh list are no longer
-            # callable, so remove only those stale registry entries first.
+            # 2. 使用最新的工具列表重新注册。
+            #    避免对所有工具名称进行“毁炉重造（nuke-and-repave）”式的高昂替换：
+            #    活跃的 Agent 交互轮次可能已经将工具调用 ID 映射到了现有的处理函数上。
+            #    对于未发生变化的名称，采取就地替换（in-place）的方式即可，
+            #    这能够避免在启动通知期间出现暂态的“工具未连接”或句柄过期等竞态问题。
+            #    未出现在新列表中的工具将不再支持调用，因此仅需优先清理这些过期的注册条目。
             stale_tool_names = old_tool_names - {
                 mcp_prefixed_tool_name(self.name, tool.name)
                 for tool in new_mcp_tools
@@ -1828,29 +1827,29 @@ class MCPServerTask:
                 )
 
     async def _keepalive_probe(self) -> None:
-        """Exercise the session to detect a stale/expired connection.
+        """对会话进行测试以检测陈旧/过期的连接。
 
-        Uses ``ping`` (cheap, transport-agnostic liveness) by default. ``ping``
-        is an OPTIONAL MCP utility: a server that doesn't implement it answers
-        JSON-RPC -32601. The first time that happens we latch
-        ``_ping_unsupported`` and fall back to the pre-ping probe — capability
-        permitting, ``list_tools``; otherwise ``ping`` is the only option and
-        the -32601 propagates (a server advertising neither a working ping nor
-        tools has no liveness primitive left). The latch resets on each fresh
-        transport connection so a server that gains ping support after a
-        reconnect is re-probed with the cheap path.
+        默认情况下使用 ``ping``（开销低且与传输协议无关的存活性检测）。
+        ``ping`` 是一个可选的 MCP 实用工具：未实现该工具的服务器会返回
+        JSON-RPC -32601 错误。首次发生这种情况时，我们会锁定
+        ``_ping_unsupported`` 并退回到原有的探测方式 — 在能力允许的
+        情况下使用 ``list_tools``；否则 ``ping`` 是唯一的选择，
+        并且 -32601 错误会继续传播（一个既不支持正常 ping 也不支持
+        tools 的服务器将没有任何可用的存活性探测原语）。该锁定状态会在
+        每个新的传输连接建立时重置，因此在重新连接后获得 ping 支持的
+        服务器将重新使用低开销的路径进行探测。
 
-        Raises on a genuine connection failure so the caller triggers a
-        reconnect; returns normally when the session is alive.
+        如果发生真正的连接失败则会引发异常，以便调用方触发重连；
+        当会话存活时正常返回。
         """
         if not self._ping_unsupported:
             try:
                 await asyncio.wait_for(self.session.send_ping(), timeout=30.0)
                 return
             except Exception as exc:
-                # Only a "method not found" means ping is unsupported. Any
-                # other error (timeout, closed transport, session expired) is
-                # a real liveness failure — propagate so we reconnect.
+                # 只有“找不到方法”（method not found）才意味着不支持 ping。
+                # 其他任何错误（超时、传输关闭、会话过期）都是真实的存活性故障
+                # — 请向上传播异常以便我们重新连接。
                 if not _is_method_not_found_error(exc):
                     raise
                 if not self._advertises_tools():
@@ -1933,14 +1932,15 @@ class MCPServerTask:
                     self._mark_stdio_recycled(recycle_reason)
                     return "recycle"
 
-                # Timeout — no lifecycle event fired.  Probe the connection
-                # to detect stale/expired sessions. Prefer ``ping`` (MCP base
-                # protocol liveness): it works uniformly and stays a few bytes
-                # regardless of tool count, unlike ``list_tools`` (~1 MB on an
-                # 830-tool server). ``ping`` is an OPTIONAL utility, so a
-                # tool-capable server that doesn't implement it answers -32601;
-                # in that case fall back to the pre-ping ``list_tools`` probe
-                # for the rest of this connection rather than reconnect-looping.
+                # 超时 — 未触发任何生命周期事件。探测连接以检测
+                # 陈旧/过期的会话。优先使用 ``ping``（MCP 基础
+                # 协议存活性检测）：它工作稳定，且无论工具数量多少
+                # 都只占用极少字节，而不像 ``list_tools``（在拥有
+                # 830 个工具的服务器上约为 1 MB）。``ping`` 是一个
+                # 可选工具，因此如果支持工具的服务器未实现它，则会
+                # 返回 -32601；在这种情况下，对于此连接的其余部分，
+                # 请退回到使用预探测的 ``list_tools``，而不是
+                # 陷入重连循环。
                 if self.session:
                     try:
                         await self._keepalive_probe()
@@ -2274,10 +2274,10 @@ class MCPServerTask:
                 if resp.status_code in (405, 501):
                     resp = await client.get(url, headers=probe_headers)
 
-                # Some MCP servers (e.g. DocuSeal) serve their web UI on
-                # HEAD/GET but speak Streamable HTTP only via POST.  Before
-                # rejecting the endpoint, try a lightweight JSON-RPC POST
-                # probe so we don't false-positive on POST-only servers.
+                # 某些 MCP 服务器（例如 DocuSeal）在 HEAD/GET 上提供
+                # 其 Web UI，但仅通过 POST 支持 Streamable HTTP。在拒绝
+                # 该端点之前，先尝试进行一次轻量级的 JSON-RPC POST
+                # 探测，以免对仅支持 POST 的服务器产生误报。
                 ct = (
                     resp.headers.get("content-type", "")
                     .split(";")[0]

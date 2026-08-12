@@ -1,22 +1,22 @@
 """
-Hermes MCP Server — expose messaging conversations as MCP tools.
+Hermes MCP 服务器 — 将消息会话作为 MCP 工具暴露出来。
 
-Starts a stdio MCP server that lets any MCP client (Claude Code, Cursor, Codex,
-etc.) list conversations, read message history, send messages, poll for live
-events, and manage approval requests across all connected platforms.
+启动一个 stdio MCP 服务器，允许任何 MCP 客户端（如 Claude Code、Cursor、Codex 等）
+列出会话、读取消息历史、发送消息、轮询实时事件，
+以及跨所有连接的平台管理审批请求。
 
-Matches OpenClaw's 9-tool MCP channel bridge surface:
+与 OpenClaw 的 9 工具 MCP 渠道桥接能力保持一致：
   conversations_list, conversation_get, messages_read, attachments_fetch,
   events_poll, events_wait, messages_send, permissions_list_open,
   permissions_respond
 
-Plus: channels_list (Hermes-specific extra)
+此外还包含：channels_list（Hermes 特有的额外工具）
 
-Usage:
+用法：
     hermes mcp serve
     hermes mcp serve --verbose
 
-MCP client config (e.g. claude_desktop_config.json):
+MCP 客户端配置（例如 claude_desktop_config.json）：
     {
         "mcpServers": {
             "hermes": {
@@ -26,7 +26,6 @@ MCP client config (e.g. claude_desktop_config.json):
         }
     }
 """
-
 from __future__ import annotations
 
 import json
@@ -80,15 +79,15 @@ def _get_session_db():
 
 
 def _load_sessions_index() -> dict:
-    """Load the gateway session routing index.
+    """加载网关会话路由索引。
 
-    Returns a dict of session_key -> entry_dict with platform routing info.
+    返回一个包含平台路由信息的 session_key -> entry_dict 字典。
 
-    state.db is the primary source (#9006): gateway sessions persist their
-    routing metadata (session_key, chat/thread ids, display_name, origin) on
-    the durable session row, so a single database read replaces the old
-    dual-file sessions.json dependency.  Falls back to sessions.json for
-    pre-migration databases where no gateway rows carry a session_key yet.
+    state.db 是主数据源（#9006）：网关会话将其路由元数据
+    （session_key、chat/thread id、display_name、origin）
+    持久化存储在持久化的会话行中，因此单次数据库读取即可替代
+    旧有的对双文件 sessions.json 的依赖。对于尚未在网关行中
+    包含 session_key 的迁移前数据库，则退回到 sessions.json。
     """
     entries = _load_sessions_index_from_db()
     if entries:
@@ -244,10 +243,10 @@ def _extract_message_content(msg: dict) -> str:
 
 
 def _extract_attachments(msg: dict) -> List[dict]:
-    """Extract non-text attachments from a message.
+    """从消息中提取非文本附件。
 
-    Finds: multi-part image/file content blocks, MEDIA: tags in text,
-    image URLs, and file references.
+    查找目标包括：多部分图像/文件内容块、文本中的 MEDIA: 标签、
+    图像 URL，以及文件引用。
     """
     attachments = []
     content = msg.get("content", "")
@@ -299,11 +298,11 @@ class QueueEvent:
 
 
 class EventBridge:
-    """Background poller that watches SessionDB for new messages and
-    maintains an in-memory event queue with waiter support.
+    """后台轮询器，用于监视 SessionDB 中的新消息，
+    并维护一个支持等待者（waiter）的内存事件队列。
 
-    This is the Hermes equivalent of OpenClaw's WebSocket gateway bridge.
-    Instead of WebSocket events, we poll the SQLite database for changes.
+    这是 Hermes 中相当于 OpenClaw 的 WebSocket 网关桥接器的实现。
+    我们通过轮询 SQLite 数据库的变更来代替 WebSocket 事件。
     """
 
     def __init__(self):
@@ -440,15 +439,15 @@ class EventBridge:
             time.sleep(POLL_INTERVAL)
 
     def _poll_once(self, db):
-        """Check for new messages across all sessions.
+        """检查所有会话中的新消息。
 
-        Uses a single mtime check on state.db to skip work when nothing
-        has changed — makes 200ms polling essentially free.  Since #9006
-        the routing index itself lives in state.db (session rows carry
-        session_key/origin metadata), so a new conversation and its first
-        message land in the SAME file and one mtime check covers both —
-        eliminating the old dual-file (sessions.json + state.db) race that
-        could drop brand-new conversations (#8925).
+        对 state.db 进行单次 mtime（修改时间）检查，以在没有任何更改时
+        跳过后续工作 — 这使得 200ms 一次的轮询开销几乎为零。自 #9006 以来，
+        路由索引本身就保存在 state.db 中（会话行带有 session_key/origin
+        元数据），因此新会话及其第一条消息都会落入同一个文件中，
+        只需一次 mtime 检查即可同时覆盖两者 — 从而消除了旧有的双文件
+        （sessions.json + state.db）竞态条件，该竞态条件曾可能导致
+        全新的会话被丢弃（#8925）。
         """
         try:
             from hermes_constants import get_hermes_home
@@ -465,9 +464,9 @@ class EventBridge:
             return  # Nothing changed since last poll — skip entirely
 
         self._state_db_mtime = db_mtime
-        # Refresh the routing index from state.db on every change tick —
-        # it's a single indexed query and it can never lag the messages
-        # table (both live in the same database file).
+        # 在每次变更 tick 时从 state.db 刷新路由索引 —
+        # 这只是一个带索引的单次查询，且它永远不会落后于
+        # messages 表（两者都保存在同一个数据库文件中）。
         self._cached_sessions_index = _load_sessions_index()
         entries = self._cached_sessions_index
 
@@ -567,15 +566,15 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
         limit: int = 50,
         search: Optional[str] = None,
     ) -> str:
-        """List active messaging conversations across connected platforms.
+        """列出所有已连接平台上的活跃消息会话。
 
-        Returns conversations with their session keys (needed for messages_read),
-        platform, chat type, display name, and last activity time.
+        返回会话列表及其session keys（messages_read 所需）、
+        平台、聊天类型、显示名称以及最后活动时间。
 
-        Args:
-            platform: Filter by platform name (telegram, discord, slack, etc.)
-            limit: Maximum number of conversations to return (default 50)
-            search: Optional text to filter conversations by name
+        参数:
+            platform: 按平台名称过滤（telegram、discord、slack 等）
+            limit: 返回会话的最大数量（默认为 50）
+            search: 可选参数，用于按名称过滤会话的文本
         """
         limit = _coerce_int(limit, default=50, minimum=1, maximum=200)
         entries = _load_sessions_index()
@@ -620,10 +619,10 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
 
     @mcp.tool()
     def conversation_get(session_key: str) -> str:
-        """Get detailed info about one conversation by its session key.
+        """通过session_key获取单个会话的详细信息。
 
-        Args:
-            session_key: The session key from conversations_list
+        参数:
+            session_key: 来自 conversations_list 的session_key
         """
         entries = _load_sessions_index()
         entry = entries.get(session_key)
@@ -656,14 +655,14 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
         session_key: str,
         limit: int = 50,
     ) -> str:
-        """Read recent messages from a conversation.
+        """读取会话中的近期消息。
 
-        Returns the message history in chronological order with role, content,
-        and timestamp for each message.
+        按时间顺序返回消息历史，包含每条消息的
+        角色（role）、内容（content）和时间戳（timestamp）。
 
-        Args:
-            session_key: The session key from conversations_list
-            limit: Maximum number of messages to return (default 50, most recent)
+        参数:
+            session_key: 来自 conversations_list 的会话密钥
+            limit: 返回消息的最大数量（默认为 50，即最近的 50 条消息）
         """
         limit = _coerce_int(limit, default=50, minimum=1, maximum=200)
         entries = _load_sessions_index()
@@ -713,14 +712,13 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
         session_key: str,
         message_id: str,
     ) -> str:
-        """List non-text attachments for a message in a conversation.
+        """列出会话中某条消息的非文本附件。
 
-        Extracts images, media files, and other non-text content blocks
-        from the specified message.
+        从指定消息中提取图像、媒体文件和其他非文本内容块。
 
-        Args:
-            session_key: The session key from conversations_list
-            message_id: The message ID from messages_read
+        参数:
+            session_key: 来自 conversations_list 的会话密钥
+            message_id: 来自 messages_read 的消息 ID
         """
         entries = _load_sessions_index()
         entry = entries.get(session_key)
@@ -766,17 +764,17 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
         session_key: Optional[str] = None,
         limit: int = 20,
     ) -> str:
-        """Poll for new conversation events since a cursor position.
+        """轮询从某个游标位置之后发生的新会话事件。
 
-        Returns events that have occurred since the given cursor. Use the
-        returned next_cursor value for subsequent polls.
+        返回自指定游标以来发生的事件。在后续轮询中，
+        请使用返回的 next_cursor 值。
 
-        Event types: message, approval_requested, approval_resolved
+        事件类型：message、approval_requested、approval_resolved
 
-        Args:
-            after_cursor: Return events after this cursor (0 for all)
-            session_key: Optional filter to one conversation
-            limit: Maximum events to return (default 20)
+        参数:
+            after_cursor: 返回此游标之后的事件（设为 0 可获取所有事件）
+            session_key: 可选参数，用于仅过滤单个会话
+            limit: 返回事件的最大数量（默认为 20）
         """
         after_cursor = _coerce_int(after_cursor, default=0, minimum=0, maximum=10**18)
         limit = _coerce_int(limit, default=20, minimum=1, maximum=200)
@@ -795,15 +793,15 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
         session_key: Optional[str] = None,
         timeout_ms: int = 30000,
     ) -> str:
-        """Wait for the next conversation event (long-poll).
+        """等待下一个会话事件（长轮询）。
 
-        Blocks until a matching event arrives or the timeout expires.
-        Use this for near-real-time event delivery without polling.
+        持续阻塞，直到接收到匹配的事件或达到超时时间。
+        使用此方法可以实现近乎实时的事件传递，而无需频繁轮询。
 
-        Args:
-            after_cursor: Wait for events after this cursor
-            session_key: Optional filter to one conversation
-            timeout_ms: Maximum wait time in milliseconds (default 30000)
+        参数:
+            after_cursor: 等待此游标之后的事件
+            session_key: 可选参数，用于仅过滤单个会话
+            timeout_ms: 最长等待时间（毫秒，默认为 30000）
         """
         after_cursor = _coerce_int(after_cursor, default=0, minimum=0, maximum=10**18)
         timeout_ms = _coerce_int(
@@ -828,20 +826,20 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
         target: str,
         message: str,
     ) -> str:
-        """Send a message to a platform conversation.
+        """向某个平台会话发送消息。
 
-        The target format is "platform:chat_id" — same format used by the
-        channels_list tool. You can also use human-friendly channel names
-        that will be resolved automatically.
+        目标格式为 "platform:chat_id" — 该格式与
+        channels_list 工具所使用的格式一致。您也可以使用易于阅读的
+        频道名称，系统会自动对其进行解析。
 
-        Examples:
+        示例：
             target="telegram:6308981865"
             target="discord:#general"
             target="slack:#engineering"
 
-        Args:
-            target: Platform target in "platform:identifier" format
-            message: The message text to send
+        参数:
+            target: "platform:identifier" 格式的平台目标
+            message: 要发送的消息文本
         """
         if not target or not message:
             return json.dumps({"error": "Both target and message are required"})
@@ -861,13 +859,13 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
 
     @mcp.tool()
     def channels_list(platform: Optional[str] = None) -> str:
-        """List available messaging channels and targets across platforms.
+        """列出跨平台可用的消息频道与目标。
 
-        Returns channels that you can send messages to. The target strings
-        returned here can be used directly with the messages_send tool.
+        返回您可以向其发送消息的频道。此处返回的
+        目标字符串可以直接与 messages_send 工具配合使用。
 
-        Args:
-            platform: Filter by platform name (telegram, discord, slack, etc.)
+        参数:
+            platform: 按平台名称过滤（telegram、discord、slack 等）
         """
         directory = _load_channel_directory()
         if not directory:
@@ -915,11 +913,10 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
 
     @mcp.tool()
     def permissions_list_open() -> str:
-        """List pending approval requests observed during this bridge session.
+        """列出在此桥接会话期间观察到的待处理审批请求。
 
-        Returns exec and plugin approval requests that the bridge has seen
-        since it started. Approvals are live-session only — older approvals
-        from before the bridge connected are not included.
+        返回自桥接启动以来所捕获到的执行（exec）和插件（plugin）审批请求。
+        审批仅限实时会话 — 不包含桥接连接之前的历史审批。
         """
         approvals = bridge.list_pending_approvals()
         return json.dumps({
@@ -934,11 +931,11 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
         id: str,
         decision: str,
     ) -> str:
-        """Respond to a pending approval request.
+        """对待处理的审批请求进行响应。
 
-        Args:
-            id: The approval ID from permissions_list_open
-            decision: One of "allow-once", "allow-always", or "deny"
+        参数:
+            id: 来自 permissions_list_open 的审批 ID
+            decision: "allow-once"（仅允许一次）、"allow-always"（总是允许）或 "deny"（拒绝）中的一个
         """
         if decision not in {"allow-once", "allow-always", "deny"}:
             return json.dumps({

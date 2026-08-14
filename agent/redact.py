@@ -679,24 +679,28 @@ def redact_sensitive_text(
     return text
 
 
-# Commands whose stdout is an environment-variable dump (KEY=value lines),
-# NOT source code. For these, terminal-output redaction must run the
-# ENV-assignment pass (code_file=False) so opaque tokens with no recognized
-# vendor prefix (e.g. ``MY_SERVICE_TOKEN=abc123randomstring``) are still
-# masked. For all other commands, code_file=True is used to avoid mangling
-# legitimate source/config dumps (``MAX_TOKENS=100``, ``"apiKey": "x"``
-# fixtures, ``postgresql://{user}`` f-string templates). See issue #43025.
+# 那些标准输出（stdout）为环境变量列表（KEY=value 格式行）、而非源码的命令。
+#
+# 对于这些命令，终端输出脱敏必须执行环境变量赋值（ENV-assignment）解析阶段（即 code_file=False），
+# 使得没有已知厂商前缀的不透明 token（例如 ``MY_SERVICE_TOKEN=abc123randomstring``）
+# 依然能够被正常掩码掩盖。
+#
+# 对于其他所有命令，则使用 code_file=True，
+# 以避免损坏合法的源码或配置文件导出内容
+# （例如 ``MAX_TOKENS=100``、``"apiKey": "x"`` 测试桩，或 ``postgresql://{user}`` 格式化字符串模板）。
+# 详情请参见 issue #43025。
 _ENV_DUMP_COMMANDS = frozenset({"env", "printenv", "set", "export", "declare"})
 
 
 def is_env_dump_command(command: str | None) -> bool:
-    """Return True if ``command`` dumps environment variables to stdout.
+    """若 ``command`` 会将环境变量输出至标准输出（stdout），则返回 True。
 
-    Detects ``env`` / ``printenv`` / ``set`` / ``export`` / ``declare`` as the
-    first token of any segment in a pipeline or sequence (``;`` / ``&&`` /
-    ``||`` / ``|``). Conservative: a parse failure or anything unrecognized
-    returns False (callers then fall back to the safer code_file=True path,
-    which still masks prefix-shaped keys).
+    在管道或命令序列（``;`` / ``&&`` / ``||`` / ``|``）的任意片段中，
+    检测其首个 token 是否为 ``env`` / ``printenv`` / ``set`` / ``export`` / ``declare``。
+
+    策略较为保守：若解析失败或遇到任何无法识别的内容均返回 False
+    （此时调用方会回退到更安全的 ``code_file=True`` 路径，
+    该路径仍会对带有前缀特征的密钥进行掩码处理）。
     """
     if not command or not isinstance(command, str):
         return False
@@ -718,20 +722,21 @@ def is_env_dump_command(command: str | None) -> bool:
 def redact_terminal_output(
     output: str, command: str | None = None, *, force: bool = False
 ) -> str:
-    """Redact secrets from terminal/process stdout.
+    """从终端/进程的标准输出（stdout）中脱敏脱密。
 
-    Single redaction policy for ALL terminal-output surfaces — foreground
-    ``terminal`` results AND background ``process(action=poll/log/wait)``
-    output — so they can't diverge. Picks ``code_file`` based on whether
-    ``command`` is an environment dump:
+    这是适用于所有终端输出界面（包含前台 ``terminal`` 结果
+    以及后台 ``process(action=poll/log/wait)`` 输出）的统一脱敏策略，
+    以防止两者处理逻辑产生偏差。
 
-    - env-dump command (``env``/``printenv``/``set``/``export``/``declare``)
-      → ``code_file=False`` so the ENV-assignment pass masks opaque tokens.
-    - anything else (or unknown command) → ``code_file=True`` to avoid
-      false positives on source/config dumps.
+    根据 ``command`` 是否为环境变量导出指令来决定 ``code_file`` 的值：
 
-    ``force=True`` bypasses the global ``security.redact_secrets`` preference
-    for safety boundaries that must never emit raw credentials.
+    - 环境变量导出指令（``env``/``printenv``/``set``/``export``/``declare``）
+      → ``code_file=False``，以便在环境变量赋值解析阶段对不透明 token 进行掩码处理。
+    - 其他任意指令（或未知指令）
+      → ``code_file=True``，以避免在源码或配置文件导出时出现误报。
+
+    针对绝不能暴露原始凭据的安全边界，
+    设置 ``force=True`` 可绕过全局的 ``security.redact_secrets`` 配置偏好。
     """
     if not output:
         return output

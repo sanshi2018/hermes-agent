@@ -2644,19 +2644,19 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
 def check_all_command_guards(command: str, env_type: str,
                              approval_callback=None,
                              has_host_access: bool = False) -> dict:
-    """Run all pre-exec security checks and return a single approval decision.
+    """运行所有执行前的安全检查，并返回统一的审批结果。
 
-    Gathers findings from tirith and dangerous-command detection, then
-    presents them as a single combined approval request. This prevents
-    a gateway force=True replay from bypassing one check when only the
-    other was shown to the user.
+    收集来自 tirith 以及危险命令检测的发现项，
+    然后将它们作为单条组合式审批请求统一呈现。
+    这可以防止在仅向用户展示了某一种检查时，
+    网关的 force=True 重放攻击跳过另一种检查的情况发生。
 
-    ``has_host_access`` is True when a Docker sandbox bind-mounts host paths;
-    such a session is no longer isolated, so it goes through the normal flow
-    instead of the container fast-path.
+    当 Docker 沙盒绑定挂载了主机路径时，``has_host_access`` 为 True；
+    此时该会话不再处于隔离状态，
+    因此会走正常流程，而非容器快速通道。
     """
-    # Skip isolated container backends for both checks. Docker stops skipping
-    # once host paths are bind-mounted into the sandbox.
+    # 针对这两种检查，均跳过处于隔离状态的容器后端。
+    # 一旦将主机路径绑定挂载到沙盒中，Docker 将不再跳过检查。
     if _should_skip_container_guards(env_type, has_host_access=has_host_access):
         return {"approved": True, "message": None}
 

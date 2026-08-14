@@ -177,10 +177,10 @@ def _load_config_files() -> List[Dict[str, str]]:
 
 
 def get_credential_file_mounts() -> List[Dict[str, str]]:
-    """Return all credential files that should be mounted into remote sandboxes.
+    """返回所有应当挂载到远程沙盒中的凭据文件。
 
-    Each item has ``host_path`` and ``container_path`` keys.
-    Combines skill-registered files and user config.
+    每个项目都包含 ``host_path`` 和 ``container_path`` 键。
+    结合了由技能注册的文件与用户配置。
     """
     mounts: Dict[str, str] = {}
 
@@ -205,21 +205,23 @@ def get_credential_file_mounts() -> List[Dict[str, str]]:
 def get_skills_directory_mount(
     container_base: str = "/root/.hermes",
 ) -> list[Dict[str, str]]:
-    """Return mount info for all skill directories (local + external).
+    """返回所有技能目录（本地和外部）的挂载信息。
 
-    Skills may include ``scripts/``, ``templates/``, and ``references/``
-    subdirectories that the agent needs to execute inside remote sandboxes.
+    技能可能包含 ``scripts/``、``templates/`` 和 ``references/`` 子目录，
+    智能体（agent）需要在远程沙盒内执行其中的内容。
 
-    **Security:** Bind mounts follow symlinks, so a malicious symlink inside
-    the skills tree could expose arbitrary host files to the container.  When
-    symlinks are detected, this function creates a sanitized copy (regular
-    files only) in a temp directory and returns that path instead.  When no
-    symlinks are present (the common case), the original directory is returned
-    directly with zero overhead.
+    **安全性：** 绑定挂载（bind mounts）会跟随符号链接（symlinks），
+    因此技能树中的恶意符号链接可能会将主机的任意文件暴露给容器。
+    当检测到符号链接时，
+    此函数会在临时目录中创建一个经过安全处理的副本（仅限常规文件），
+    并返回该临时路径作为替代。
+    当不存在符号链接时（常见情况），
+    则直接返回原始目录，且没有任何额外开销。
 
-    Returns a list of dicts with ``host_path`` and ``container_path`` keys.
-    The local skills dir mounts at ``<container_base>/skills``, external dirs
-    at ``<container_base>/external_skills/<index>``.
+    返回一个包含多个字典的列表，
+    每个字典均具备 ``host_path`` 和 ``container_path`` 键。
+    本地技能目录挂载于 ``<container_base>/skills``，
+    外部目录挂载于 ``<container_base>/external_skills/<index>``。
     """
     mounts = []
     hermes_home = _resolve_hermes_home()
@@ -359,11 +361,13 @@ _CACHE_DIRS: list[tuple[str, str]] = [
 def get_cache_directory_mounts(
     container_base: str = "/root/.hermes",
 ) -> List[Dict[str, str]]:
-    """Return mount entries for each cache directory that exists on disk.
+    """返回磁盘上存在的
+    每个缓存目录的挂载项。
 
-    Used by Docker to create bind mounts.  Each entry has ``host_path`` and
-    ``container_path`` keys.  The host path is resolved via
-    ``get_hermes_dir()`` for backward compatibility with old directory layouts.
+    供 Docker 使用以创建绑定挂载（bind mounts）。
+    每个挂载项都包含 ``host_path`` 和 ``container_path`` 键。
+    为了与旧的目录布局保持向后兼容，
+    主机路径将通过 ``get_hermes_dir()`` 进行解析。
     """
     from hermes_constants import get_hermes_dir
 

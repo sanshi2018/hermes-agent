@@ -751,11 +751,11 @@ class ProjectFacts:
 
 
 def detect_project_facts(root: Path) -> ProjectFacts:
-    """Detect manifests, package manager(s), verify commands, and context files.
+    """检测 Manifest 声明文件、包管理器、验证命令以及上下文文件。
 
-    Cheap: stat calls plus reads of a couple of small files. The single source
-    of truth for both the prompt snapshot (:func:`_project_facts`) and the
-    gateway's ``project.facts`` — so the UI never re-sniffs verify commands.
+    轻量高效：仅包含 stat 系统调用以及对少量小文件的读取。
+    它是提示词快照（:func:`_project_facts`）与网关 ``project.facts`` 的唯一真实数据源
+    —— 从而确保 UI 无需重新嗅探验证命令。
     """
     manifests = [m for m in _PROJECT_MARKERS if m not in _CONTEXT_FILES and (root / m).is_file()]
     package_managers = list(
@@ -814,11 +814,12 @@ def _project_facts(root: Path) -> list[str]:
 
 
 def project_facts_for(cwd: Optional[str | Path] = None) -> Optional[dict[str, Any]]:
-    """Structured project facts for ``cwd`` — ``None`` outside a workspace.
+    """针对当前工作目录 ``cwd`` 的结构化项目事实 —— 若处于工作区之外则为 ``None``。
 
-    Same detection the system-prompt snapshot uses (git root, else marker root),
-    exposed for non-prompt consumers (the desktop verify UI) so they never
-    re-derive "are we coding?" or duplicate the verify-command sniffing.
+    与系统提示词（system-prompt）快照所使用的检测逻辑一致
+    （优先使用 git 根目录，其次使用特征标记文件根目录）。
+    该方法暴露给非提示词（non-prompt）侧的调用方（如 Desktop 验证 UI），
+    从而避免它们重新推导“我们是否正在编写代码？”，或重复进行验证命令的提取/探测。
     """
     resolved = _resolve_cwd(cwd)
     root = _git_root(resolved) or _marker_root(resolved)

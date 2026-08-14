@@ -1830,11 +1830,14 @@ def set_active_profile(name: str) -> None:
 
 
 def get_active_profile_name() -> str:
-    """Infer the current profile name from HERMES_HOME.
+    """从 HERMES_HOME 推断当前的配置方案（profile）名称。
 
-    Returns ``"default"`` if HERMES_HOME is not set or points to ``~/.hermes``.
-    Returns the profile name if HERMES_HOME points into ``~/.hermes/profiles/<name>``.
-    Returns ``"custom"`` if HERMES_HOME is set to an unrecognized path.
+    如果未设置 HERMES_HOME，或者其指向 ``~/.hermes``，
+    则返回 ``"default"``。
+    如果 HERMES_HOME 指向 ``~/.hermes/profiles/<name>``，
+    则返回对应的配置方案名称。
+    如果 HERMES_HOME 被设置为无法识别的路径，
+    则返回 ``"custom"``。
     """
     from hermes_constants import get_hermes_home
     hermes_home = get_hermes_home()

@@ -172,20 +172,18 @@ class ProcessRegistry:
         import queue as _queue_mod
         self.completion_queue: _queue_mod.Queue = _queue_mod.Queue()
 
-        # Track sessions whose completion was already consumed by the agent
-        # via wait/log.  Drain loops AND gateway/tui watchers skip notifications
-        # for these — a blocking wait() or a full read_log() means the agent
-        # has the output in hand and is acting on it this turn.
+        # 追踪那些完成状态已经被智能体（agent）通过 wait/log 消耗掉的会话。
+        # 排空循环（Drain loops）以及 gateway/tui 监听程序会跳过针对这些会话的通知 ——
+        # 因为阻塞式的 wait() 或完整的 read_log() 意味着智能体当前轮次已获取到输出并正在对其进行处理。
         self._completion_consumed: set = set()
 
-        # Track sessions the agent merely *observed* exited via poll().  poll()
-        # is a read-only status check, so it does NOT mark _completion_consumed
-        # (that would let a status check suppress the gateway/tui watcher's
-        # autonomous delivery turn — #10156).  But on the CLI the poll result
-        # is returned inline in the same turn, so the idle/post-turn drain must
-        # still skip the queued completion to avoid a duplicate [SYSTEM: ...]
-        # injection (the bug #8228 originally fixed).  drain_notifications()
-        # consults this set; the gateway/tui watchers deliberately do NOT.
+        # 追踪智能体仅仅通过 poll() *观察到*已退出的会话。poll() 属于只读的状态检查，
+        # 因此它“不会”标记 _completion_consumed（如果标记，会导致状态检查抑制 gateway/tui 监听程序的自主交付轮次 —— #10156）。
+        # 但在 CLI 模式下，poll 的结果会在当前轮次中内联返回，
+        # 因此空闲/轮次结束后的排空逻辑（drain）仍必须跳过已入队的完成通知，
+        # 以避免重复注入 [SYSTEM: ...] 消息（即 #8228 最初修复的 bug）。
+        # drain_notifications() 会参考此集合；
+        # 而 gateway/tui 监听程序则特意“不”参考该集合。
         self._poll_observed: set = set()
 
         # Global watch-match circuit breaker — across all sessions.
@@ -226,17 +224,19 @@ class ProcessRegistry:
             pass
 
     def _check_watch_patterns(self, session: ProcessSession, new_text: str) -> None:
-        """Scan new output for watch patterns and queue notifications.
+        """扫描新输出来匹配监听模式（watch patterns）并对通知进行排空入队。
 
-        Called from reader threads with new_text being the freshly-read chunk.
+        由读取线程（reader threads）调用，其中 new_text 为最新读取到的数据块。
 
-        Per-session rate limit: at most ONE watch-match notification per
-        WATCH_MIN_INTERVAL_SECONDS. Any match arriving inside the cooldown
-        window is dropped and counts as ONE strike for that window. After
-        WATCH_STRIKE_LIMIT consecutive strike windows, watch_patterns is
-        disabled for this session and the session is promoted to
-        notify_on_complete semantics — one notification when the process
-        actually exits, no more mid-process spam.
+        单会话速率限制：在 WATCH_MIN_INTERVAL_SECONDS 时间间隔内，
+        最多仅允许发送一次监听匹配通知。
+        在冷却时间窗口内到达的任何匹配都会被丢弃，
+        并计为该窗口内的一次冲撞（strike）。
+        在连续达到 WATCH_STRIKE_LIMIT 次冲撞窗口后，
+        该会话的 watch_patterns 将会被禁用，
+        同时该会话会被提升为 notify_on_complete 语义 ——
+        即仅在进程实际退出时发送一次通知，
+        不再产生进程运行中途的垃圾消息骚扰。
         """
         if not session.watch_patterns or session._watch_disabled:
             return
@@ -827,16 +827,16 @@ class ProcessRegistry:
         session_key: str = "",
         timeout: int = 10,
     ) -> ProcessSession:
-        """
-        Spawn a background process through a non-local environment backend.
+        """通过非本地环境后端生成后台进程。
 
-        For Docker/Singularity/Modal/Daytona/SSH: runs the command inside the sandbox
-        using the environment's execute() interface. We wrap the command to
-        capture the in-sandbox PID and redirect output to a log file inside
-        the sandbox, then poll the log via subsequent execute() calls.
+        对于 Docker/Singularity/Modal/Daytona/SSH：
+        使用该环境的 execute() 接口在沙盒内部运行命令。
+        我们会对命令进行包装，以捕获沙盒内部的 PID，将输出重定向到沙盒内的日志文件中，
+        随后通过后续的 execute() 调用对该日志进行轮询。
 
-        This is less capable than local spawn (no live stdout pipe, no stdin),
-        but it ensures the command runs in the correct sandbox context.
+        这种方式的功能逊于本地生成
+        （没有实时 stdout 管道，无法使用 stdin），
+        但它能够确保命令运行在正确的沙盒上下文中。
         """
         session = ProcessSession(
             id=f"proc_{uuid.uuid4().hex[:12]}",
@@ -879,9 +879,10 @@ class ProcessRegistry:
                 if line.isdigit():
                     session.pid = int(line)
                     break
-            # If the wrapper couldn't produce a PID (for example, syntax
-            # error or broken redirect), treat it as a failed launch instead
-            # of exposing a fake running session.
+            # 如果包装程序（wrapper）无法生成 PID
+            # （例如语法错误或重定向损坏），
+            # 则将其视为一次失败的启动，
+            # 而不是暴露出一个虚假的的正在运行的会话。
             if session.pid is None:
                 session.exited = True
                 session.exit_code = int(result.get("returncode", -1))
@@ -1064,11 +1065,12 @@ class ProcessRegistry:
         self._move_to_finished(session)
 
     def _move_to_finished(self, session: ProcessSession):
-        """Move a session from running to finished.
+        """将会话状态从正在运行（running）更新为已完成（finished）。
 
-        Idempotent: if the session was already moved (e.g. kill_process raced
-        with the reader thread), the second call is a no-op — no duplicate
-        completion notification is enqueued.
+        幂等性：如果会话已经被迁移
+        （例如 kill_process 与读取线程产生了竞态条件），
+        第二次调用将是一个空操作（no-op）——
+        不会重复将完成通知入队。
         """
         with self._lock:
             was_running = self._running.pop(session.id, None) is not None
@@ -1076,9 +1078,10 @@ class ProcessRegistry:
         session._completion_event.set()
         self._write_checkpoint()
 
-        # Only enqueue completion notification on the FIRST move.  Without
-        # this guard, kill_process() and the reader thread can both call
-        # _move_to_finished(), producing duplicate [IMPORTANT: ...] messages.
+        # 仅在“首次”状态迁移时将完成通知入队。
+        # 如果没有此防范机制，
+        # kill_process() 和读取线程可能会同时调用 _move_to_finished()，
+        # 从而产生重复的 [IMPORTANT: ...] 消息。
         if was_running and session.notify_on_complete:
             from tools.ansi_strip import strip_ansi
             output_tail = strip_ansi(session.output_buffer[-2000:]) if session.output_buffer else ""
@@ -1755,8 +1758,8 @@ class ProcessRegistry:
     # ----- Cleanup / Pruning -----
 
     def _prune_if_needed(self):
-        """Remove oldest finished sessions if over MAX_PROCESSES. Must hold _lock."""
-        # First prune expired finished sessions
+        """如果超过 MAX_PROCESSES，则移除最早完成的会话。必须持有 _lock 锁。"""
+        # 首先清理已过期的已完成会话
         now = time.time()
         expired = [
             sid for sid, s in self._finished.items()
@@ -1775,10 +1778,10 @@ class ProcessRegistry:
             self._completion_consumed.discard(oldest_id)
             self._poll_observed.discard(oldest_id)
 
-        # Drop any _completion_consumed / _poll_observed entries whose sessions
-        # are no longer tracked at all — belt-and-suspenders against
-        # module-lifetime growth on registry lookup paths that don't reach the
-        # dict prunes.
+        # 清理所有对应的会话已完全不再被追踪的
+        # _completion_consumed / _poll_observed 条目 ——
+        # 针对未能触发字典清理逻辑的注册表查找路径，
+        # 采取的双重保险措施，以防止内存随着模块生命周期不断膨胀。
         tracked = self._running.keys() | self._finished.keys()
         stale = self._completion_consumed - tracked
         if stale:

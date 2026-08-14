@@ -33,11 +33,12 @@ _HAS_ESCAPE = re.compile(r"[\x1b\x80-\x9f]")
 
 
 def strip_ansi(text: str) -> str:
-    """Remove ANSI escape sequences from text.
+    """从文本中移除 ANSI 转义序列。
 
-    Returns the input unchanged (fast path) when no ESC or C1 bytes are
-    present.  Safe to call on any string — clean text passes through
-    with negligible overhead.
+    当不存在 ESC 或 C1 字节时，
+    保持输入不变（快速路径）。
+    可以安全地对任何字符串调用——
+    纯净文本可以通过，开销微乎其微。
     """
     if not text or not _HAS_ESCAPE.search(text):
         return text

@@ -144,32 +144,30 @@ def reap_orphan_containers(
     profile_filter: str | None = None,
     docker_exe: str | None = None,
 ) -> int:
-    """Remove stale hermes-tagged containers left behind by prior processes.
+    """移除由先前进程遗留的且带有 hermes 标签的过期容器。
 
-    Targets containers that match all of:
+    清理对象为同时满足以下所有条件的容器：
 
-    * ``label=hermes-agent=1`` (created by this codebase)
-    * ``status=exited`` (running containers are NEVER reaped — they may
-      belong to a sibling Hermes process whose reuse path will pick them
-      up; killing them would crash the sibling mid-command)
-    * (optional) ``label=hermes-profile=<profile_filter>`` (sweep only the
-      caller's profile by default; a hermes process in profile A must not
-      tear down profile B's containers)
-    * ``State.FinishedAt`` older than *max_age_seconds* ago (so a sibling
-      process that just exited and is about to be replaced doesn't get
-      its container yanked out from under it)
+    * ``label=hermes-agent=1``（由此代码库创建）
+    * ``status=exited``（绝不会清理正在运行的容器 — 它们可能属于
+      某个兄弟 Hermes 进程，且后续复用逻辑会将其拾取；
+      强行杀死它们会导致兄弟进程在执行命令途中崩溃）
+    *（可选）``label=hermes-profile=<profile_filter>``（默认仅扫描
+      调用方的配置文件；配置文件 A 中的 hermes 进程不得
+      拆除配置文件 B 的容器）
+    * ``State.FinishedAt`` 早于 *max_age_seconds* 之前（从而确保一个刚刚退出、
+      即将被替换的兄弟进程的容器不会在其脚下被抽离）
 
-    Returns the number of containers removed. Best-effort: any failure
-    (docker daemon unreachable, slow inspect, parse error) is logged at
-    debug level and the function returns whatever it managed before the
-    failure. Safe to call repeatedly; idempotent.
+    返回已移除的容器数量。尽力而为原则：任何失败
+    （Docker 守护进程无法连接、inspect 缓慢、解析错误）都会在
+    调试日志级别记录，且该函数会返回在失败前成功完成的清理数量。
+    可重复安全调用；具有幂等性。
 
-    Issue #20561 — this is the safety net for SIGKILL / OOM / crashed
-    terminal exits that bypass the ``atexit`` cleanup hook. Without it,
-    even with the cleanup-fix in the prior commit, a hard-killed Hermes
-    process leaves its container behind permanently because there's no
-    subsequent Hermes process scheduled to reuse that exact (task, profile)
-    pair.
+    Issue #20561 — 这是针对绕过 ``atexit`` 清理钩子的
+    SIGKILL / OOM / 终端崩溃等退出的安全防护网。如果没有它，
+    即使在前一个提交中修补了清理机制，一个被强行杀死的 Hermes
+    进程仍会永久遗留其容器，因为后续将没有被调度的 Hermes
+    进程去复用那个完全相同的 (task, profile) 配对。
     """
     docker = docker_exe or find_docker() or "docker"
     filters = ["--filter", "label=hermes-agent=1", "--filter", "status=exited"]
@@ -196,9 +194,9 @@ def reap_orphan_containers(
     if not candidate_ids:
         return 0
 
-    # Inspect each candidate to get FinishedAt; reap only those exited
-    # long enough ago.  Doing this per-container (rather than bulk inspect)
-    # keeps the failure blast radius to one container at a time.
+    # 检查每个候选容器以获取 FinishedAt 字段；仅回收那些已退出
+    # 足够长时间的容器。按容器逐个进行处理（而非批量 inspect）
+    # 可以将失败的影响范围限制在单次一个容器之内。
     import datetime
     now = datetime.datetime.now(datetime.timezone.utc)
     removed = 0
@@ -268,15 +266,17 @@ def _container_finished_at(docker_exe: str, container_id: str):
 
 
 def find_docker() -> Optional[str]:
-    """Locate the docker (or podman) CLI binary.
+    """查找 docker（或 podman）CLI 的二进制文件。
 
-    Resolution order:
-    1. ``HERMES_DOCKER_BINARY`` env var — explicit override (e.g. ``/usr/bin/podman``)
-    2. ``docker`` on PATH via ``shutil.which``
-    3. ``podman`` on PATH via ``shutil.which``
-    4. Well-known macOS Docker Desktop install locations
+    解析顺序：
+    1. ``HERMES_DOCKER_BINARY`` 环境变量 —— 显式覆盖（例如 ``/usr/bin/podman``）
+    2. 通过 ``shutil.which`` 在 PATH 环境变量中查找 ``docker``
+    3. 通过 ``shutil.which`` 在 PATH 环境变量中查找 ``podman``
+    4. macOS 上 Docker Desktop 的已知安装路径
 
-    Returns the absolute path, or ``None`` if neither runtime can be found.
+    返回绝对路径，
+    如果无法找到任何一个运行时（runtime）环境，
+    则返回 ``None``。
     """
     global _docker_executable
     if _docker_executable is not None:
@@ -312,27 +312,33 @@ def find_docker() -> Optional[str]:
     return None
 
 
-# Security flags applied to every container.
-# The container itself is the security boundary (isolated from host).
-# We drop all capabilities then add back the minimum needed:
-#   DAC_OVERRIDE - root can write to bind-mounted dirs owned by host user
-#   CHOWN/FOWNER - package managers (pip, npm, apt) need to set file ownership
-#   SETUID/SETGID - the image's init drops from root to the 'hermes'
-#       user (via `s6-setuidgid` in the bundled image, or whatever
-#       privilege-drop helper a user image uses), which requires these
-#       caps. Combined with `no-new-privileges`, the dropped process
-#       still cannot escalate back to root, so the security posture is
-#       preserved. Omitted entirely when the container starts as a
-#       non-root user via --user, since no privilege drop is needed
-#       in that mode.
-# Block privilege escalation.
-# /tmp is size-limited and nosuid but allows exec (needed by pip/npm builds).
+# 应用于每个容器的安全标志。
+# 容器本身就是安全边界（与主机隔离）。
+# 我们会丢弃所有的系统权能（capabilities），
+# 然后仅重新添加最低限度的必需权能：
+#   DAC_OVERRIDE - root 用户可以写入由主机用户所有的、绑定挂载（bind-mounted）的目录
+#   CHOWN/FOWNER - 包管理器（如 pip、npm、apt）需要设置文件所有权
+#   SETUID/SETGID - 镜像的初始化进程（init）会从 root 降权至 'hermes'
+#       用户（通过打包镜像中的 `s6-setuidgid`，
+#       或者用户镜像所使用的任何降权辅助工具），
+#       这一操作需要这些权能。
+#       结合 `no-new-privileges`，
+#       降权后的进程依然无法重新提权回 root，
+#       从而保持了系统的安全态势。
+#       当容器通过 --user 参数以非 root 用户身份启动时，
+#       由于在该模式下不需要进行降权，
+#       因此会完全省略这些设置。
+# 阻止权限提升。
+# /tmp 目录受到大小限制，并禁用了 suid（nosuid），
+# 但允许执行操作（exec，这是 pip/npm 构建所必需的）。
 #
-# Note: ``--pids-limit`` is *not* in this list — it lives in ``resource_args``
-# and is gated on ``_cgroup_limits_available(image)`` because it requires the
-# ``pids`` cgroup controller to be delegated, which is not the case on hosts
-# such as unprivileged LXCs. ``--cpus``/``--memory`` are gated for the same
-# reason.
+# 注意：``--pids-limit`` *并不仅* 存在于此列表中 ——
+# 它位于 ``resource_args`` 里，
+# 并且受 ``_cgroup_limits_available(image)`` 的控制，
+# 因为它要求委派 ``pids`` cgroup 控制器，
+# 而在诸如无特权的 LXC 等主机环境下通常无法满足此条件。
+# 基于相同的原因，
+# ``--cpus`` 和 ``--memory`` 也同样受到该控制。
 _BASE_SECURITY_ARGS = [
     "--cap-drop", "ALL",
     "--cap-add", "DAC_OVERRIDE",
@@ -365,12 +371,15 @@ _PRIVDROP_CAP_ARGS = [
 
 
 def _build_security_args(run_as_host_user: bool, run_exec: bool = False) -> list[str]:
-    """Return the security/cap/tmpfs args tailored to the privilege mode.
+    """返回针对特定特权模式定制的
+    安全/权能（cap）/tmpfs 参数。
 
-    ``run_exec`` mounts ``/run`` with ``exec`` instead of the hardened
-    ``noexec`` default. This is required for s6-overlay images whose ``/init``
-    entrypoint execs ``/run/s6/basedir/bin/init`` during startup; see
-    ``_image_uses_init_entrypoint``.
+    ``run_exec`` 会使用 ``exec`` 选项挂载 ``/run``，
+    而非使用经过加固的默认选项 ``noexec``。
+    对于其 ``/init`` 入口点会在启动期间
+    执行 ``/run/s6/basedir/bin/init`` 的 s6-overlay 镜像而言，
+    这一设置是必需的；
+    详见 ``_image_uses_init_entrypoint``。
     """
     run_tmpfs = list(_RUN_TMPFS_EXEC if run_exec else _RUN_TMPFS_NOEXEC)
     args = list(_BASE_SECURITY_ARGS) + run_tmpfs
@@ -380,14 +389,21 @@ def _build_security_args(run_as_host_user: bool, run_exec: bool = False) -> list
 
 
 def _image_uses_init_entrypoint(docker_exe: str, image: str) -> bool:
-    """Return True if ``image``'s entrypoint is the s6-overlay ``/init``.
+    """如果 ``image`` 的入口点是 s6-overlay 的 ``/init``，则返回 True。
 
-    Such images (e.g. anything built on ``s6-overlay``, including
-    ``hermes-agent:latest``) already provide their own PID-1 init and execute
-    ``/run/s6/basedir/bin/init`` during stage0 startup. They are incompatible
-    with Docker's ``--init`` (two competing PID-1 inits) and with a ``noexec``
-    ``/run`` mount. Detection is best-effort: on any inspection failure we
-    return False and keep the hardened defaults.
+    这类镜像
+    （例如任何基于 ``s6-overlay`` 构建的镜像，
+    包括 ``hermes-agent:latest``）
+    已经提供了其自身的 PID-1 初始化进程，
+    并在 stage0 启动阶段
+    执行 ``/run/s6/basedir/bin/init``。
+    它们与 Docker 的 ``--init`` 参数不兼容
+    （会导致两个 PID-1 初始化进程相互冲突），
+    同时也与带有 ``noexec`` 选项的 ``/run`` 挂载不兼容。
+    这种检测是尽力而为的：
+    如果检查过程中出现任何失败，
+    我们将返回 False，
+    并保留经过安全加固的默认设置。
     """
     try:
         result = subprocess.run(
@@ -447,20 +463,23 @@ _cgroup_limits_ok: Optional[bool] = None  # cached result across instances
 
 
 def _cgroup_limits_available(image: str) -> bool:
-    """Probe whether cgroup resource limits work in this environment.
+    """探测当前环境中 cgroup 资源限制是否有效。
 
-    Tests ``--cpus``, ``--memory`` and ``--pids-limit`` together by spawning
-    a throwaway container from *image* (the same sandbox image we are about
-    to use for real, so no extra pull and no dependency on a public
-    registry). The container runs ``sleep 0`` — sleep is guaranteed to be
-    present because the sandbox itself uses ``sleep 2h`` as its long-lived
-    entrypoint.
+    通过从 *image* 启动一个一次性容器来集中测试
+    ``--cpus``、``--memory`` 和 ``--pids-limit`` 参数
+    （这是我们即将投入实际使用的同一个沙盒镜像，
+    因此无需额外拉取，也不依赖于公共镜像仓库）。
+    该容器会运行 ``sleep 0`` 命令 ——
+    由于沙盒本身使用 ``sleep 2h`` 作为其常驻入口点，
+    因此可以确保 sleep 命令一定存在。
 
-    On hosts where the corresponding cgroup controllers are not delegated
-    to this process (typical inside unprivileged LXCs and some rootless
-    setups) these flags cause every container start to fail with ``OCI
-    runtime error`` / exit 126. The probe runs once per process and the
-    result — which is host-wide, not image-specific — is cached.
+    在未将相应的 cgroup 控制器委派给当前进程的主机上
+    （常见于无特权的 LXC 环境以及部分 rootless 设置中），
+    这些参数标志会导致每次容器启动都失败，
+    并抛出 ``OCI runtime error`` / 退出码 126。
+    该探测在每个进程中仅运行一次，
+    并且探测结果会被缓存下来
+    （该结果作用于主机全局范围，而非针对特定镜像）。
     """
     global _cgroup_limits_ok
     if _cgroup_limits_ok is not None:
@@ -499,10 +518,11 @@ def _cgroup_limits_available(image: str) -> bool:
 
 
 def _ensure_docker_available() -> None:
-    """Best-effort check that the docker CLI is available before use.
+    """在使用前，尽力检查 Docker CLI 是否可用。
 
-    Reuses ``find_docker()`` so this preflight stays consistent with the rest of
-    the Docker backend, including known non-PATH Docker Desktop locations.
+    复用 ``find_docker()``，
+    以便此预先检查能够与 Docker 后端的其余部分保持一致，
+    包括已知的、未在 PATH 环境变量中的 Docker Desktop 路径。
     """
     docker_exe = find_docker()
     if not docker_exe:
@@ -566,15 +586,15 @@ def _ensure_docker_available() -> None:
 
 
 class DockerEnvironment(BaseEnvironment):
-    """Hardened Docker container execution with resource limits and persistence.
+    """具备资源限制与持久化特性的加固型 Docker 容器执行环境。
 
-    Security: all capabilities dropped, no privilege escalation, PID limits,
-    size-limited tmpfs for scratch dirs. The container itself is the security
-    boundary — the filesystem inside is writable so agents can install packages
-    (pip, npm, apt) as needed. Writable workspace via tmpfs or bind mounts.
+    安全性：剥离所有 Capability 特权，禁止特权提升，限制 PID 数量，
+    为临时目录配置限制容量的 tmpfs。容器本身即为安全边界 —
+    其内部文件系统可写，以便 Agent 能够根据需要安装软件包
+    （如 pip、npm、apt）。通过 tmpfs 或绑定挂载提供可写的工作空间。
 
-    Persistence: when enabled, bind mounts preserve /workspace and /root
-    across container restarts.
+    持久化：启用时，绑定挂载将在容器重启间
+    保留 /workspace 与 /root 目录的内容。
     """
 
     def __init__(
@@ -620,10 +640,12 @@ class DockerEnvironment(BaseEnvironment):
         # Fail fast if Docker is not available.
         _ensure_docker_available()
 
-        # Build resource limit args (gated by cgroup availability probe so
-        # they degrade gracefully on hosts without controller delegation,
-        # e.g. unprivileged LXCs). The probe runs once per process and is
-        # cached host-wide.
+        # 构建资源限制参数
+        # （受 cgroup 可用性探测的控制，
+        # 因此它们在没有控制器委派的主机上能够优雅地降级，
+        # 例如无特权的 LXC 环境）。
+        # 该探测每个进程仅运行一次，
+        # 并在主机全局范围内进行缓存。
         resource_args = []
         if cpu > 0 and _cgroup_limits_available(image):
             resource_args.extend(["--cpus", str(cpu)])
@@ -642,9 +664,11 @@ class DockerEnvironment(BaseEnvironment):
         if not network:
             resource_args.append("--network=none")
 
-        # Persistent workspace via bind mounts from a configurable host directory
-        # (TERMINAL_SANDBOX_DIR, default ~/.hermes/sandboxes/). Non-persistent
-        # mode uses tmpfs (ephemeral, fast, gone on cleanup).
+        # 通过绑定挂载（bind mounts）一个可配置的主机目录
+        # 来实现持久化工作区
+        # （由 TERMINAL_SANDBOX_DIR 指定，默认为 ~/.hermes/sandboxes/）。
+        # 非持久化模式则使用 tmpfs
+        # （临时且快速，在清理后即消失）。
         from tools.environments.base import get_sandbox_dir
 
         # User-configured volume mounts (from config.yaml docker_volumes)
@@ -706,8 +730,11 @@ class DockerEnvironment(BaseEnvironment):
         elif workspace_explicitly_mounted:
             logger.debug("Skipping docker cwd mount: /workspace already mounted by user config")
 
-        # Mount credential files (OAuth tokens, etc.) declared by skills.
-        # Read-only so the container can authenticate but not modify host creds.
+        # 挂载由技能声明的凭据文件
+        # （例如 OAuth 令牌等）。
+        # 设置为只读模式，
+        # 以便容器能够进行身份验证，
+        # 但无法修改主机的凭据。
         try:
             from tools.credential_files import (
                 get_credential_file_mounts,
@@ -762,10 +789,13 @@ class DockerEnvironment(BaseEnvironment):
                     skills_mount["container_path"],
                 )
 
-            # Mount host-side cache directories (documents, images, audio,
-            # screenshots) so the agent can access uploaded files and other
-            # cached media from inside the container.  Read-only — the
-            # container reads these but the host gateway manages writes.
+            # 挂载主机端的缓存目录
+            # （文档、图像、音频、屏幕截图），
+            # 以便智能体能够从容器内部
+            # 访问已上传的文件以及其他缓存的媒体资源。
+            # 设置为只读模式 ——
+            # 容器仅能读取这些内容，
+            # 而主机网关负责管理写入操作。
             for cache_mount in get_cache_directory_mounts():
                 src = Path(cache_mount["host_path"])
                 if not src.is_dir():
@@ -786,16 +816,20 @@ class DockerEnvironment(BaseEnvironment):
         except Exception as e:
             logger.debug("Docker: could not load credential file mounts: %s", e)
 
-        # Explicit environment variables (docker_env config) — set at container
-        # creation so they're available to all processes (including entrypoint).
+        # 显式环境变量（docker_env 配置）——
+        # 在容器创建时进行设置，
+        # 从而使它们能够被所有进程
+        # （包括入口点 entrypoint）所使用。
         env_args = []
         for key in sorted(self._env):
             env_args.extend(["-e", f"{key}={self._env[key]}"])
 
-        # Optional: run the container as the host user so files written into
-        # bind-mounted dirs (/workspace, /root, docker_volumes entries) are
-        # owned by that user on the host instead of by root. Skip cleanly on
-        # platforms without POSIX uid/gid (e.g. native Windows Docker).
+        # 可选操作：以主机用户身份运行容器，
+        # 以便写入到绑定挂载目录
+        # （如 /workspace、/root 以及 docker_volumes 项）中的文件
+        # 在主机上能够归属该用户所有，而非 root 用户。
+        # 在不具备 POSIX uid/gid 的平台上
+        # （例如原生的 Windows Docker 环境），则平滑地跳过此操作。
         user_args: list[str] = []
         if run_as_host_user:
             user_spec = _resolve_host_user_spec()
@@ -815,12 +849,17 @@ class DockerEnvironment(BaseEnvironment):
         # /usr/local/bin is not in PATH (common on macOS gateway/service).
         self._docker_exe = find_docker() or "docker"
 
-        # s6-overlay images (e.g. hermes-agent:latest) already use /init as PID 1
-        # and exec /run/s6/basedir/bin/init during startup. For those images we
-        # must (a) skip Docker's --init (two competing PID-1 inits) and (b) mount
-        # /run with exec instead of noexec, or s6 stage0 dies with exit 126
-        # "Permission denied". Detected once here; defaults are kept on any
-        # inspection failure. See issue #34628.
+        # s6-overlay 镜像（例如 hermes-agent:latest）
+        # 已经使用 /init 作为 PID 1，
+        # 并在启动期间执行 /run/s6/basedir/bin/init。
+        # 对于这些镜像，我们必须
+        # (a) 跳过 Docker 的 --init 参数（以避免两个 PID-1 初始化进程相互冲突），
+        # 并且 (b) 使用 exec（而非 noexec）选项来挂载 /run 目录，
+        # 否则 s6 的 stage0 将会异常终止，
+        # 并返回退出码 126 "Permission denied"（权限被拒绝）。
+        # 此处仅检测一次；
+        # 若检查失败，则保留默认设置。
+        # 详见 issue #34628。
         image_uses_s6_init = _image_uses_init_entrypoint(self._docker_exe, image)
         if image_uses_s6_init:
             logger.info(
@@ -856,13 +895,14 @@ class DockerEnvironment(BaseEnvironment):
 
         # Start the container directly via `docker run -d`.
         container_name = f"hermes-{uuid.uuid4().hex[:8]}"
-        # Labels make hermes-created containers identifiable to:
-        #   * the orphan reaper (`hermes-agent=1` for the global sweep filter)
-        #   * future cross-process reuse (`hermes-task-id`, `hermes-profile`)
-        #   * operators running `docker ps --filter label=hermes-agent=1`
-        # Values are limited to the safe character set defined by
-        # _sanitize_label_value(); the active Hermes profile is captured at
-        # container-start time and never changes for the container's lifetime.
+        # 标签（Labels）使 Hermes 创建的容器能够被以下对象识别：
+        #   * 孤儿回收程序（使用 `hermes-agent=1` 作为全局扫描过滤器）
+        #   * 未来的跨进程复用（`hermes-task-id`, `hermes-profile`）
+        #   * 运行 `docker ps --filter label=hermes-agent=1` 的操作人员
+        # 标签值仅限于由 _sanitize_label_value()
+        # 所定义的安全字符集；
+        # 当前生效的 Hermes profile 会在容器启动时被捕获，
+        # 且在容器的整个生命周期内保持不变。
         profile_name = _sanitize_label_value(_get_active_profile_name())
         task_label = _sanitize_label_value(task_id)
         label_args = [
@@ -882,34 +922,34 @@ class DockerEnvironment(BaseEnvironment):
             "hermes-profile": profile_name,
         }
 
-        # Cross-process container reuse (issue #20561 — docs claim "ONE long-lived
-        # container shared across sessions").  If a prior Hermes process
-        # already started a container for this (task_id, profile) and it
-        # still exists, attach to it instead of starting a fresh one.  This
-        # restores the documented contract; opt out via
-        # ``terminal.docker_persist_across_processes: false``.
+        # 跨进程容器复用（issue #20561 —— 文档声明“多个会话共享一个长久运行的容器”）。
+        # 如果先前的 Hermes 进程已经为当前 (task_id, profile)
+        # 启动了一个容器，并且该容器仍然存在，
+        # 则直接附着（attach）到该容器，而不是启动一个全新的容器。
+        # 这恢复了文档中所约定的行为逻辑；
+        # 可通过设置 ``terminal.docker_persist_across_processes: false`` 来选择退出此机制。
         #
-        # Reuse matches on labels only — we deliberately do NOT compare image
-        # / mounts / resources.  Operators who need a fresh container after
-        # changing those settings should set ``docker_persist_across_processes:
-        # false`` (or run ``docker rm -f`` against the labeled container) to
-        # force a clean start.
+        # 复用仅根据标签（labels）进行匹配 ——
+        # 我们特意不对镜像、挂载项以及资源配置进行比较。
+        # 操作人员如果在修改这些设置后需要一个全新的容器，
+        # 应当设置 ``docker_persist_across_processes: false``
+        # （或者针对带有对应标签的容器运行 ``docker rm -f``），
+        # 以强制进行干净的重新启动。
         reused = False
         if persist_across_processes:
             existing = self._find_reusable_container(task_label, profile_name)
             if existing is not None:
                 container_id, state = existing
-                # Network-mode guard: reuse must not silently defeat an
-                # egress lockdown.  A container created before the operator
-                # set ``docker_network: false`` keeps its original bridge
-                # NetworkMode, so label-only reuse would hand the agent a
-                # networked container despite the config.  On mismatch we
-                # remove the stale container and start fresh — leaving it in
-                # place would let the next label-based reuse pick it up again.
-                # Only the lockdown direction is guarded: a ``none``-mode
-                # container under a default-network config is left alone so
-                # operators using ``docker_extra_args: ["--network=none"]``
-                # don't get their container churned on every startup.
+                # 网络模式卫士（ guard ）：复用绝不能在无声无息中破坏出站锁定（ egress lockdown ）。
+                # 在操作人员设置 ``docker_network: false`` 之前创建的容器会保持其原有的网桥 NetworkMode，
+                # 因此仅基于标签的复用会导致：
+                # 尽管配置已更改，智能体（ agent ）依然会拿到一个带网络权限的容器。
+                # 当网络模式不匹配时，我们会移除过期（ stale ）的容器并重新启动 ——
+                # 如果保留该容器，会导致下一次基于标签的复用再次选中它。
+                # 我们仅对锁定操作（即从允许联网变为禁止联网）进行保护：
+                # 在默认网络配置下，处于 ``none`` 模式的容器将被原封不动地保留，
+                # 这样使用 ``docker_extra_args: ["--network=none"]`` 的操作人员
+                # 就不会在每次启动时都触发容器的频繁重建与替换。
                 mode_mismatch = False
                 actual_mode = None
                 if not network:
@@ -936,6 +976,8 @@ class DockerEnvironment(BaseEnvironment):
                     except (subprocess.TimeoutExpired, OSError) as e:
                         logger.warning("Failed to remove mismatched container %s: %s", container_id[:12], e)
                     existing = None
+
+
             if existing is not None:
                 container_id, state = existing
                 self._container_id = container_id
@@ -964,9 +1006,10 @@ class DockerEnvironment(BaseEnvironment):
                     reused = True
 
         if not reused:
-            # tini/catatonit as PID 1 reaps zombie children — but s6-overlay
-            # images already provide their own /init PID 1, so adding --init
-            # there creates two competing inits and breaks startup (#34628).
+            # tini/catatonit 作为 PID 1 进程可以回收僵尸子进程 ——
+            # 但 s6-overlay 镜像已经提供了其自身的 /init PID 1，
+            # 因此在该环境下添加 --init 会产生两个相互冲突的初始化进程，
+            # 并导致启动失败（#34628）。
             init_args = [] if image_uses_s6_init else ["--init"]
             run_cmd = [
                 self._docker_exe, "run", "-d",
@@ -1009,12 +1052,13 @@ class DockerEnvironment(BaseEnvironment):
             self._container_id = result.stdout.strip()
             logger.info(f"Started container {container_name} ({self._container_id[:12]})")
 
-        # Build the init-time env forwarding args (used only by init_session
-        # to inject host env vars into the snapshot; subsequent commands get
-        # them from the snapshot file).
+        # 构建初始化阶段的环境变量转发参数
+        # （仅在 init_session 中使用，
+        # 用于将主机环境变量注入快照；
+        # 后续命令将直接从快照文件中获取这些变量）。
         self._init_env_args = self._build_init_env_args()
 
-        # Initialize session snapshot inside the container
+        # 在容器内部初始化会话快照
         self.init_session()
 
     def _build_init_env_args(self) -> list[str]:
@@ -1092,12 +1136,13 @@ class DockerEnvironment(BaseEnvironment):
         return any(p in output for p in self._NO_CONTAINER_PATTERNS)
 
     def _recreate_container(self) -> bool:
-        """Recreate the container after it was removed out-of-band.
+        """在容器被外部流程移除后，重新创建该容器。
 
-        Tries label-based reuse first; if no existing container is found,
-        starts a fresh one with the same image and run-args.  Returns True
-        on success, False if recreation fails (caller should surface the
-        original error).
+        优先尝试基于标签（label-based）的复用机制；
+        如果未找到现有容器，
+        则使用相同的镜像和运行参数启动一个全新的容器。
+        成功时返回 True，
+        若重新创建失败则返回 False（调用方应向上抛出原始错误）。
         """
         old_id = (self._container_id or "")[:12]
         logger.warning(
@@ -1174,11 +1219,11 @@ class DockerEnvironment(BaseEnvironment):
         return True
 
     def execute(self, command: str, cwd: str = "", **kwargs) -> dict:
-        """Execute a command, auto-recovering from dead containers.
+        """执行命令，并自动从已失效的容器中恢复。
 
-        If the container was removed out-of-band (idle reaper, docker prune,
-        OOM kill, daemon restart), detect the error and recreate the container
-        transparently before retrying once.
+        如果容器被外部流程移除（例如空闲回收清理器、docker prune、OOM 杀进程、守护进程重启等），
+        检测该错误并在透明地重新创建容器后，
+        进行一次重试。
         """
         result = super().execute(command, cwd, **kwargs)
         if (
@@ -1234,13 +1279,16 @@ class DockerEnvironment(BaseEnvironment):
         return _storage_opt_ok
 
     def _container_network_mode(self, container_id: str) -> Optional[str]:
-        """Return the container's ``HostConfig.NetworkMode`` (e.g. ``bridge``,
-        ``none``, ``host``), or ``None`` when inspection fails.
+        """返回容器的 ``HostConfig.NetworkMode``
+        （例如 ``bridge``、``none``、``host``），
+        或者在检查（inspection）失败时返回 ``None``。
 
-        Used by the reuse path to make sure a persisted container's network
-        mode still matches the operator's ``docker_network`` setting; callers
-        treat ``None`` (unknown) as a mismatch when lockdown was requested,
-        so a failed inspect fails closed rather than open.
+        供复用路径使用，
+        以确保已持久化容器的网络模式
+        仍然与操作人员的 ``docker_network`` 设置相匹配；
+        当请求进行网络锁定（lockdown）时，
+        调用方会将 ``None``（未知状态）视为不匹配，
+        因此检查失败时会按安全闭合（fail closed）而非开放的方式处理。
         """
         try:
             result = subprocess.run(
@@ -1268,17 +1316,17 @@ class DockerEnvironment(BaseEnvironment):
         return mode or None
 
     def _find_reusable_container(self, task_label: str, profile_label: str) -> Optional[tuple[str, str]]:
-        """Look for an existing container labeled for this (task, profile).
+        """查找带有为此 (task, profile) 标记的现有容器。
 
-        Returns ``(container_id, state)`` on hit, ``None`` on miss / on any
-        failure (including ``docker ps`` itself failing). State is one of the
-        values Docker reports via ``{{.State}}`` — e.g. ``running``, ``exited``,
-        ``created``, ``paused``, ``restarting``, ``dead``. The caller decides
-        whether the state warrants ``docker start`` before reuse.
+        命中时返回 ``(container_id, state)``，
+        未命中或发生任何失败（包括 ``docker ps`` 本身失败）时返回 ``None``。
+        状态（state）是 Docker 通过 ``{{.State}}`` 报告的值之一 ——
+        例如 ``running``、``exited``、``created``、``paused``、``restarting``、``dead``。
+        调用方自行决定该状态在复用前是否需要执行 ``docker start``。
 
-        Restricted to the docker-stored label set this class creates; never
-        matches containers that happened to be named ``hermes-*`` but were
-        started by some other tool.
+        仅限于此类创建的、存放在 Docker 中的标签集合；
+        绝不会匹配那些恰好命名为 ``hermes-*``
+        但由其他工具启动的容器。
         """
         try:
             result = subprocess.run(

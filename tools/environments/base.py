@@ -100,29 +100,32 @@ def get_sandbox_dir() -> Path:
 
 
 def _pipe_stdin(proc: subprocess.Popen, data: str) -> None:
-    """Write *data* to proc.stdin on a daemon thread to avoid pipe-buffer deadlocks.
+    """在守护线程中将 *data* 写入 proc.stdin，以避免管道缓冲区死锁。
 
-    On Windows, text-mode stdin (``text=True`` / ``encoding="utf-8"``)
-    translates ``\\n`` → ``\\r\\n`` as the data flows through the pipe —
-    which corrupts every write_file / patch call because the bytes that
-    land on disk include injected carriage returns.  The file IS created,
-    but every subsequent byte-count / content compare against the
-    caller's ``\\n``-only string fails.
+    在 Windows 系统上，文本模式下的 stdin（``text=True`` / ``encoding="utf-8"``）
+    在数据流经管道时会将 ``\\n`` 转换为 ``\\r\\n``
+    —— 这会损坏每一次 write_file 或 patch 调用，
+    因为写入磁盘的字节中包含了被额外注入的回车符（carriage return）。
+    文件虽然会被正常创建，
+    但随后与调用方仅含 ``\\n`` 的字符串进行字节数/内容对比时均会宣告失败。
 
-    Workaround: write through ``proc.stdin.buffer`` (the underlying byte
-    buffer), encoding to UTF-8 ourselves.  That bypasses Python's
-    newline translation entirely on every platform.  No behaviour change
-    on POSIX — the byte sequence is identical to what text-mode would
-    produce there.
+    变通解决办法（Workaround）：
+    直接通过底层字节缓冲区 ``proc.stdin.buffer`` 进行写入，
+    并由我们自行编码为 UTF-8。
+    这样可以在所有平台上完全绕过 Python 的换行符转换机制。
+    在 POSIX 系统上不会有行为变化
+    —— 写入的字节序列与文本模式在此处产生的结果完全一致。
     """
 
     def _write():
         try:
-            # proc.stdin is a TextIOWrapper when text=True was set on the
-            # Popen.  Its ``.buffer`` attribute is the raw BufferedWriter
-            # that bypasses newline translation.  When Popen was created
-            # in byte mode, proc.stdin is already a BufferedWriter with
-            # no ``.buffer`` attribute — fall back to .write() directly.
+            # 当 Popen 设置了 text=True 时，proc.stdin 是一个 TextIOWrapper 对象。
+            # 它的 ``.buffer`` 属性为原始的 BufferedWriter，
+            # 能够绕过换行符转换机制。
+            #
+            # 当 Popen 是以字节模式创建时，
+            # proc.stdin 本身就已经是一个没有 ``.buffer`` 属性的 BufferedWriter
+            # —— 此时直接回退并使用 .write() 方法即可。
             raw = data.encode("utf-8") if isinstance(data, str) else data
             target = getattr(proc.stdin, "buffer", proc.stdin)
             target.write(raw)
@@ -136,11 +139,14 @@ def _pipe_stdin(proc: subprocess.Popen, data: str) -> None:
 def _popen_bash(
     cmd: list[str], stdin_data: str | None = None, **kwargs
 ) -> subprocess.Popen:
-    """Spawn a subprocess with standard stdout/stderr/stdin setup.
+    """生成一个具有标准 stdout/stderr/stdin
+    设置的子进程。
 
-    If *stdin_data* is provided, writes it asynchronously via :func:`_pipe_stdin`.
-    Backends with special Popen needs (e.g. local's ``preexec_fn``) can bypass
-    this and call :func:`_pipe_stdin` directly.
+    如果提供了 *stdin_data*，
+    则通过 :func:`_pipe_stdin` 异步写入该数据。
+    具有特殊 Popen 需求的后端
+    （例如本地的 ``preexec_fn``）可以绕过此过程，
+    直接调用 :func:`_pipe_stdin`。
     """
     kwargs.setdefault("creationflags", windows_hide_flags())
     proc = subprocess.Popen(
@@ -351,63 +357,66 @@ class BaseEnvironment(ABC):
     # ------------------------------------------------------------------
 
     def init_session(self):
-        """Capture login shell environment into a snapshot file.
+        """将登录 Shell 的环境变量捕获并保存至快照文件中。
 
-        Called once after backend construction.  On success, sets
-        ``_snapshot_ready = True`` so subsequent commands source the snapshot
-        instead of running with ``bash -l``.
+        在后端构建完成后调用一次。
+        成功后，会将 ``_snapshot_ready`` 设置为 ``True``，
+        以便后续命令直接加载（source）该快照，
+        而非通过 ``bash -l`` 运行。
         """
-        # Full capture: env vars, functions, aliases, shell options.
-        # Restore configured cwd after login shell profile scripts, which may
-        # change the working directory (e.g. bashrc `cd ~`).  Without this,
-        # pwd -P captures the profile's directory, not terminal.cwd.
-        # Route through ``_quote_cwd_for_cd`` (not a bare ``shlex.quote``) so
-        # the Windows subclass override converts a native ``C:\Users\x`` cwd to
-        # the Git-Bash ``/c/Users/x`` form the bootstrap ``cd`` can resolve.
-        # Without this the snapshot bootstrap ``cd`` below fails on Windows and
-        # ``pwd -P`` captures the login shell's directory, not ``terminal.cwd``.
+        # 完整捕获：环境变量、函数、别名以及 Shell 选项。
+        # 在登录 Shell 的配置文件脚本执行完毕后，恢复所配置的工作目录；
+        # 因为这些脚本可能会改变工作目录（例如 bashrc 中的 `cd ~`）。
+        # 若不进行此恢复，
+        # `pwd -P` 捕获的将是配置文件所设定的目录，而非 terminal.cwd。
+        # 路由通过 ``_quote_cwd_for_cd``（而非单纯的 ``shlex.quote``）处理，
+        # 从而使 Windows 子类的覆盖方法能够将原生的 ``C:\Users\x`` 工作目录
+        # 转换为 Git-Bash 的 ``/c/Users/x`` 形式，以便引导程序中的 ``cd`` 可以解析。
+        # 如果没有此步骤，在 Windows 上下方快照引导中的 ``cd`` 就会失败，
+        # 且 ``pwd -P`` 捕获到的将是登录 Shell 的目录，而非 ``terminal.cwd``。
         _quoted_cwd = self._quote_cwd_for_cd(self.cwd)
-        # Quote snapshot / cwd-file paths via ``_quote_shell_path`` so the
-        # LocalEnvironment override can rewrite ``C:/...`` (and mixed
-        # ``/c/Users\\...``) to ``/c/...`` before quoting — bare drive paths
-        # in the bootstrap script trip MSYS into the
-        # ``Directory \\drivers\\etc does not exist`` failure class.
-        # On POSIX this is plain ``shlex.quote``.
+        # 通过 ``_quote_shell_path`` 对快照 / 工作目录文件的路径进行转义，
+        # 从而使 LocalEnvironment 覆盖方法可以在转义之前，
+        # 将 ``C:/...``（以及混合形式如 ``/c/Users\\...``）重写为 ``/c/...`` ——
+        # 在引导脚本中使用未处理的盘符路径会导致 MSYS 触发
+        # ``Directory \\drivers\\etc does not exist`` 类型的错误。
+        # 在 POSIX 系统上，这等同于普通的 ``shlex.quote``。
         _quoted_snap = self._quote_shell_path(self._snapshot_path)
         _quoted_cwd_file = self._quote_shell_path(self._cwd_file)
-        # Use atomic file replacement: assemble the snapshot in a temp file,
-        # then mv it over the final path.  This prevents concurrent source()
-        # calls from reading a half-written snapshot when another terminal
-        # command finishes and rewrites the env vars (issue #38249).  `mv` is
-        # atomic on POSIX when src and dest are on the same filesystem, so
-        # source() either sees the old complete snapshot or the new complete
-        # one — never a partial/truncated file.
+        # 使用原子文件替换：先在临时文件中组装快照，
+        # 然后使用 mv 命令将其覆盖到最终路径上。
+        # 这可以防止在另一个终端命令完成并重写环境变量时，
+        # 并发的 source() 调用读取到写入了一半的快照（issue #38249）。
+        # 当源文件和目标文件位于同一文件系统时，`mv` 在 POSIX 上是原子性的，
+        # 因此 source() 要么看到旧的完整快照，要么看到新的完整快照 ——
+        # 绝不会读取到部分写入或截断的文件。
         #
-        # The temp name MUST be unique per concurrent writer.  ``$$`` is the
-        # bash PID, but in ``&``-launched subshells (how concurrent terminal
-        # calls run) ``$$`` stays the *parent* shell's PID — so two concurrent
-        # writers would pick the SAME temp name, clobber each other's temp
-        # mid-write, and mv would then publish a torn file (the corruption is
-        # only narrowed, not closed).  ``$BASHPID`` is the actual subshell PID
-        # and is genuinely unique per writer, which closes the race.  The
-        # static path is shell-quoted (Windows/Git-Bash drive letters, spaces)
-        # with ``$BASHPID`` left outside the quotes so it still expands.
+        # 对于每个并发写入者，临时文件名必须保持唯一。
+        # ``$$`` 表示 bash 的 PID，但在通过 ``&`` 启动的子 Shell 中
+        # （即并发终端调用的运行方式），``$$`` 仍保持为*父* Shell 的 PID ——
+        # 这会导致两个并发写入者选择相同的临时文件名，
+        # 在写入过程中相互覆盖，进而导致 mv 发布一个损坏的文件（竞争问题只是减少，并未消除）。
+        # ``$BASHPID`` 则是实际子 Shell 的 PID，对于每个写入者来说是真正唯一的，
+        # 从而彻底解决了该竞争条件。
+        # 静态路径进行了 Shell 转义（用于处理 Windows/Git-Bash 盘符及空格），
+        # 并将 ``$BASHPID`` 留于引号之外，以便其依然能够被正常展开。
         _snap_tmp = self._quote_shell_path(self._snapshot_path + ".tmp.") + "$BASHPID"
         bootstrap = (
             f"umask 077\n"
             f"export -p > {_snap_tmp}\n"
-            # Dump function definitions, filtering out private (``_``-prefixed)
-            # helpers — mainly bash-completion internals (``_git``, ``_make``…)
-            # — by NAME, not by line.  A naive ``declare -f | grep -vE '^_[^_]'``
-            # is line-based: it strips the function *header* line but leaves the
-            # orphaned ``{ … }`` body behind, which corrupts the snapshot and
-            # makes every sourced command fail (e.g. exit 127).  Selecting the
-            # wanted names with ``declare -F`` first, then dumping only those
-            # whole definitions, preserves the filter's intent without ever
-            # tearing a function body.  The non-empty guard matters: bare
-            # ``declare -f`` with no name args dumps ALL functions, so an empty
-            # name list (only private funcs present) would otherwise leak the
-            # very functions we meant to drop.
+            # 导出函数定义，并通过“名称”而非“行”
+            # 来过滤掉私有（前缀为 ``_``）的辅助函数
+            # —— 主要为 bash-completion 的内部函数（如 ``_git``、``_make``…）。
+            # 简单的 ``declare -f | grep -vE '^_[^_]'`` 是基于行处理的：
+            # 它会剔除函数的*头部*行，但却留下了孤立的 ``{ … }`` 函数体，
+            # 这会破坏快照，并导致后续每个 source 的命令都失败（例如返回退出码 127）。
+            # 先使用 ``declare -F`` 筛选出需要的函数名称，
+            # 然后仅导出这些完整的函数定义，
+            # 这样可以在不破坏任何函数体的前提下，完美实现过滤目的。
+            # 此处非空检查（non-empty guard）非常重要：
+            # 不带名称参数的纯 ``declare -f`` 会导出“所有”函数，
+            # 因此如果函数名称列表为空（即仅存在私有函数），
+            # 反而会导致我们本打算丢弃的那些函数泄漏出来。
             f"__hermes_fns=$(declare -F | awk '{{print $3}}' | grep -vE '^_[^_]') || true\n"
             f"[ -n \"$__hermes_fns\" ] && declare -f $__hermes_fns "
             f">> {_snap_tmp} 2>/dev/null || true\n"
@@ -461,62 +470,77 @@ class BaseEnvironment(ABC):
         return shlex.quote(cwd)
 
     def _quote_shell_path(self, path: str) -> str:
-        """Quote *path* for interpolation into a bash script.
+        """对 *path* 进行加引号/转义处理，以便插值嵌入到 Bash 脚本中。
 
-        LocalEnvironment overrides this to rewrite native/mixed Windows
-        paths to ``/c/...`` before quoting. Remote backends leave paths
-        as-is (they already speak POSIX).
+        LocalEnvironment 重写了此方法，
+        在加引号之前会将原生或混合格式的 Windows 路径转换为 ``/c/...`` 格式。
+        远程后端则保持路径不变（因为它们本身就是 POSIX 格式）。
         """
         return shlex.quote(path)
 
     def _wrap_command(self, command: str, cwd: str) -> str:
-        """Build the full bash script that sources snapshot, cd's, runs command,
-        re-dumps env vars, and emits CWD markers."""
+        """构建完整的 Bash 脚本：
+
+        该脚本用于加载 snapshot 环境变量、切换工作目录（cd）、执行命令、重新导出环境变量，并输出当前工作目录（CWD）标记。
+        https://gemini.google.com/app/4e5f9fa5708cc2be
+        """
         escaped = command.replace("'", "'\\''")
 
-        # Quote snapshot/cwd-file paths (see init_session — LocalEnvironment
-        # rewrites ``C:/...`` to ``/c/...`` so MSYS doesn't mangle them).
+        # 对快照/当前工作目录（cwd）的文件路径进行加引号处理
+        # （参见 init_session —— LocalEnvironment 会将 ``C:/...`` 重写为 ``/c/...``，
+        # 以避免 MSYS 对路径造成损坏）。
         _quoted_snap = self._quote_shell_path(self._snapshot_path)
         _quoted_cwd_file = self._quote_shell_path(self._cwd_file)
-        # Use atomic file replacement for env snapshot updates (issue #38249).
-        # Assemble into a per-writer-unique temp file, then mv to atomically
-        # replace the snapshot so concurrent source() calls never read a
-        # truncated/half-written file.  ``$BASHPID`` (not ``$$``) is the actual
-        # subshell PID — unique per concurrent ``&``-launched writer — so two
-        # writers never share a temp name and clobber each other before the mv.
-        # Static path shell-quoted (Windows/spaces); ``$BASHPID`` left to expand.
+        # 对于环境变量快照（env snapshot）的更新，使用原子文件替换机制（参见 issue #38249）。
+        #
+        # 先将内容组装到一个针对各写入者（writer）唯一的临时文件中，
+        # 随后通过 ``mv`` 命令进行原子替换，
+        # 从而确保并发的 ``source()`` 调用绝不会读取到截断或仅写入了一半的文件。
+        #
+        # 使用 ``$BASHPID``（而非 ``$$``）来获取真实的子 Shell PID
+        # —— 该 PID 对于每个通过 ``&`` 后台并发启动的写入者而言都是唯一的
+        # —— 这样两个写入者就绝不会共享同一个临时文件名，
+        # 也不会在执行 ``mv`` 操作前互相覆盖损坏。
+        #
+        # 静态路径进行了 Shell 转义加引号（适应 Windows/含空格路径）；
+        # ``$BASHPID`` 则保留用于变量展开。
         _snap_tmp = self._quote_shell_path(self._snapshot_path + ".tmp.") + "$BASHPID"
 
         parts = []
 
-        # Source snapshot (env vars from previous commands).
-        # Redirect stdout to /dev/null: on macOS (bash 3.2 and certain
-        # Homebrew bash builds) sourcing a file containing ``declare -x``
-        # can emit the declarations to stdout, leaking ~60 lines of env
-        # vars into every tool response (issue #15459).  Linux bash is
-        # silent here, but the redirect is harmless.
+        # 加载（source）环境变量快照（来自先前命令的环境变量）。
+        #
+        # 将标准输出（stdout）重定向至 /dev/null：
+        # 在 macOS（bash 3.2 及部分 Homebrew 构建的 bash）上，
+        # 加载包含 ``declare -x`` 的文件可能会将变量声明输出到标准输出，
+        # 导致约 60 行环境变量泄露至每个工具的响应结果中（参见 issue #15459）。
+        # Linux 上的 bash 在此处是静默无输出的，但添加重定向并无害处。
         if self._snapshot_ready:
             parts.append(
                 f"source {_quoted_snap} >/dev/null 2>&1 || true"
             )
 
-        # Preserve bare ``~`` expansion, but rewrite ``~/...`` through
-        # ``$HOME`` so suffixes with spaces remain a single shell word.
+        # 保留单独 ``~`` 的展开机制，
+        # 但将 ``~/...`` 重写为 ``$HOME`` 路径形式，
+        # 从而确保带有空格的后缀部分依然保持为单一的 Shell 词词元（word）。
         quoted_cwd = self._quote_cwd_for_cd(cwd)
-        # ``--`` keeps hyphen-prefixed directory names from being parsed as options.
+        # ``--`` 可防止以连字符（-）开头的文件/目录名被误解析为选项参数。
         parts.append(f"builtin cd -- {quoted_cwd} || exit 126")
 
         # Run the actual command
         parts.append(f"eval '{escaped}'")
         parts.append("__hermes_ec=$?")
-        # Restrict Hermes metadata files without changing the user's command
-        # umask. Snapshot files may contain env-carried secrets.
+        # 在不改变用户命令 umask 的前提下，
+        # 限制 Hermes 元数据文件的访问权限。
+        # 快照文件（Snapshot files）中可能包含由环境变量携带来的敏感密钥。
         parts.append("umask 077")
 
-        # Re-dump env vars to snapshot (atomic replacement to avoid races).
-        # Chain mv on the export succeeding so a failed/partial dump never
-        # replaces a good snapshot; drop the temp on failure so it isn't
-        # orphaned (cleaned up wholesale in LocalEnvironment.cleanup too).
+        # 重新将环境变量导出（dump）至快照中（采用原子替换以避免竞争条件）。
+        #
+        # 仅在导出成功时才链式触发 ``mv`` 替换，
+        # 确保失败或部分完成的导出绝不会覆盖良好的快照文件；
+        # 并在失败时清除临时文件以防其遗留残留
+        # （在 LocalEnvironment.cleanup 中也会进行统一的批量清理）。
         if self._snapshot_ready:
             parts.append(
                 f"{{ export -p > {_snap_tmp} && mv -f {_snap_tmp} {_quoted_snap}; }} "
@@ -525,10 +549,10 @@ class BaseEnvironment(ABC):
 
         # Write CWD to file (local reads this) and stdout marker (remote parses this)
         parts.append(f"pwd -P > {_quoted_cwd_file} 2>/dev/null || true")
-        # Use a distinct line for the marker. The leading \n ensures
-        # the marker starts on its own line even if the command doesn't
-        # end with a newline (e.g. printf 'exact'). We'll strip this
-        # injected newline in _extract_cwd_from_output.
+        # 标记（marker）需独占一行。
+        # 前置的 \n 可确保即使命令末尾没有换行符（例如执行 printf 'exact'），
+        # 标记依然能从新的一行开始。
+        # 我们会在 _extract_cwd_from_output 中将这个注入的换行符剥离去除。
         parts.append(
             f"printf '\\n{self._cwd_marker}%s{self._cwd_marker}\\n' \"$(pwd -P)\""
         )
@@ -909,9 +933,9 @@ class BaseEnvironment(ABC):
         self._before_execute()
 
         exec_command, sudo_stdin = self._prepare_command(command)
-        # Guard against the `A && B &` subshell-wait trap by default.
-        # Some callers (spawn_via_env) already produce shell-safe wrappers and
-        # pass rewrite_compound_background=False.
+        # 默认防范 `A && B &` 的子 Shell 等待陷阱（subshell-wait trap）。
+        # 某些调用方（如 spawn_via_env）已经生成了 Shell 安全的包装程序，
+        # 并会传入 rewrite_compound_background=False。
         if rewrite_compound_background:
             from tools.terminal_tool import _rewrite_compound_background
             exec_command = _rewrite_compound_background(exec_command)

@@ -1,33 +1,33 @@
 #!/usr/bin/env python3
 """
-Terminal Tool Module
+终端工具模块
 
-A terminal tool that executes commands in local, Docker, Modal, SSH,
-Singularity, and Daytona environments. Supports local execution,
-containerized backends, and cloud sandboxes, including managed Modal mode.
+一种支持在本地、Docker、Modal、SSH、
+Singularity 和 Daytona 环境中执行命令的终端工具。
+支持本地执行、容器化后端以及云沙箱（包括托管 Modal 模式）。
 
-Supported environments:
-- "local": Execute directly on the host machine (default, fastest)
-- "docker": Execute in Docker containers (isolated, requires Docker)
-- "modal": Execute in Modal cloud sandboxes (direct Modal or managed gateway)
+支持的环境：
+- "local": 直接在宿主机上执行（默认，速度最快）
+- "docker": 在 Docker 容器中执行（隔离环境，需要安装 Docker）
+- "modal": 在 Modal 云沙箱中执行（直接 Modal 或托管网关）
 
-Features:
-- Multiple execution backends (local, docker, modal)
-- Background task support
-- VM/container lifecycle management
-- Automatic cleanup after inactivity
+特性功能：
+- 支持多种执行后端（local、docker、modal）
+- 支持后台任务
+- 虚拟机/容器生命周期管理
+- 空闲时自动清理
 
-Cloud sandbox note:
-- Persistent filesystems preserve working state across sandbox recreation
-- Persistent filesystems do NOT guarantee the same live sandbox or long-running processes survive cleanup, idle reaping, or Hermes exit
+云沙箱说明：
+- 持久化文件系统会在沙箱重新创建时保留工作状态
+- 持久化文件系统**不能**保证同一个活动沙箱或长运行进程能够在清理、空闲回收或 Hermes 退出后继续存活
 
-Usage:
+用法示例：
     from terminal_tool import terminal_tool
 
-    # Execute a simple command
+    # 执行简单命令
     result = terminal_tool("ls -la")
 
-    # Execute in background
+    # 在后台执行
     result = terminal_tool("python server.py", background=True)
 """
 
@@ -51,9 +51,10 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Global interrupt event: set by the agent when a user interrupt arrives.
-# The terminal tool polls this during command execution so it can kill
-# long-running subprocesses immediately instead of blocking until timeout.
+# 全局中断事件：当收到用户中断指令时由 agent 设置。
+# 终端工具会在命令执行期间对该事件进行轮询，
+# 以便能够立即终止长运行的子进程，
+# 而不必一直阻塞等待直至超时。
 # ---------------------------------------------------------------------------
 from tools.interrupt import is_interrupted, _interrupt_event  # noqa: F401 — re-exported
 # display_hermes_home imported lazily at call site (stale-module safety during hermes update)
@@ -294,12 +295,13 @@ _WORKDIR_SAFE_RE = re.compile(r'^[A-Za-z0-9/\\:_\-.~ +@=,]+$')
 
 
 def _validate_workdir(workdir: str) -> str | None:
-    """Reject workdir values that don't look like a filesystem path.
+    """拒绝看起来不符合文件系统路径规范的 workdir 值。
 
-    Uses an allowlist of safe characters rather than a deny-list, so novel
-    shell metacharacters can't slip through.
+    使用安全字符白名单而非黑名单机制，
+    从而防止新型 Shell 元字符（metacharacters）绕过检查。
 
-    Returns None if safe, or an error message string if dangerous.
+    如果路径安全则返回 None，
+    如果存在风险则返回错误信息字符串。
     """
     if not workdir:
         return None
@@ -361,10 +363,11 @@ def _sudo_wrong_password_failure(output: str) -> bool:
 def _invalidate_cached_sudo_on_auth_failure(
     command: str | None, output: str
 ) -> bool:
-    """Drop a session-cached sudo password after sudo rejects it.
+    """当 sudo 拒绝密码后，丢弃会话中缓存的 sudo 密码。
 
-    Env-configured ``SUDO_PASSWORD`` is left alone — that is an explicit
-    operator choice, not an interactive cache entry.
+    通过环境变量配置的 ``SUDO_PASSWORD`` 将保持不变 ——
+    那是操作人员的显式选择，
+    而非交互式的缓存条目。
     """
     if "SUDO_PASSWORD" in os.environ:
         return False
@@ -622,11 +625,12 @@ def _rewrite_real_sudo_invocations(command: str) -> tuple[str, int]:
 
 
 def _count_real_sudo_invocations(command: str) -> int:
-    """Return how many real sudo command words appear in *command*.
+    """返回 *command* 中实际出现的 sudo 命令单词数量。
 
-    Lightweight scan that reuses the same tokeniser as
-    ``_rewrite_real_sudo_invocations`` but skips the string-building, so it
-    is cheap to call from the result-processing path.
+    这是一个轻量级扫描，
+    它重用了与 ``_rewrite_real_sudo_invocations`` 相同的分词器（tokeniser），
+    但跳过了字符串构建过程，
+    因此在结果处理路径中进行调用是非常轻量且高效的。
     """
     count = 0
     i = 0
@@ -869,39 +873,38 @@ def _rewrite_compound_background(command: str) -> str:
 
 
 def _transform_sudo_command(command: str | None) -> tuple[str | None, str | None]:
-    """
-    Transform sudo commands to use -S flag if SUDO_PASSWORD is available.
+    """如果 SUDO_PASSWORD 可用，将 sudo 命令转换为使用 -S 标志的形式。
 
-    This is a shared helper used by all execution environments to provide
-    consistent sudo handling across local, SSH, and container environments.
+    这是一个由所有执行环境共用的辅助函数，
+    旨在跨本地、SSH 和容器环境提供一致的 sudo 处理逻辑。
 
-    Returns:
-        (transformed_command, sudo_stdin) where:
-        - transformed_command has every bare ``sudo`` replaced with
-          ``sudo -S -p ''`` so sudo reads its password from stdin.
-        - sudo_stdin is the password string with a trailing newline that the
-          caller must prepend to the process's stdin stream.  sudo -S reads
-          exactly one line (the password) and passes the rest of stdin to the
-          child command, so prepending is safe even when the caller also has
-          its own stdin_data to pipe.
-        - If no password is available, sudo_stdin is None and the command is
-          returned unchanged so it fails gracefully with
-          "sudo: a password is required".
+    返回值：
+        (transformed_command, sudo_stdin) 其中：
+        - transformed_command 将每个单独的 ``sudo`` 替换为
+          ``sudo -S -p ''``，以便 sudo 从 stdin 读取密码。
+        - sudo_stdin 是末尾带有换行符的密码字符串，
+          调用方必须将其追加到进程 stdin 流的最前面。
+          sudo -S 会精确读取一行（即密码），
+          并将剩余的 stdin 传递给子命令，
+          因此即使调用方自身也有需要传输的 stdin_data，提前追加密码也是安全的。
+        - 如果没有可用密码，则 sudo_stdin 为 None，
+          且命令将原样返回，从而优雅地失败并提示
+          "sudo: a password is required"。
 
-    Callers that drive a subprocess directly (local, ssh, docker, singularity)
-    should prepend sudo_stdin to their stdin_data and pass the merged bytes to
-    Popen's stdin pipe.
+    直接驱动子进程的调用方（local, ssh, docker, singularity）
+    应当将 sudo_stdin 追加到其 stdin_data 的最前面，
+    并将合并后的字节流传递给 Popen 的 stdin 管道。
 
-    Callers that cannot pipe subprocess stdin (modal, daytona) must embed
-    the password in the command string themselves; see their execute()
-    methods for how they handle the non-None sudo_stdin case.
+    无法通过管道传输子进程 stdin 的调用方（modal, daytona）
+    必须自行将密码嵌入到命令字符串中；
+    有关它们如何处理非 None 的 sudo_stdin 情况，请参阅其对应的 execute() 方法。
 
-    If SUDO_PASSWORD is not set and an interactive UI is available
-    (HERMES_INTERACTIVE=1 or a registered sudo password callback):
-      Prompts user for password with 45s timeout, caches for session.
+    如果未设置 SUDO_PASSWORD 且交互式 UI 可用
+    （HERMES_INTERACTIVE=1 或已注册 sudo 密码回调）：
+      提示用户输入密码（超时时间 45 秒），并针对当前会话进行缓存。
 
-    If SUDO_PASSWORD is not set and NOT interactive:
-      Command runs as-is (fails gracefully with "sudo: a password is required").
+    如果未设置 SUDO_PASSWORD 且不可交互：
+      命令将原样运行（优雅地失败并提示 "sudo: a password is required"）。
     """
     if command is None:
         return None, None
@@ -995,30 +998,27 @@ _docker_orphan_reaper_lock = threading.Lock()
 
 
 def _maybe_reap_docker_orphans(container_config: Dict[str, Any]) -> None:
-    """Run the docker orphan reaper once per process, if enabled.
+    """如果已启用，则在每个进程中运行一次 Docker 孤儿回收器。
 
-    Sweeps long-Exited containers labeled ``hermes-agent=1`` for the current
-    profile that match the issue #20561 leak class — containers left behind
-    by Hermes processes that exited without firing ``atexit`` (SIGKILL,
-    OOM, terminal-window-close). The reaper is conservative by default:
-    only Exited containers older than ``2 × lifetime_seconds`` and scoped to
-    the current profile.
+    扫描标记有当前配置文件 ``hermes-agent=1`` 的长期处于已退出（Exited）状态的容器，
+    这些容器符合 issue #20561 泄漏类的特征 — 即 Hermes 进程在未触发 ``atexit``
+    的情况下退出（如遭遇 SIGKILL、OOM、终端窗口关闭）所留下的容器。
+    默认情况下，回收策略较为保守：
+    仅针对停用时间超过 ``2 × lifetime_seconds`` 且作用域属于当前配置文件的已退出容器。
 
-    Gates:
+    门控条件：
 
-    * ``terminal.docker_orphan_reaper: false`` disables it entirely (the
-      operator opted out — usually because they're running multiple
-      Hermes processes in the same profile and don't trust the
-      conservative defaults).
-    * ``_docker_orphan_reaper_ran`` flag — sweep runs once per Python
-      interpreter, not on every subagent / RL-rollout / parallel
-      ``terminal()`` call.
+    * ``terminal.docker_orphan_reaper: false`` 会将其彻底禁用（运维人员选择了退出 —
+      通常是因为他们要在同一个配置文件下运行多个 Hermes 进程，
+      且不信任保守的默认设定）。
+    * ``_docker_orphan_reaper_ran`` 标识 — 扫描会在每个 Python 解释器中仅运行一次，
+      而不是在每次子 agent 调用 / RL-rollout / 并发调用 ``terminal()`` 时都重复运行。
     """
     global _docker_orphan_reaper_ran
     if not container_config.get("docker_orphan_reaper", True):
         return
-    # Cheap double-checked-locking: read without the lock, take the lock
-    # only on first run, recheck inside.
+    # 廉价的双重检查锁定（Double-Checked Locking）：
+    # 无锁状态下先读取一次；仅在首次运行时获取锁，并在锁内部再次检查。
     if _docker_orphan_reaper_ran:
         return
     with _docker_orphan_reaper_lock:
@@ -1026,11 +1026,11 @@ def _maybe_reap_docker_orphans(container_config: Dict[str, Any]) -> None:
             return
         _docker_orphan_reaper_ran = True
 
-    # 2 × lifetime_seconds gives sibling Hermes processes a generous grace
-    # window. Floor at 60s so an operator with TERMINAL_LIFETIME_SECONDS=0
-    # doesn't get an instant-reap that races their own setup.
-    # ``container_config`` only carries container_* keys, so read
-    # lifetime_seconds from the env var the rest of the module uses.
+    # 2 × lifetime_seconds 为兄弟 Hermes 进程提供了充裕的宽限期。
+    # 下限设置为 60 秒，以防运维人员将 TERMINAL_LIFETIME_SECONDS 设为 0 时，
+    # 触发立即回收，从而与其自身的初始化设置产生竞态条件。
+    # ``container_config`` 仅包含 container_* 类型的配置键，
+    # 因此请从该模块其他部分所使用的环境变量中读取 lifetime_seconds。
     try:
         lifetime = int(os.getenv("TERMINAL_LIFETIME_SECONDS", "300"))
     except (TypeError, ValueError):
@@ -1059,14 +1059,15 @@ def _maybe_reap_docker_orphans(container_config: Dict[str, Any]) -> None:
         logger.debug("Docker orphan reaper raised: %s", e)
 
 
-# Per-task environment overrides registry.
-# Allows environments (e.g., TerminalBench2Env) to specify a custom Docker/Modal
-# image for a specific task_id BEFORE the agent loop starts. When the terminal or
-# file tools create a new sandbox for that task_id, they check this registry first
-# and fall back to the TERMINAL_MODAL_IMAGE (etc.) env var if no override is set.
+# 按任务划分的环境覆盖注册表。
+# 允许特定环境（例如 TerminalBench2Env）在 agent 循环开始之前，
+# 为特定的 task_id 指定自定义的 Docker/Modal 镜像。
+# 当终端或文件工具为该 task_id 创建新沙箱时，
+# 会首先检查此注册表；如果未设置任何覆盖项，
+# 则退回到 TERMINAL_MODAL_IMAGE（等）环境变量。
 #
-# This is never exposed to the model -- only infrastructure code calls it.
-# Thread-safe because each task_id is unique per rollout.
+# 此注册表绝不对模型暴露 — 仅基础架构代码会调用它。
+# 线程安全，因为每个 rollout 中的 task_id 都是唯一的。
 _task_env_overrides: Dict[str, Dict[str, Any]] = {}
 
 
@@ -1122,27 +1123,26 @@ def clear_task_env_overrides(task_id: str):
 
 def _resolve_container_task_id(task_id: Optional[str]) -> str:
     """
-    Map a tool-call ``task_id`` to the container/sandbox key used by
-    ``_active_environments``.
+    将工具调用的 ``task_id`` 映射为
+    ``_active_environments`` 所使用的容器/沙箱键。
 
-    The top-level agent passes ``task_id=None`` and lands on ``"default"``.
-    ``delegate_task`` children pass their own subagent ID so that
-    file-state tracking, the active-subagents registry, and TUI events stay
-    distinct per child -- but we deliberately collapse that ID back to
-    ``"default"`` here so subagents share the parent's long-lived container
-    (one bash, one /workspace, one set of installed packages).
+    顶级 agent 传入 ``task_id=None`` 并映射至 ``"default"``。
+    ``delegate_task`` 子进程传入它们自己的子 agent ID，以便
+    文件状态跟踪、活跃子 agent 注册表和 TUI 事件对于每个子进程
+    保持独立 — 但我们在此时有意将该 ID 折叠回
+    ``"default"``，从而让子 agent 共享父进程的常驻容器
+    （同一个 bash、同一个 /workspace 以及同一套已安装的软件包）。
 
-    Exception: RL / benchmark environments (TerminalBench2, HermesSweEnv, ...)
-    call ``register_task_env_overrides(task_id, {...})`` to request a
-    per-task Docker/Modal image. When an override is registered for a
-    task_id, we honour it by returning the task_id unchanged -- those
-    rollouts need their own isolated sandbox, which is the whole point of
-    the override.
+    特例：RL / 基准测试环境（TerminalBench2, HermesSweEnv, ...）
+    会调用 ``register_task_env_overrides(task_id, {...})`` 来申请
+    按任务隔离的 Docker/Modal 镜像。当某个 task_id 注册了覆盖配置时，
+    我们会保持 task_id 原样返回以尊重该配置 — 这些 Rollout 任务
+    需要属于它们自己的独立沙箱，这正是覆盖配置的初衷所在。
 
-    CWD-only overrides (registered by the ACP adapter for workspace
-    tracking) are *not* isolation signals — they should not cause each
-    session to spin up its own container.  Only overrides containing
-    backend-specific image keys or ``env_type`` trigger isolation.
+    仅针对工作目录（CWD）的覆盖（由 ACP 适配器注册用于工作区跟踪）
+    *不属于* 隔离信号 — 它们不应该导致每个会话都去
+    启动各自独立的容器。只有包含特定后端镜像键或
+    ``env_type`` 的覆盖配置才会触发隔离。
     """
     _ISOLATION_KEYS = frozenset({
         "docker_image", "modal_image", "singularity_image",
@@ -1156,16 +1156,16 @@ def _resolve_container_task_id(task_id: Optional[str]) -> str:
 
 
 def resolve_task_overrides(task_id: Optional[str]) -> Dict[str, Any]:
-    """Return the env overrides for *task_id*, raw key first then collapsed.
+    """返回 *task_id* 的环境覆盖配置，优先读取原始键，再读取折叠后的键。
 
-    ``register_task_env_overrides`` writes under the *raw* task/session id, but
-    a CWD-only override collapses (:func:`_resolve_container_task_id`) to the
-    shared ``"default"`` container so per-session surfaces (ACP/gateway/
-    dashboard) don't each spin up their own sandbox. Callers that need the
-    override (terminal command setup, file-tool cwd resolution) must therefore
-    read the raw id FIRST and only fall back to the collapsed container id, or
-    the originating session's override is silently dropped. This is the single
-    source of that lookup so the terminal and file layers can't drift apart.
+    ``register_task_env_overrides`` 在*原始*任务/会话 ID 下写入配置，
+    但仅针对工作目录（CWD）的覆盖配置会折叠（:func:`_resolve_container_task_id`）
+    为共享的 ``"default"`` 容器，从而避免按会话划分的界面
+    （ACP/网关/仪表盘）各自启动独立的沙箱。
+    因此，需要该覆盖配置的调用方（终端命令设置、文件工具工作目录解析）
+    必须**优先**读取原始 ID，并在其不存在时才退回到折叠后的容器 ID，
+    否则原始会话的覆盖配置会被静默丢弃。
+    这是该查找逻辑的唯一数据源，可确保终端层和文件层不会产生不一致。
     """
     raw = task_id or "default"
     return (
@@ -1233,21 +1233,23 @@ def _is_ssh_remote_tilde_cwd(backend: str, cwd: str) -> bool:
 
 
 def _is_unusable_container_cwd(cwd: str) -> bool:
-    """Return True if *cwd* is a host/relative path that won't work as the
-    working directory inside a container sandbox.
+    """如果 *cwd* 是宿主机路径或相对路径，且无法在容器沙箱内
+    用作工作目录，则返回 True。
 
-    A container's cwd must be an absolute path that exists *inside* the
-    sandbox (e.g. ``/workspace`` or ``/root``). A host path (``/home/user``,
-    ``C:\\Users\\me``) or a relative path (``.``, ``src/``) is meaningless to
-    ``docker run -w`` and makes the container fail to start (exit 125).
+    容器的 cwd 必须是*存在于沙箱内部*的绝对路径
+    （例如 ``/workspace`` 或 ``/root``）。
+    宿主机路径（如 ``/home/user``、``C:\\Users\\me``）
+    或相对路径（如 ``.``、``src/``）对于 ``docker run -w`` 而言没有任何意义，
+    会导致容器无法启动（退出码 125）。
     """
     if not cwd:
         return False
     if any(cwd.startswith(p) for p in _HOST_CWD_PREFIXES):
         return True
-    # Relative paths (".", "src/") can't be a container workdir either. Windows
-    # drive paths are absolute on Windows but os.path.isabs() is False on a
-    # POSIX host, so they're already caught by the prefix check above.
+    # 相对路径（例如 "."、"src/"）同样不能用作容器的工作目录。
+    # Windows 驱动器路径在 Windows 系统上是绝对路径，
+    # 但在 POSIX 宿主机上 os.path.isabs() 会返回 False，
+    # 因此它们已经会被上方的前缀检查捕获。
     if not os.path.isabs(cwd):
         return True
     return False
@@ -1393,21 +1395,21 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
                         task_id: str = "default",
                         host_cwd: str = None):
     """
-    Create an execution environment for sandboxed command execution.
-    
-    Args:
-        env_type: One of "local", "docker", "singularity", "modal",
-            "daytona", "ssh"
-        image: Docker/Singularity/Modal image name (ignored for local/ssh)
-        cwd: Working directory
-        timeout: Default command timeout
-        ssh_config: SSH connection config (for env_type="ssh")
-        container_config: Resource config for container backends (cpu, memory, disk, persistent)
-        task_id: Task identifier for environment reuse and snapshot keying
-        host_cwd: Optional host working directory to bind into Docker when explicitly enabled
-        
-    Returns:
-        Environment instance with execute() method
+    创建一个用于沙箱化命令执行的执行环境。
+
+    参数:
+        env_type: "local"、"docker"、"singularity"、"modal"、
+            "daytona"、"ssh" 中的一种
+        image: Docker/Singularity/Modal 镜像名称（对于 local/ssh 会被忽略）
+        cwd: 工作目录
+        timeout: 默认命令超时时间
+        ssh_config: SSH 连接配置（用于 env_type="ssh"）
+        container_config: 容器后端的资源配置（包含 cpu、memory、disk、persistent）
+        task_id: 用于环境复用和快照键定的任务标识符
+        host_cwd: 显式启用时，要挂载/绑定到 Docker 中的可选宿主机工作目录
+
+    返回:
+        带有 execute() 方法的环境实例
     """
     cc = container_config or {}
     cpu = cc.get("container_cpu", 1)
@@ -1424,12 +1426,12 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
         return _LocalEnvironment(cwd=cwd, timeout=timeout)
     
     elif env_type == "docker":
-        # One-shot orphan reaper: clean up labeled containers left behind by
-        # prior Hermes processes that hit SIGKILL / OOM / a closed terminal
-        # before the atexit cleanup hook could run.  Gated to once per
-        # process so concurrent _create_environment calls (parallel
-        # subagents, RL benchmarks) don't run the reaper N times.
-        # Disable via ``terminal.docker_orphan_reaper: false`` (issue #20561).
+        # 一次性孤儿回收器：清理先前 Hermes 进程留下的带标签容器，
+        # 这些进程在 atexit 清理钩子运行前就遭遇了 SIGKILL / OOM / 终端关闭。
+        # 每个进程受门控保护仅运行一次，
+        # 因此并发的 _create_environment 调用（并行子 agent、RL 基准测试）
+        # 不会重复运行回收器 N 次。
+        # 可通过设置 ``terminal.docker_orphan_reaper: false`` 来禁用（issue #20561）。
         _maybe_reap_docker_orphans(cc)
         return _DockerEnvironment(
             image=image, cwd=cwd, timeout=timeout,
@@ -1540,11 +1542,11 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
 
 
 def _cleanup_inactive_envs(lifetime_seconds: int = 300):
-    """Clean up environments that have been inactive for longer than lifetime_seconds."""
+    """清理停用时间超过 lifetime_seconds 的环境。"""
     current_time = time.time()
 
-    # Check the process registry -- skip cleanup for sandboxes with active
-    # background processes (their _last_activity gets refreshed to keep them alive).
+    # 检查进程注册表 — 跳过对包含活跃后台进程的沙箱的清理
+    # （这些沙箱的 _last_activity 会被刷新以维持其存活状态）。
     try:
         from tools.process_registry import process_registry
         for task_id in list(_last_activity.keys()):
@@ -1553,10 +1555,10 @@ def _cleanup_inactive_envs(lifetime_seconds: int = 300):
     except ImportError:
         pass
 
-    # Phase 1: collect stale entries and remove them from tracking dicts while
-    # holding the lock.  Do NOT call env.cleanup() inside the lock -- Modal and
-    # Docker teardown can block for 10-15s, which would stall every concurrent
-    # terminal/file tool call waiting on _env_lock.
+    # 阶段 1：在持有锁的同时，收集过期的条目并从跟踪字典中将其移除。
+    # 切勿在锁内部调用 env.cleanup() —— Modal 和 Docker 的销毁过程
+    # 可能会阻塞 10 到 15 秒，这会拖慢所有正在等待 _env_lock 的
+    # 并发终端/文件工具调用。
     envs_to_stop = []  # list of (task_id, env) pairs
 
     with _env_lock:
@@ -1572,8 +1574,9 @@ def _cleanup_inactive_envs(lifetime_seconds: int = 300):
             for task_id, _ in envs_to_stop:
                 _creation_locks.pop(task_id, None)
 
-    # Phase 2: stop the actual sandboxes OUTSIDE the lock so other tool calls
-    # are not blocked while Modal/Docker sandboxes shut down.
+    # 阶段 2：在锁外部停止实际的沙箱，
+    # 从而在 Modal/Docker 沙箱关闭时
+    # 不会阻塞其他的工具调用。
     for task_id, env in envs_to_stop:
         # Invalidate stale file_ops cache entry (Bug fix: prevents
         # ShellFileOperations from referencing a dead sandbox)
@@ -1786,26 +1789,27 @@ atexit.register(_atexit_cleanup)
 
 
 # =============================================================================
-# Exit Code Context for Common CLI Tools
+# 常用 CLI 工具的退出码上下文
 # =============================================================================
-# Many Unix commands use non-zero exit codes for informational purposes, not
-# to indicate failure.  The model sees a raw exit_code=1 from `grep` and
-# wastes a turn investigating something that just means "no matches".
-# This lookup adds a human-readable note so the agent can move on.
+# 许多 Unix 命令会使用非零退出码来表示提示性信息，而非指示命令执行失败。
+# 模型在看到来自 `grep` 的原始 exit_code=1 时，
+# 会白白浪费轮次去排查一个仅仅代表“未匹配到结果”的现象。
+# 此查找表添加了人类可读的备注说明，
+# 以便 Agent 能够直接继续下一步操作。
 
 def _interpret_exit_code(command: str, exit_code: int) -> str | None:
-    """Return a human-readable note when a non-zero exit code is non-erroneous.
+    """当非零退出码并不代表错误时，返回一条人类可读的备注说明。
 
-    Returns None when the exit code is 0 or genuinely signals an error.
-    The note is appended to the tool result so the model doesn't waste
-    turns investigating expected exit codes.
+    当退出码为 0 或确实指示错误时返回 None。
+    该备注说明会被附加到工具执行结果中，
+    以避免模型浪费轮次去排查预期内的退出码。
     """
     if exit_code == 0:
         return None
 
-    # Extract the last command in a pipeline/chain — that determines the
-    # exit code.  Handles  `cmd1 && cmd2`, `cmd1 | cmd2`, `cmd1; cmd2`.
-    # Deliberately simple: split on shell operators and take the last piece.
+    # 提取管道或命令链中的最后一个命令 —— 它决定了最终的退出码。
+    # 支持 `cmd1 && cmd2`、`cmd1 | cmd2` 以及 `cmd1; cmd2`。
+    # 逻辑故意保持简洁：直接按 Shell 运算符分割，并获取最后一个片段。
     segments = re.split(r'\s*(?:\|\||&&|[|;])\s*', command)
     last_segment = (segments[-1] if segments else command).strip()
 
@@ -1858,12 +1862,13 @@ def _interpret_exit_code(command: str, exit_code: int) -> str | None:
 
 
 def _command_requires_pipe_stdin(command: str) -> bool:
-    """Return True when PTY mode would break stdin-driven commands.
+    """当 PTY 模式会导致由 stdin 驱动的命令运行异常时，返回 True。
 
-    Some CLIs change behavior when stdin is a TTY. In particular,
-    `gh auth login --with-token` expects the token to arrive via piped stdin and
-    waits for EOF; when we launch it under a PTY, `process.submit()` only sends a
-    newline, so the command appears to hang forever with no visible progress.
+    某些 CLI 工具在 stdin 为 TTY 时会改变行为。
+    特别是在使用 `gh auth login --with-token` 时，
+    它期望通过管道传输的 stdin 接收令牌并等待 EOF 结束符；
+    而当我们在 PTY 模式下启动该命令时，`process.submit()` 仅会发送一个换行符，
+    导致该命令看起来在没有任何可见进度的状态下永久挂起。
     """
     normalized = " ".join(command.lower().split())
     return (
@@ -1880,11 +1885,11 @@ _TRAILING_BACKGROUND_AMP_RE = re.compile(r"\s&\s*(?:#.*)?$")
 
 
 def _strip_quotes(command: str) -> str:
-    """Remove single- and double-quoted content so regex checks don't match inside strings.
+    """移除单引号和双引号内的内容，防止正则表达式在字符串内部进行匹配。
 
-    This prevents false positives when keywords like 'nohup' or 'setsid' appear
-    in commit messages, Python -c code, echo arguments, or PR body text.
-    Also strips backtick-quoted content and heredoc-style inline text.
+    这可以避免当 'nohup' 或 'setsid' 等关键字出现在
+    提交信息、Python -c 代码、echo 参数或 PR 正文文本中时触发误报。
+    同时也会剥离反引号包裹的内容以及 heredoc 风格的内联文本。
     """
     # Remove single-quoted strings (no escaping inside single quotes in shell)
     result = re.sub(r"'[^']*'", "''", command)
@@ -1919,19 +1924,24 @@ def _looks_like_help_or_version_command(command: str) -> bool:
 
 
 def _foreground_background_guidance(command: str) -> str | None:
-    """Suggest background mode when a foreground command looks long-lived.
+    """当前台命令看起来属于长生命周期任务时，建议使用后台模式。
 
-    Prevents workflows that start a server/watch process and then stall before
-    follow-up checks or test commands run.
+    防止因启动服务器/监听进程而导致工作流停滞，
+    进而无法执行后续的检查或测试命令。
     """
     if _looks_like_help_or_version_command(command):
         return None
 
-    # Strip quoted content so keywords inside strings/arguments don't trigger
-    # false positives (e.g., git commit -m "... setsid ...", python3 -c "os.setsid").
+    # 剥离引用内容（字符串），避免字符串/参数内部的关键字触发
+    # 误报（例如：git commit -m "... setsid ...", python3 -c "os.setsid"）。
     unquoted = _strip_quotes(command)
 
     if _SHELL_LEVEL_BACKGROUND_RE.search(unquoted):
+        # return (
+        #     "前台命令使用了 Shell 层面的后台包装器（nohup/disown/setsid）。"
+        #     "请改用 terminal(background=true)，以便 Hermes 能够跟踪该进程，"
+        #     "然后再通过独立的命令执行就绪性检查与测试。"
+        # )
         return (
             "Foreground command uses shell-level background wrappers (nohup/disown/setsid). "
             "Use terminal(background=true) so Hermes can track the process, then run "
@@ -1961,17 +1971,18 @@ def _resolve_notification_flag_conflict(
     watch_patterns,
     background: bool,
 ) -> tuple:
-    """Decide what to do when both notify_on_complete and watch_patterns are set.
+    """决定当同时设置了 notify_on_complete 和 watch_patterns 时的处理策略。
 
-    These flags produce duplicate, delayed notifications when combined — one
-    notification per watch-pattern match AND one on process exit, with async
-    delivery that can spam the user long after the process ends. When both are
-    set, we drop watch_patterns in favor of notify_on_complete (the more useful
-    "let me know when it's done" signal) and return a human-readable note.
+    当这两者组合使用时，会产生重复且延迟的通知 ——
+    既包含每一次监听模式匹配的通知，也包含进程退出时的通知，
+    并且由于异步交付机制，可能会在进程结束很久之后依然向用户发送垃圾消息骚扰。
+    当两者同时被设置时，我们将丢弃 watch_patterns，
+    优先保留 notify_on_complete（即更有用的“当它完成时通知我”这一信号），
+    并返回一条易于阅读的说明（human-readable note）。
 
-    Returns:
-        (watch_patterns_to_use, conflict_note). conflict_note is "" when there
-        is no conflict.
+    返回值：
+        (watch_patterns_to_use, conflict_note)。
+        当不存在冲突时，conflict_note 为 ""。
     """
     if background and notify_on_complete and watch_patterns:
         note = (
@@ -1988,13 +1999,15 @@ def _resolve_command_cwd(
     env: Any,
     default_cwd: str,
 ) -> str:
-    """Return the cwd for a command, preferring the live session cwd.
+    """返回命令的工作目录（cwd），优先使用当前会话的实时工作目录。
 
-    ``terminal_tool`` historically re-sent the init-time/config cwd on every
-    call. That broke session-local ``cd`` state: the environment tracked the
-    new directory in ``env.cwd``, but foreground/background calls kept forcing
-    the old cwd back through ``env.execute(..., cwd=...)``. Explicit
-    ``workdir=`` must still override everything.
+    在过去，``terminal_tool`` 每次调用时
+    都会重新发送初始化阶段或配置中所设定的 cwd。
+    这破坏了会话内部的 ``cd`` 状态：
+    环境已经在 ``env.cwd`` 中追踪到了新的目录，
+    但前台/后台的调用却持续通过 ``env.execute(..., cwd=...)``
+    强制切回旧的 cwd。
+    当然，显式传入的 ``workdir=`` 参数仍必须拥有最高优先级，覆盖所有其他设置。
     """
     if workdir:
         return workdir
@@ -2019,35 +2032,41 @@ def terminal_tool(
     watch_patterns: Optional[List[str]] = None,
 ) -> str:
     """
-    Execute a command in the configured terminal environment.
+    在配置好的终端环境中执行命令。
 
-    Args:
-        command: The command to execute
-        background: Whether to run in background (default: False)
-        timeout: Command timeout in seconds (default: from config)
-        task_id: Unique identifier for environment isolation (optional)
-        session_id: Conversation/session identifier for durable observability
-        force: If True, skip dangerous command check (use after user confirms)
-        workdir: Working directory for this command (optional, uses session cwd if not set)
-        pty: If True, use pseudo-terminal for interactive CLI tools (local backend only)
-        notify_on_complete: If True and background=True, you'll be notified exactly once when the process exits. The right choice for almost every long task. MUTUALLY EXCLUSIVE with watch_patterns.
-        watch_patterns: List of strings to watch for in background output. HARD rate limit: 1 notification per 15s per process. After 3 strike windows in a row, watch_patterns is disabled and the session is auto-promoted to notify_on_complete. Use ONLY for rare, one-shot mid-process signals on long-lived processes (server readiness, migration-done markers). NEVER use in loops/batch jobs — error patterns there will hit the strike limit and get disabled. MUTUALLY EXCLUSIVE with notify_on_complete — set one, not both.
+    参数:
+        command: 要执行的命令
+        background: 是否在后台运行（默认：False）
+        timeout: 命令超时时间，单位为秒（默认：来自配置）
+        task_id: 用于环境隔离的唯一标识符（可选）
+        session_id: 用于持久化可观测性的会话/对话标识符
+        force: 如果为 True，则跳过危险命令检查（在用户确认后使用）
+        workdir: 此命令的工作目录（可选，未设置时使用会话的当前工作目录）
+        pty: 如果为 True，则为交互式 CLI 工具使用伪终端（仅限本地后端）
+        notify_on_complete: 如果为 True 且 background=True，将在进程退出时仅接收一次通知。
+        几乎适用于所有长时任务的明智选择。与 watch_patterns 互斥。
+        watch_patterns: 在后台输出中要监听的字符串列表。
+            存在严格的频率限制：每个进程每 15 秒最多发送 1 次通知。
+            在连续触发 3 个惩罚窗口后，watch_patterns 将被禁用，且会话会自动升级为 notify_on_complete。
+            仅可用于长生存期进程中罕见且一次性的进程中途信号（如服务器就绪信号、迁移完成标识）。
+            切勿在循环或批量作业中使用 — 否则其中的错误匹配模式会触发惩罚限制并被禁用。
+            与 notify_on_complete 互斥 — 只能设置二者之一。
 
-    Returns:
-        str: JSON string with output, exit_code, and error fields
+    返回:
+        str: 包含 output（输出）、exit_code（退出码）和 error（错误）字段的 JSON 字符串
 
-    Examples:
-        # Execute a simple command
+    示例:
+        # 执行简单命令
         >>> result = terminal_tool(command="ls -la /tmp")
 
-        # Run a background task
+        # 运行后台任务
         >>> result = terminal_tool(command="python server.py", background=True)
 
-        # With custom timeout
+        # 使用自定义超时时间
         >>> result = terminal_tool(command="long_task.sh", timeout=300)
-        
-        # Force run after user confirmation
-        # Note: force parameter is internal only, not exposed to model API
+
+        # 用户确认后强制运行
+        # 注意：force 参数仅限内部使用，不对模型 API 暴露
     """
     try:
         if not isinstance(command, str):
@@ -2066,18 +2085,19 @@ def terminal_tool(
         config = _get_env_config()
         env_type = config["env_type"]
 
-        # Use task_id for environment isolation. By default all subagent
-        # task_ids collapse back to "default" so the top-level agent and
-        # every delegate_task child share one container; only task_ids with
-        # a registered env override (RL benchmarks) get isolated sandboxes.
+        # 使用 task_id 进行环境隔离。在默认情况下，所有子 agent
+        # 的 task_id 都会折叠回 "default"，因此顶级 agent 和
+        # 每个 delegate_task 子进程都会共享同一个容器；只有配置了
+        # 显式环境覆盖（如 RL 基准测试）的 task_id 才会获得独立的隔离沙箱。
         effective_task_id = _resolve_container_task_id(task_id)
 
-        # Check per-task overrides (set by environments like TerminalBench2Env)
-        # before falling back to global env var config. ``resolve_task_overrides``
-        # reads the raw task id first then the collapsed container id, so a
-        # CWD-only override (which collapses ``effective_task_id`` to
-        # ``"default"``) is still found under its originating session id while
-        # isolation-keyed RL/benchmark overrides keep resolving as before.
+        # 在退回到全局环境变量配置之前，先检查按任务设置的覆盖项
+        # （由 TerminalBench2Env 等环境进行设置）。
+        # ``resolve_task_overrides`` 会先读取原始任务 ID，然后再读取
+        # 折叠后的容器 ID；因此，仅针对工作目录（CWD）的覆盖项
+        # （它会将 ``effective_task_id`` 折叠为 ``"default"``）
+        # 仍然可以在其原始会话 ID 下被找到，而带有隔离键的
+        # RL/基准测试覆盖项则继续像以前一样进行解析。
         overrides = resolve_task_overrides(task_id)
         
         # Select image based on env type, with per-task override support
@@ -2093,17 +2113,15 @@ def terminal_tool(
             image = ""
 
         cwd = overrides.get("cwd") or config["cwd"]
-        # A per-task cwd override (registered by the gateway/TUI for workspace
-        # tracking, or by RL/benchmark envs) wins over config["cwd"] — but
-        # config["cwd"] was already sanitized for container backends in
-        # _get_env_config() while the override is raw. On a container backend a
-        # raw host path (e.g. a Windows desktop session's C:\Users\<user>, or a
-        # POSIX /home/<user>) reaches `docker run -w <host-path>` and the
-        # container fails to start (exit 125). Re-apply the same host/relative
-        # path guard to the *resolved* cwd so the override can't bypass it.
-        # Valid in-container override paths (RL/benchmark sandboxes that set
-        # cwd to /workspace, /root, etc.) are absolute non-host paths and pass
-        # through untouched.
+        # 按任务设置的工作目录（cwd）覆盖项（由网关/TUI 注册用于工作区跟踪，
+        # 或由 RL/基准测试环境注册）优先级高于 config["cwd"] — 但 config["cwd"]
+        # 已经在 _get_env_config() 中针对容器后端进行了规范化处理，而该覆盖项则是原始路径。
+        # 在容器后端上，原始宿主机路径（例如 Windows 桌面会话的 C:\Users\<user>，
+        # 或 POSIX 系统上的 /home/<user>）会直接传递给 `docker run -w <host-path>`，
+        # 从而导致容器启动失败（退出码 125）。因此需要对*解析后*的 cwd 重新应用
+        # 相同的宿主机/相对路径防护机制，确保覆盖项无法绕过该约束。
+        # 容器内部的有效覆盖路径（如将 cwd 设置为 /workspace、/root 等的 RL/基准测试沙箱）
+        # 属于绝对非宿主机路径，会不受影响地直接通过。
         if env_type in _CONTAINER_BACKENDS and _is_unusable_container_cwd(cwd):
             if cwd != config["cwd"]:
                 logger.info(
@@ -2115,8 +2133,8 @@ def terminal_tool(
         default_timeout = config["timeout"]
         effective_timeout = timeout or default_timeout
 
-        # Reject foreground commands where the model explicitly requests
-        # a timeout above FOREGROUND_MAX_TIMEOUT — nudge it toward background.
+        # 拒绝模型显式请求超时时间超过 FOREGROUND_MAX_TIMEOUT 的前台命令
+        # — 引导其改为使用后台方式运行。
         if not background and timeout and timeout > FOREGROUND_MAX_TIMEOUT:
             return json.dumps({
                 "error": (
@@ -2126,8 +2144,8 @@ def terminal_tool(
                 ),
             }, ensure_ascii=False)
 
-        # Guardrail: long-lived server/watch commands should run as managed
-        # background sessions, not foreground shell hacks.
+        # 防护机制：长寿命服务器/监控命令应当作为受管后台会话运行，
+        # 而不应使用前台 Shell 技巧。
         if not background:
             guidance = _foreground_background_guidance(command)
             if guidance:
@@ -2141,16 +2159,17 @@ def terminal_tool(
         # Start cleanup thread
         _start_cleanup_thread()
 
-        # Get or create environment.
-        # Use a per-task creation lock so concurrent tool calls for the same
-        # task_id wait for the first one to finish creating the sandbox,
-        # instead of each creating their own (wasting Modal resources).
+        # 获取或创建环境。
+        # 使用按任务划分的创建锁，以便针对同一个 task_id 的并发工具调用
+        # 能够等待第一个调用完成沙箱创建，
+        # 而不是各自创建一个沙箱（避免浪费 Modal 资源）。
         with _env_lock:
-            # Prefer the collapsed container id, but fall back to an env cached
-            # under the raw task_id. Per-session surfaces (ACP/gateway/dashboard)
-            # with a CWD-only override collapse to "default" for container
-            # sharing, yet an env may already be cached under the originating
-            # task_id; honor it instead of spawning a duplicate.
+            # 优先使用折叠后的容器 ID，但在找不到时退回到
+            # 在原始 task_id 下缓存的环境。
+            # 带有仅针对 CWD 覆盖项的按会话界面（ACP/网关/仪表盘）
+            # 会折叠为 "default" 以实现容器共享，
+            # 但环境可能已经缓存于原始 task_id 下；
+            # 此时应直接使用该环境，避免重复生成。
             _existing_key = (
                 effective_task_id if effective_task_id in _active_environments
                 else (task_id if task_id and task_id in _active_environments else None)
@@ -2246,13 +2265,15 @@ def terminal_tool(
                         env = new_env
                     logger.info("%s environment ready for task %s", env_type, effective_task_id[:8])
 
-        # Hard-block: gateway lifecycle commands (systemctl/launchctl/hermes
-        # restart|stop targeting hermes-gateway) must never run inside the
-        # gateway process itself. The restart would SIGTERM the gateway, which
-        # kills this very subprocess before it can complete — the service may
-        # never restart. This mirrors the `hermes gateway restart` guard in
-        # hermes_cli/gateway.py and the cron-path guard in hermes_cli/cron.py,
-        # but applies unconditionally (force=True cannot help here).
+        # 硬性阻断：网关生命周期命令
+        # （针对 hermes-gateway 的 systemctl/launchctl/hermes restart|stop）
+        # 绝不能在网关进程内部本身运行。
+        # 重启操作会向网关发送 SIGTERM 信号，
+        # 这会在该子进程完成之前将其杀死 ——
+        # 导致该服务可能永远无法重新启动。
+        # 这与 hermes_cli/gateway.py 中的 `hermes gateway restart` 防护
+        # 以及 hermes_cli/cron.py 中的 cron 路径防护保持一致，
+        # 但此处是无条件生效的（即使设置 force=True 也无济于事）。
         if os.environ.get("_HERMES_GATEWAY") == "1":
             from hermes_cli.cron import _contains_gateway_lifecycle_command
             if _contains_gateway_lifecycle_command(command):
@@ -2269,13 +2290,13 @@ def terminal_tool(
                     "status": "error",
                 }, ensure_ascii=False)
 
-        # Pre-exec security checks (tirith + dangerous command detection)
-        # Skip check if force=True (user has confirmed they want to run it)
+        # 执行前的安全检查（tirith 检查 + 危险命令检测）
+        # 如果 force=True 则跳过检查（用户已确认他们希望运行该命令）
         approval_note = None
-        # True when the user explicitly approved this run (or pre-confirmed via
-        # force).  Drives the clean-interrupt-slate clear before env.execute so
-        # an approved command can't be SIGINT-killed by a bit that landed during
-        # the approval-wait (see clear_current_thread_interrupt).
+        # 当用户显式批准此次运行（或已通过 force 预先确认）时为 True。
+        # 用于在 env.execute 执行前清空中断状态，
+        # 从而确保已批准的命令不会被审批等待期间
+        # 传入的 SIGINT 信号所杀死（详见 clear_current_thread_interrupt）。
         _approved_run = bool(force)
         if not force:
             approval = _check_all_guards(
@@ -2343,13 +2364,16 @@ def terminal_tool(
                 "EOF."
             )
 
-        # Claim the (shared "default") terminal env for the session driving this
-        # command. File tools read env.cwd_owner to decide whether the env's live
-        # cwd is THIS session's `cd` or a different worktree session's — without
-        # it, two open worktree sessions sharing the env route each other's edits
-        # to the wrong checkout. get_current_session_key()'s contextvar doesn't
-        # cross tool-worker threads, so fall back to the raw task_id (which IS the
-        # session_key for the top-level agent) — a stable, thread-safe anchor.
+        # 为触发此命令的会话声明（共享的“默认”）终端环境（env）。
+        # 文件工具通过读取 env.cwd_owner
+        # 来判断该环境的实时工作目录（live cwd）
+        # 究竟属于“当前”会话的 `cd`，还是属于另一个工作树（worktree）会话 ——
+        # 如果没有该标识，共享同一环境的两个打开的工作树会话
+        # 就会将彼此的编辑操作路由到错误的检出（checkout）目录。
+        # get_current_session_key() 的 contextvar 无法跨越工具工作线程（tool-worker threads），
+        # 因此会降级退回到使用原始的 task_id
+        # （对于顶层智能体而言，该 ID 即为 session_key）——
+        # 这是一个稳定且线程安全锚点。
         from tools.approval import get_current_session_key
 
         session_key = get_current_session_key(default="") or (task_id or "")
@@ -2359,9 +2383,9 @@ def terminal_tool(
             pass
 
         if background:
-            # Spawn a tracked background process via the process registry.
-            # For local backends: uses subprocess.Popen with output buffering.
-            # For non-local backends: runs inside the sandbox via env.execute().
+            # 通过进程注册表（process registry）生成一个被追踪的后台进程。
+            # 对于本地后端：使用带有输出缓冲区的 subprocess.Popen。
+            # 对于非本地后端：通过 env.execute() 在沙盒内部运行。
             from tools.process_registry import process_registry
 
             effective_cwd = _resolve_command_cwd(
@@ -2395,27 +2419,42 @@ def terminal_tool(
                     "exit_code": 0,
                     "error": None,
                 }
-                # Background spawns detached and returns exit_code 0 immediately;
-                # it never inline-polls is_interrupted(), so the stale-bit kill
-                # cannot occur here and this note never co-occurs with rc=130.
+                # 后台进程在脱离状态下生成并立即返回退出码 0；
+                # 它绝不会在内联中轮询 is_interrupted()，
+                # 因此此处不会发生陈旧比特位（stale-bit）引发的杀进程行为，
+                # 且此标记也绝不会与 rc=130 同时出现。
                 if approval_note:
                     result_data["approval"] = approval_note
                 if pty_disabled_reason:
                     result_data["pty_note"] = pty_disabled_reason
 
-                # Nudge: background=True without notify_on_complete=True OR
-                # watch_patterns is a silent process. The agent has NO way to
-                # learn it finished short of calling process(action="poll"/"wait")
-                # explicitly. That's correct only for genuine long-lived
-                # processes that never exit (servers, watchers). For every
-                # bounded task (tests, builds, CI pollers, deploys, batch
-                # jobs) the agent almost certainly wanted notification and
-                # forgot the flag. May 2026 PR #31231 incident: bg CI poller
-                # ran fine, exited green, agent never noticed — user had to
-                # surface the result. Cheap nudge here costs ~one read for
-                # server cases (false positive) and prevents silent
-                # blindness for bounded-task cases (false negative).
+                # 提示（Nudge）：设置了 background=True
+                # 但未设置 notify_on_complete=True 或 watch_patterns
+                # 会导致进程变成一个“静默进程”。
+                # 除非显式调用 process(action="poll"/"wait")，
+                # 否则智能体（agent）将“没有任何途径”得知该进程已经执行完毕。
+                # 这种机制仅适用于那些永不退出的真正长周期运行进程（如服务器、监听器等）。
+                # 而对于每一个有界任务（如测试、构建、CI 轮询器、部署、批处理任务），
+                # 智能体几乎毫无疑问是希望能收到通知的，只是忘记了设置该标志。
+                # 2026年5月的 PR #31231 事件即是教训：后台 CI 轮询器运行正常并顺利通过退出，
+                # 但智能体从未注意到，最终只能由用户手动提示结果。
+                # 此处加入轻量级的提示，在服务器场景下仅需付出大约一次读取的成本（误报），
+                # 却能在有界任务场景下防止因静默无感知而导致的“失明”（漏报）。
                 if background and not notify_on_complete and not watch_patterns:
+                    # result_data["hint"] = (
+                    #     "设置 background=true 但未设置 notify_on_complete=true "
+                    #     "意味着该进程将以【静默模式】运行 —— "
+                    #     "当它退出时系统将不会主动告知你。"
+                    #     "如果这是一个有界任务（测试套件、构建、"
+                    #     "CI 轮询器、部署或任何有明确结束时间的任务），"
+                    #     "你几乎肯定需要设置 notify_on_complete=true，"
+                    #     "以便系统在进程退出时给你发送 Ping 提醒。"
+                    #     "请使用 notify_on_complete=true 重新启动，"
+                    #     "或者自行调用 process(action='poll') "
+                    #     "/ process(action='wait') 来获取运行结果。"
+                    #     "只有对于真正永不退出的长周期进程"
+                    #     "（如服务器、监听器、守护进程），才可以忽略此提示。"
+                    # )
                     result_data["hint"] = (
                         "background=true without notify_on_complete=true means "
                         "this process runs SILENTLY — you will not be told when "
@@ -2429,53 +2468,78 @@ def terminal_tool(
                         "that never exit (servers, watchers, daemons)."
                     )
 
-                # Nudge: homebrewed CI watcher built from `gh pr view`
-                # `--json statusCheckRollup` or `gh pr checks` piped through
-                # `jq` is the #1 cause of silent CI-watcher failures in
-                # hermes-agent dev work. May 2026 PRs that surfaced this
-                # exact failure mode: #31329, #31448, #31695, #31709, #31745,
-                # #32264, #33131. Failure modes seen:
-                #   * `gh pr view --json statusCheckRollup --jq ...` with
-                #     `from_entries` choking on null `conclusion` keys, loop
-                #     silently exits with empty status, never terminates.
-                #   * `for i in $(seq 1 60); do ... 2>&1` block-buffered stdout
-                #     never flushed to background-process capture; SIGTERM
-                #     cuts the buffer before flush; `process(action='log')`
-                #     returns total_lines=0 forever.
-                #   * conclusion vs. status field confusion: filtering for
-                #     `PENDING` in `.conclusion` while in-progress checks have
-                #     empty conclusion → poller declares all-green while 18/23
-                #     checks still IN_PROGRESS.
-                #   * grepping for TTY-only banners ("All checks were
-                #     successful") that never appear when stdout is piped.
-                # The canonical patterns in the green-ci-policy skill avoid
-                # every one of these — drive the loop off exit codes or on
-                # tab-separated `awk -F"\t" "$2==\"pending\""` (column 2).
-                # The detector here is deliberately narrow: it flags the
-                # statusCheckRollup JSON-API path and the `gh pr checks` +
-                # jq combination, but NOT the canonical column-2 awk
-                # poller (which uses awk on tabs, not as a generic
-                # stdout parser). When we detect the homebrew shape, point
-                # the agent at the canonical snippet rather than letting
-                # it ship another broken poller.
+                # 提示（Nudge）：通过 `gh pr view` 的 `--json statusCheckRollup`
+                # 或将 `gh pr checks` 管道传输给 `jq`
+                # 来自制的 CI 监听器（CI watcher），
+                # 是 hermes-agent 开发工作中导致 CI 监听器静默失败的“罪魁祸首”（#1 原因）。
+                # 2026年5月暴露这一相同失败模式的 PR 包含：
+                # #31329、#31448、#31695、#31709、#31745、#32264、#33131。
+                # 已发现的失败模式包括：
+                #   * `gh pr view --json statusCheckRollup --jq ...` 配合 `from_entries`
+                #     在遇到 null 值的 `conclusion` 键时卡死，
+                #     循环静默退出且状态为空，永远不会终止。
+                #   * `for i in $(seq 1 60); do ... 2>&1` 块缓冲的 stdout
+                #     从未刷新并捕获到后台进程中；
+                #     SIGTERM 在刷新前切断了缓冲区；
+                #     导致 `process(action='log')` 永久返回 total_lines=0。
+                #   * 混淆了 conclusion 与 status 字段：
+                #     对 `.conclusion` 中的 `PENDING` 进行过滤，
+                #     而进行中的检查其 conclusion 字段为空
+                #     → 轮询器在 23 个检查中有 18 个仍在 IN_PROGRESS 时，就宣布全部通过（all-green）。
+                #   * grep 仅在 TTY 环境下才显示的标语（如 "All checks were successful"），
+                #     而当 stdout 被管道传输时，该标语绝不会出现。
+                # green-ci-policy skill 中的规范模式可以避开上述每一个坑 ——
+                # 依靠退出码驱动循环，
+                # 或者基于以制表符分隔的 `awk -F"\t" "$2==\"pending\""`（第 2 列）驱动循环。
+                # 此处的检测器被有意设计得较为严格：
+                # 它只标记 statusCheckRollup JSON-API 路径以及 `gh pr checks` + jq 的组合，
+                # 但“不会”标记规范的第 2 列 awk 轮询器
+                # （后者针对制表符使用 awk，而非将其作为通用的 stdout 解析器）。
+                # 当我们检测到自制轮询器的特征时，
+                # 直接将智能体指向规范的代码片段，
+                # 而不是任由其再次交付一个损坏的轮询器。
+                # https://gemini.google.com/app/6d9db637d14f3782 说人话版
                 if background and command:
                     _gh = ("gh pr view" in command or "gh pr checks" in command)
                     _has_jq = (
                         " jq " in command or "| jq" in command or "$(jq" in command
                     )
                     _bad_shape = (
-                        # The JSON-API anti-pattern. Even without jq, going
-                        # through `--json statusCheckRollup` + parsing puts
-                        # you in conclusion-vs-status field hell.
-                        "statusCheckRollup" in command
-                        # gh pr checks piped to jq is also wrong — `gh pr
-                        # checks` doesn't emit JSON, so any `| jq` here is
-                        # confused intent. The canonical column-2 poller
-                        # uses awk-on-tabs, not jq.
-                        or (_gh and _has_jq)
+                        # JSON-API 模式反例。即便不使用 jq，
+                        # 通过 `--json statusCheckRollup` 加解析的方式，
+                        # 也会让你陷入 conclusion 与 status 字段混淆的困境。
+                            "statusCheckRollup" in command
+                            # 将 gh pr checks 通过管道传给 jq 也是错误的 ——
+                            # `gh pr checks` 并不会输出 JSON 数据，
+                            # 因此在此处使用 `| jq` 属于意图混淆。
+                            # 规范的第 2 列轮询器使用的是基于制表符的 awk，而非 jq。
+                            or (_gh and _has_jq)
                     )
                     if _bad_shape:
                         existing = result_data.get("hint", "")
+                        # canonical_hint = (
+                        #     "这看起来像是一个通过 `gh pr view --json statusCheckRollup` "
+                        #     "和/或 `gh pr checks | jq` 自制的 CI 轮询器。"
+                        #     "这种形式在 hermes-agent 的开发工作中屡次引发问题 "
+                        #     "（PRs #31329, #31448, #31695, #31709, #31745, #32264, #33131）—— "
+                        #     "stdout 缓冲区会导致输出捕获失效，"
+                        #     "jq 对 null 键的边缘情况处理会静默退出循环，"
+                        #     "混淆 conclusion 与 status 字段会导致带着虚假的全绿（all-green）结论提前退出，"
+                        #     "而仅在 TTY 下显示的汇总标语在管道传输时则永远不会出现。"
+                        #     "请改用 green-ci-policy skill 中的规范代码片段："
+                        #     "对于“遇首错即退出”的行为，使用由退出码驱动的 `gh pr checks $PR >/dev/null` "
+                        #     "（rc 0 = 通过，8 = 进行中，其他 = 失败）；"
+                        #     "对于分片矩阵（sharded matrices），使用基于制表符的第 2 列 awk 轮询器 "
+                        #     "（`awk -F\"\\t\" \"$2==\\\"pending\\\"\"`）。"
+                        #     "可以加载 skill_view("
+                        #     "name='github/hermes-agent-dev', "
+                        #     "file_path='references/green-ci-policy.md') "
+                        #     "来获取逐字对应的代码片段。"
+                        #     "如果你必须编写包含丰富结构化输出的自定义循环，"
+                        #     "请将每次 tick 的结果写入已知文件（`tee -a /tmp/ci.log`），"
+                        #     "并依靠 `process(action='log')` 去读取该文件 —— "
+                        #     "对于行缓冲的 Shell 循环，切勿依赖后台进程的 stdout 捕获功能。"
+                        # )
                         canonical_hint = (
                             "This looks like a homebrewed CI poller built from "
                             "`gh pr view --json statusCheckRollup` and/or "
@@ -2508,21 +2572,21 @@ def terminal_tool(
                             else canonical_hint
                         )
 
-                # Populate routing metadata on the session so that
-                # watch-pattern and completion notifications can be
-                # routed back to the correct chat/thread.
+                # 在会话（session）上填充路由元数据（routing metadata），
+                # 以便将监听模式（watch-pattern）和完成通知
+                # 正确路由回对应的聊天/线程（chat/thread）中。
                 if background and (notify_on_complete or watch_patterns):
                     from gateway.session_context import (
                         async_delivery_supported as _async_ok,
                         get_session_env as _gse,
                     )
 
-                    # Stateless request/response sessions (the API server /
-                    # WebUI path) cannot route a completion back to the agent
-                    # after the turn ends — there is no persistent channel and
-                    # send() is a no-op. Registering a watcher there silently
-                    # no-ops (issue #10760). Refuse the promise instead: drop
-                    # the flags and tell the agent to poll.
+                    # 无状态的请求/响应会话（API 服务器 / WebUI 路径）
+                    # 无法在轮次（turn）结束后将完成通知路由回智能体（agent）——
+                    # 因为不存在持久化通道，且 send() 会是一个空操作（no-op）。
+                    # 在此类会话中注册监听程序（watcher）只会静默地失效（issue #10760）。
+                    # 因此此处直接拒绝该承诺（promise）：
+                    # 丢弃这些标志，并告知智能体去主动轮询（poll）。
                     if not _async_ok():
                         notify_on_complete = False
                         watch_patterns = None
@@ -2554,13 +2618,12 @@ def terminal_tool(
                             proc_session.watcher_thread_id = _gw_thread_id
                             proc_session.watcher_message_id = _gw_message_id
 
-                # Mutual exclusion: if both notify_on_complete and watch_patterns
-                # are set, drop watch_patterns. The combination produces duplicate
-                # notifications (one per match + one on exit) that deliver
-                # asynchronously and can spam the user long after the process ends.
-                # notify_on_complete is the more useful signal for "let me know
-                # when the task finishes"; watch_patterns should be reserved for
-                # standalone mid-process signals on long-lived processes.
+                # 互斥机制：如果同时设置了 notify_on_complete和 watch_patterns，则丢弃 watch_patterns。
+                # 这两者的组合会产生重复的通知（每次匹配发送一次 + 进程退出时发送一次），
+                # 这些通知异步交付，可能在进程结束很久之后依然不断打扰用户。
+                # 对于“任务完成时通知我”这一需求，
+                # notify_on_complete 是更有用的信号； 而 watch_patterns 应当留给长周期运行进程中
+                # 独立的进程中途信号。
                 watch_patterns, conflict_note = _resolve_notification_flag_conflict(
                     notify_on_complete=bool(notify_on_complete),
                     watch_patterns=watch_patterns,
@@ -2575,9 +2638,9 @@ def terminal_tool(
                     proc_session.notify_on_complete = True
                     result_data["notify_on_complete"] = True
 
-                    # In gateway mode, auto-register a fast watcher so the
-                    # gateway can detect completion and trigger a new agent
-                    # turn.  CLI mode uses the completion_queue directly.
+                    # 在网关（gateway）模式下，自动注册一个快速监听程序（fast watcher），
+                    # 以便网关能够检测到完成状态并触发新的智能体轮次（agent turn）。
+                    # CLI 模式则直接使用 completion_queue。
                     if proc_session.watcher_platform:
                         proc_session.watcher_interval = 5
                         process_registry.pending_watchers.append({
@@ -2612,12 +2675,13 @@ def terminal_tool(
             result = None
             command_cwd = None
 
-            # Clean interrupt slate for an approved command, ONCE before the
-            # retry loop: drop a stale bit that landed on this thread during the
-            # approval-wait so it can't SIGINT the just-approved run.  Do NOT
-            # re-clear inside the loop -- a genuine interrupt arriving during the
-            # backoff sleep between retries must survive and abort the command
-            # (caught by the next attempt's _wait_for_process poll loop -> 130).
+            # 在重试循环开始“前”，针对已批准的命令清除中断标志（仅执行一次）：
+            # 清除在等待批准期间落在该线程上的陈旧比特位，
+            # 以防其向刚获批运行的命令发送 SIGINT 信号。
+            # 切勿在循环“内部”重复清除 ——
+            # 在重试间隙的退避休眠（backoff sleep）期间收到的真正中断，
+            # 必须保留下来以终止该命令
+            # （会被下一次尝试中的 _wait_for_process 轮询循环捕获并返回 130）。
             if _approved_run:
                 from tools.interrupt import clear_current_thread_interrupt
                 clear_current_thread_interrupt()
@@ -2683,10 +2747,10 @@ def terminal_tool(
                         "command."
                     )
 
-            # Foreground terminal output canonicalization seam: plugins receive
-            # the full output string before default truncation and may only
-            # replace it by returning a string from transform_terminal_output.
-            # The hook is fail-open, and the first valid string return wins.
+            # 前台终端输出规范化切入点（seam）：插件会在默认截断之前
+            # 接收到完整的输出字符串，并且只能通过从 transform_terminal_output
+            # 返回一个字符串来对其进行替换。
+            # 该钩子采用故障开放（fail-open）机制，首个返回的有效字符串生效。
             try:
                 from hermes_cli.plugins import invoke_hook
                 hook_results = invoke_hook(
@@ -2717,25 +2781,25 @@ def terminal_tool(
                 )
                 output = output[:head_chars] + truncated_notice + output[-tail_chars:]
 
-            # Strip ANSI escape sequences so the model never sees terminal
-            # formatting — prevents it from copying escapes into file writes.
+            # 剥离 ANSI 转义序列，以便模型永远不会看到终端
+            # 格式化内容——防止它将转义字符复制到文件写入中。
             from tools.ansi_strip import strip_ansi
             output = strip_ansi(output)
 
-            # Redact secrets from command output. For source/config dumps
-            # (MAX_TOKENS=100, "apiKey": "x" fixtures, postgresql:// f-string
-            # templates) the ENV/JSON/template passes are skipped to avoid
-            # false positives (code_file=True). But for env-dump commands
-            # (env/printenv/set/export/declare) the output IS a KEY=value
-            # credential dump, so redact_terminal_output runs the ENV pass
-            # (code_file=False) to mask opaque tokens with no vendor prefix.
-            # Real prefixes, auth headers, JWTs, private keys are masked in
-            # both modes. See issue #43025.
+            # 从命令输出中隐删敏感信息（如密钥等）。对于源码或配置转储
+            # （例如 MAX_TOKENS=100、"apiKey": "x" 等测试用例，以及 postgresql:// 格式的 f-string 模板），
+            # 系统会跳过环境变量、JSON 及模板匹配阶段，以避免误报（即设置 code_file=True）。
+            # 但对于环境变量导出命令（如 env/printenv/set/export/declare），
+            # 其输出本身就是 KEY=value 形式的凭据转储，
+            # 因此 redact_terminal_output 会执行环境变量匹配阶段（即设置 code_file=False），
+            # 从而掩码那些没有供应商前缀的不透明 Token。
+            # 至于真实的前缀、身份验证头（Auth Headers）、JWT 以及私钥，
+            # 在这两种模式下均会被掩码。详情参见 Issue #43025。
             from agent.redact import redact_terminal_output
             output = redact_terminal_output(output.strip(), command) if output else ""
 
-            # Interpret non-zero exit codes that aren't real errors
-            # (e.g. grep=1 means "no matches", diff=1 means "files differ")
+            # 解释非零退出码（这些退出码并不代表真正的错误，
+            # 例如 grep=1 表示“未匹配到内容”，diff=1 表示“文件存在差异”）
             exit_note = _interpret_exit_code(command, returncode)
 
             result_dict = {
@@ -2763,16 +2827,20 @@ def terminal_tool(
             except Exception:
                 logger.debug("verification evidence recording failed", exc_info=True)
             if approval_note:
-                # Treat rc=130 as an interrupt only when the executor's marker is
-                # present.  A command can legitimately exit 130 on its own
-                # (e.g. `bash -c 'exit 130'`); _wait_for_process returns the
-                # child's natural returncode there with no marker, and that must
-                # NOT be relabelled as a user interrupt in the audit note.
+                # 仅当存在执行器的标记（marker）时，才将 rc=130 视为中断信号。
+                #
+                # 命令自身也完全可能合法地主动返回退出码 130
+                # （例如执行 `bash -c 'exit 130'`）；
+                # 在这种情况下，_wait_for_process 会返回该子进程原生的 returncode，
+                # 且不带任何标记，此时绝对不能在审计备注（audit note）中
+                # 将其重新归类/标记为用户主动中断。
                 if returncode == 130 and "[Command interrupted]" in output:
-                    # Approved command was interrupted mid-run by a genuine Stop.
-                    # Keep the audit trail but never imply success: the bare
-                    # "...approved by the user." note must not co-occur with the
-                    # interrupt exit code (satisfies the 3-part-signature DONE).
+                    # 经过批准的命令在运行过程中被真实的停止（Stop）操作中断。
+                    #
+                    # 保留审计追踪记录，但绝不传达“成功”的语义：
+                    # 纯粹的 “...approved by the user.” 备注说明
+                    # 绝不能与中断退出码同时出现
+                    # （满足包含三部分签名的 DONE 条件）。
                     result_dict["approval"] = approval_note.rstrip(".") + ", then interrupted."
                 else:
                     result_dict["approval"] = approval_note

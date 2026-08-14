@@ -1,25 +1,21 @@
-"""Tool-dispatch helpers — parallelism gating, multimodal envelopes, mutation tracking.
+"""工具调度辅助函数 —— 并行门控、多模态数据包、修改追踪。
 
-Pure module-level utilities extracted from ``run_agent.py``:
+从 ``run_agent.py`` 中提取出的纯模块级工具函数：
 
-* ``_is_destructive_command`` — terminal-command heuristic used to gate
-  parallel batch dispatch.
+* ``_is_destructive_command`` —— 用于限制/门控并行批量调度的终端命令启发式检测函数。
 * ``_should_parallelize_tool_batch`` / ``_extract_parallel_scope_path`` /
-  ``_paths_overlap`` — the rules engine deciding when a multi-tool batch
-  can run concurrently.
+  ``_paths_overlap`` —— 决定何时可以并发运行多工具批处理的规则引擎。
 * ``_is_multimodal_tool_result`` / ``_multimodal_text_summary`` /
-  ``_append_subdir_hint_to_multimodal`` — envelope helpers for the
-  ``{"_multimodal": True, "content": [...], "text_summary": ...}`` dict
-  shape returned by tools like ``computer_use``.
+  ``_append_subdir_hint_to_multimodal`` —— 针对 ``computer_use`` 等工具返回的
+  ``{"_multimodal": True, "content": [...], "text_summary": ...}`` 字典结构的数据包辅助函数。
 * ``_extract_file_mutation_targets`` / ``_extract_landed_file_mutation_paths`` /
-  ``_extract_error_preview`` —
-  per-turn file-mutation verifier inputs.
-* ``_trajectory_normalize_msg`` — strip image blobs from a message for
-  trajectory saving.
+  ``_extract_error_preview`` ——
+  单轮次（per-turn）文件修改验证器的输入函数。
+* ``_trajectory_normalize_msg`` —— 从消息中剥离图像 Blob 数据，用于保存运行轨迹。
 
-All helpers are stateless.  ``run_agent`` re-exports each name so existing
-``from run_agent import ...`` imports in tests and other modules keep
-working unchanged.
+所有辅助函数均为无状态函数。
+``run_agent`` 重新导出（re-exports）了其中的各个名称，
+因此测试及其他模块中既有的 ``from run_agent import ...`` 导入语句仍可不受影响地继续工作。
 """
 
 from __future__ import annotations

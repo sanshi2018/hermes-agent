@@ -1,9 +1,11 @@
-"""Shared file sync manager for remote execution backends.
+"""远程执行后端的共享文件同步管理器。
 
-Tracks local file changes via mtime+size, detects deletions, and
-syncs to remote environments transactionally.  Used by SSH, Modal,
-and Daytona.  Docker and Singularity use bind mounts (live host FS
-view) and don't need this.
+通过文件修改时间（mtime）和文件大小跟踪本地变更，检测文件删除，
+并以事务方式同步到远程环境。
+
+该模块适用于 SSH、Modal 和 Daytona。
+Docker 与 Singularity 则使用绑定挂载（即实时宿主机文件系统视图），
+因此无需使用此功能。
 """
 
 import hashlib
@@ -129,14 +131,15 @@ _SYNC_BACK_MAX_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB — refuse to extract lar
 
 
 class FileSyncManager:
-    """Tracks local file changes and syncs to a remote environment.
+    """跟踪本地文件变更并同步至远程环境。
 
-    Backends instantiate this with transport callbacks (upload, delete)
-    and a file-source callable.  The manager handles mtime-based change
-    detection, deletion tracking, rate limiting, and transactional state.
+    后端服务利用传输回调（上传、删除）以及一个文件源可调用对象（callable）
+    来实例化该类。
+    管理器负责处理基于修改时间（mtime）的变更检测、
+    删除追踪、速率限制以及事务状态管理。
 
-    Not used by bind-mount backends (Docker, Singularity) — those get
-    live host FS views and don't need file sync.
+    绑定挂载后端（Docker、Singularity）不使用此功能
+    —— 它们拥有实时的宿主机文件系统视图，无需进行文件同步。
     """
 
     def __init__(

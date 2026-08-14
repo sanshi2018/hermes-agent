@@ -1,26 +1,27 @@
-"""Output-pattern failure hints for the terminal tool.
+"""terminal（终端）工具的输出模式失败提示。
 
-When a command exits non-zero, the raw stderr often confuses models into
-wasted diagnostic turns (e.g. retrying `python` when only `python3` exists,
-or re-sending a gh field list that the installed gh doesn't support).
+当命令以非零退出码结束时，原始的 stderr（标准错误）常会让模型产生混淆，
+从而浪费额外的轮次去排查诊断（例如：在系统中仅存在 `python3` 时盲目重试 `python`；
+或重新发送当前已安装的 gh 不支持的 gh 字段列表）。
 
-This module extends the exit-code semantics table in ``terminal_tool`` with
-an *output-pattern* tier: a bounded scan of the command output that maps
-well-known failure shapes to one short, actionable recovery hint.
+本模块扩展了 ``terminal_tool`` 中的退出码语义表，
+新增了*输出模式*（output-pattern）匹配层：
+通过对命令输出进行有限范围的扫描，
+将常见的失败模式映射为一条简短、可立即采取行动的恢复提示。
 
-Design rules (keep these when adding patterns):
+设计规则（添加新模式时请遵循以下原则）：
 
-* Only fires on non-zero exit codes — never annotate success.
-* At most ONE hint per result, first match wins; patterns are ordered by
-  observed frequency in production trajectories (state.db mining, Aug 2026).
-* Scans only the first ``_SCAN_CHARS`` of output — hints must key on error
-  headers, not deep context.
-* Hints state the *next action*, not a diagnosis essay. One or two sentences.
-* Pure function, no I/O, no config reads — trivially unit-testable.
+* 仅在非零退出码时触发 —— 绝不对成功执行的命令进行标注。
+* 每个工具结果最多生成一条提示，优先匹配成功者生效；
+  模式按生产轨迹中的出现频率（根据 2026 年 8 月 state.db 挖掘数据）进行排序。
+* 仅扫描输出的前 ``_SCAN_CHARS`` 个字符 —— 提示必须基于错误的头部特征，
+  而非深层的上下文细节。
+* 提示应当直接指出*下一步操作*，而非撰写长篇大论的诊断分析。控制在 1-2 句话内。
+* 纯函数设计，无 I/O，无配置读取 —— 极易进行单元测试。
 
-Frequencies quoted below come from a 250k-terminal-result window of the
-production session DB (Aug 2026): together these classes cover ~14k failed
-calls whose retry chains averaged 1.4 extra tool turns each.
+以下引用的出现频率来源于生产环境会话数据库中 25 万次终端结果的采样窗口（2026 年 8 月）：
+这些类型共同覆盖了约 1.4 万次失败的工具调用，
+这些失败调用的重试链平均额外消耗了 1.4 个工具轮次。
 """
 
 from __future__ import annotations
@@ -146,15 +147,16 @@ _EXIT_CODE_HINTS: dict[int, str] = {
 
 
 def annotate_failure(command: str, exit_code: int, output: str) -> Optional[str]:
-    """Return one short recovery hint for a failed command, or None.
+    """当命令执行失败时，返回一条简短的恢复/修复提示；若无匹配提示则返回 None。
 
-    Args:
-        command: The command string that ran.
-        exit_code: Its exit code (non-zero for failures).
-        output: Combined stdout/stderr as returned to the model.
+    参数：
+        command: 已运行的命令字符串。
+        exit_code: 该命令的退出码（非零值表示失败）。
+        output: 返回给模型的标准输出与标准错误（stdout/stderr）合并后的内容。
 
-    Only the first ``_SCAN_CHARS`` characters of output are examined and at
-    most one hint is returned. Returns None for exit_code == 0.
+    仅对 output 的前 ``_SCAN_CHARS`` 个字符进行检查，
+    且最多返回一条提示。
+    当 exit_code == 0 时返回 None。
     """
     if exit_code == 0:
         return None

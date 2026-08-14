@@ -2802,11 +2802,10 @@ def terminal_tool(
             # 例如 grep=1 表示“未匹配到内容”，diff=1 表示“文件存在差异”）
             exit_note = _interpret_exit_code(command, returncode)
 
-            # Output-pattern failure hints: map well-known error shapes
-            # (command-not-found, ModuleNotFoundError, gh field drift,
-            # merge conflicts, ...) to one short recovery hint so the model
-            # fixes the root cause on the next call instead of spending
-            # turns on re-diagnosis. See tools/terminal_hints.py.
+            # 输出模式失败提示：
+            # 将常见的错误类型（如命令未找到、ModuleNotFoundError、gh 字段偏差、合并冲突等）映射为一条简短的修复提示，
+            # 从而让模型在下一次调用时就能修复根因，而不必浪费轮次去重新诊断。
+            # 详情请参见 tools/terminal_hints.py。
             failure_hint = None
             if returncode != 0 and not exit_note:
                 try:

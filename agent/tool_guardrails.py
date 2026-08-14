@@ -1,11 +1,10 @@
-"""Pure tool-call loop guardrail primitives.
+"""纯粹的工具调用循环（tool-call loop）护栏原语。
 
-The controller in this module is intentionally side-effect free: it tracks
-per-turn tool-call observations and returns decisions. Runtime code owns whether
-those decisions become warning guidance, synthetic tool results, or controlled
-turn halts.
+本模块中的控制器故意设计为无侧边效应（side-effect free）：
+它仅负责追踪单轮次内的工具调用观察数据并返回决策。
+至于这些决策是转化为警告提示、合成工具结果，
+还是受控的轮次终止，则由运行时代码决定。
 """
-
 from __future__ import annotations
 
 import hashlib
@@ -187,13 +186,17 @@ def canonical_tool_args(args: Mapping[str, Any]) -> str:
 
 
 def classify_tool_failure(tool_name: str, result: str | None) -> tuple[bool, str]:
-    """Safety-fallback classifier used only when callers don't pass ``failed``.
+    """
+    安全回退分类器（仅在调用方未传递 ``failed`` 参数时使用）。
 
-    Mirrors ``agent.display._detect_tool_failure`` exactly so the guardrail
-    never disagrees with the CLI's user-visible ``[error]`` tag. Production
-    callers in ``run_agent.py`` always pass an explicit ``failed=`` derived
-    from ``_detect_tool_failure``; this function exists so standalone callers
-    (tests, tooling) still get consistent behavior.
+    其逻辑与 ``agent.display._detect_tool_failure`` 完全一致，
+    以确保安全护栏（guardrail）的判定结果
+    与 CLI 界面向用户显示的 ``[error]`` 标签保持同步，绝不冲突。
+
+    在 ``run_agent.py`` 中，生产环境的调用方
+    总会显式传入由 ``_detect_tool_failure`` 推导出的 ``failed=`` 参数；
+    提供本函数是为了让独立调用方（如测试套件、工具链等）
+    也能获得完全一致的行为表现。
     """
     if result is None:
         return False, ""

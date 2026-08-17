@@ -728,13 +728,15 @@ _MAX_SUMMARY_LEN = 500
 
 
 def check_command_security(command: str) -> dict:
-    """Run tirith security scan on a command.
+    """
+    对命令执行 Tirith 安全扫描。
 
-    Exit code determines action (0=allow, 1=block, 2=warn). JSON enriches
-    findings/summary. Spawn failures and timeouts respect fail_open config.
-    Programming errors propagate.
+    退出码（Exit code）决定应对动作（0=允许，1=阻断，2=警告）。
+    返回的 JSON 数据用于补充具体发现（findings）与摘要信息（summary）。
+    进程启动失败及超时将遵循 fail_open（故障开放）配置。
+    程序逻辑错误（Programming errors）则会向上传递抛出。
 
-    Returns:
+    返回：
         {"action": "allow"|"warn"|"block", "findings": [...], "summary": str}
     """
     global _crash_count, _circuit_open

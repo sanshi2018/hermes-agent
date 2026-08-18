@@ -3092,6 +3092,22 @@ def terminal_tool(
                         session_key=session_key,
                     )
 
+                # Remote launchers report failures as a ProcessSession so the
+                # registry can preserve the launcher output and exit code. Do
+                # not turn that terminal state back into a successful start
+                # acknowledgement at the tool boundary.
+                if getattr(proc_session, "completion_reason", None) == "failed_start":
+                    return json.dumps({
+                        "output": proc_session.output_buffer,
+                        "exit_code": (
+                            proc_session.exit_code
+                            if proc_session.exit_code is not None
+                            else -1
+                        ),
+                        "error": "Failed to start background process",
+                        "status": "error",
+                    }, ensure_ascii=False)
+
                 result_data = {
                     "output": "Background process started",
                     "session_id": proc_session.id,

@@ -708,27 +708,27 @@ def _sudo_nopasswd_works() -> bool:
 
 
 def _rewrite_compound_background(command: str) -> str:
-    """Wrap `A && B &` (or `A || B &`) to `A && { B & }` at depth 0.
+    """
+    在深度为 0 时，将 `A && B &`（或 `A || B &`）包裹改写为 `A && { B & }`。
 
-    Bash parses ``A && B &`` with `&&` tighter than `&`, so it forks a
-    subshell for the whole `A && B` compound and backgrounds it. Inside
-    the subshell, `B` runs foreground, so the subshell waits for `B` to
-    finish. When `B` is a long-running process (`python3 -m http.server`,
-    `yes > /dev/null`, anything that doesn't naturally exit), the subshell
-    never exits. It leaks as a process stuck in ``wait4`` forever — and
-    on the way, its open stdout pipe can prevent the terminal tool from
-    returning promptly.
+    Bash 在解析 `A && B &` 时，`&&` 的优先级高于 `&`，
+    因此它会为整个 `A && B` 复合命令 fork 一个子 Shell 并将其放入后台运行。
+    在子 Shell 内部，`B` 是在前台运行的，所以子 Shell 会等待 `B` 执行结束。
+    当 `B` 是一个长期运行的进程时（例如 `python3 -m http.server`、
+    `yes > /dev/null` 或任何不会自动退出的命令），该子 Shell 就永远不会退出。
+    它会作为一个永久卡在 `wait4` 状态的进程发生泄漏 ——
+    在此过程中，它打开的 stdout 管道还会导致终端工具无法及时返回。
 
-    Rewriting the tail to `A && { B & }` preserves `&&`'s error semantics
-    (skip B if A fails) while replacing the subshell with a brace group.
-    The brace group runs in the current shell (no fork), backgrounds B as
-    a simple command (bash doesn't wait for it in non-interactive mode),
-    and exits immediately. B runs as a normal backgrounded child, orphaned
-    when the parent shell exits.
+    将尾部重写为 `A && { B & }` 既保留了 `&&` 的错误处理语义（若 A 失败则跳过 B），
+    同时又用花括号组合（brace group）替代了子 Shell。
+    花括号组合会在当前 Shell 中运行（不发起 fork），
+    将 B 作为简单命令放入后台（Bash 在非交互模式下不会等待它），
+    并立即退出。
+    B 则作为普通的后台子进程运行，在父 Shell 退出时被孤儿化。
 
-    Handles redirects (``&>``, ``2>&1``) and skips content inside quoted
-    strings and parenthesised subshells. Leaves simple ``cmd &`` alone —
-    that construct doesn't have the subshell-wait bug.
+    此逻辑支持处理重定向（`&>`、`2>&1`），
+    并会跳过引号字符串以及带括号的子 Shell 内部的内容。
+    对于简单的 `cmd &` 结构则保持原样 —— 因为该结构不存在子 Shell 等待的 bug。
     """
     n = len(command)
     i = 0

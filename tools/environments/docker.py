@@ -950,6 +950,10 @@ class DockerEnvironment(BaseEnvironment):
                 # 在默认网络配置下，处于 ``none`` 模式的容器将被原封不动地保留，
                 # 这样使用 ``docker_extra_args: ["--network=none"]`` 的操作人员
                 # 就不会在每次启动时都触发容器的频繁重建与替换。
+                # ---
+                # https://gemini.google.com/app/2fe24ca020da437f
+                # “为了防止旧容器带着‘能联网’的旧权限偷偷绕过现在的‘断网封锁’指令，
+                # 只要发现旧容器的网络权限比现在的要求大，就必须当场干掉它重做。”
                 mode_mismatch = False
                 actual_mode = None
                 if not network:

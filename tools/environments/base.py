@@ -575,57 +575,58 @@ class BaseEnvironment(ABC):
     # ------------------------------------------------------------------
 
     def _wait_for_process(self, proc: ProcessHandle, timeout: int = 120) -> dict:
-        """Poll-based wait with interrupt checking and stdout draining.
+        """
+        基于轮询的等待机制，集成了中断检查与标准输出（stdout）的清空。
 
-        Shared across all backends — not overridden.
+        该方法在所有后端共用，不可重写。
 
-        Fires the ``activity_callback`` (if set on this instance) every 10s
-        while the process is running so the gateway's inactivity timeout
-        doesn't kill long-running commands.
+        在进程运行期间，每隔 10 秒触发一次 ``activity_callback``（若当前实例已设置），
+        防止网关的非活动超时机制误杀长时间运行的命令。
 
-        Also wraps the poll loop in a ``try/finally`` that guarantees we
-        call ``self._kill_process(proc)`` if we exit via ``KeyboardInterrupt``
-        or ``SystemExit``.  Without this, the local backend (which spawns
-        subprocesses with ``os.setsid`` into their own process group) leaves
-        an orphan with ``PPID=1`` when python is shut down mid-tool — the
-        ``sleep 300``-survives-30-min bug Physikal and I both hit.
+        此外，该方法将轮询循环包裹在 ``try/finally`` 块中，
+        以确保在因 ``KeyboardInterrupt`` 或 ``SystemExit`` 退出时，
+        一定会调用 ``self._kill_process(proc)``。
+        如果没有这一机制，本地后端（通过 ``os.setsid`` 将子进程生成到其独立进程组中）
+        在 Python 中途关机时会留下一个 ``PPID=1`` 的孤儿进程——
+        也就是 Physikal 和我共同踩过的“在 30 分钟后 ``sleep 300`` 依然残留”的 Bug。
         """
         output_chunks: list[str] = []
 
-        # Non-blocking drain via select().
+        # 通过 select() 实现非阻塞的数据清空。
         #
-        # The old pattern — ``for line in proc.stdout`` — blocks on
-        # ``readline()`` until the pipe reaches EOF.  When the user's command
-        # backgrounds a process (``cmd &``, ``setsid cmd & disown``, etc.),
-        # that backgrounded grandchild inherits the write-end of our stdout
-        # pipe via ``fork()``.  Even after ``bash`` itself exits, the pipe
-        # stays open because the grandchild still holds it — so the drain
-        # thread never returns and the tool hangs for the full lifetime of
-        # the grandchild (issue #8340: users reported indefinite hangs when
-        # restarting uvicorn with ``setsid ... & disown``).
+        # 旧有的处理模式——``for line in proc.stdout``——会在 Pipe 未到达 EOF 时
+        # 一直阻塞在 ``readline()`` 上。当用户的命令将进程放入后台
+        # （例如 ``cmd &``、``setsid cmd & disown`` 等）时，
+        # 该后台运行的孙进程会通过 ``fork()`` 继承我们 stdout Pipe 的写入端。
+        # 此时即使 ``bash`` 本身已经退出，Pipe 依然保持打开状态，
+        # 因为孙进程仍持有该写入端——这会导致数据清空线程永远无法返回，
+        # 从而使工具在孙进程的整个生命周期内一直挂起
+        # （Issue #8340：用户反馈在使用 ``setsid ... & disown`` 重启 uvicorn 时出现无限挂起）。
         #
-        # The fix: select() with a short poll interval, and stop draining
-        # shortly after ``bash`` exits even if the pipe hasn't EOF'd yet.
-        # Any output the grandchild writes after that point goes to an
-        # orphaned pipe (harmless — the kernel reaps it when our end closes).
+        # 修复方案：使用带有短轮询间隔的 select()，
+        # 并在 ``bash`` 退出后不久即停止清空，即使 Pipe 尚未到达 EOF。
+        # 孙进程在此之后写入的任何输出都会进入一个孤立的 Pipe 中
+        # （无害——当我们这一端关闭时，内核会自动回收它）。
         #
-        # Decoding: we ``os.read()`` raw bytes in fixed-size chunks (4096)
-        # so a single multibyte UTF-8 character can split across reads.  An
-        # incremental decoder buffers partial sequences across chunks, and
-        # ``errors="replace"`` mirrors the baseline ``TextIOWrapper`` (which
-        # was constructed with ``encoding="utf-8", errors="replace"`` on
-        # ``Popen``) so binary or mis-encoded output is preserved with
-        # U+FFFD substitution rather than clobbering the whole buffer.
+        # 解码逻辑：我们通过 ``os.read()`` 以固定大小的块（4096 字节）读取原始字节，
+        # 因此单个多字节 UTF-8 字符可能会被拆分到不同的读取块中。
+        # 增量解码器（Incremental Decoder）可以在跨块读取时缓存未完成的字节序列；
+        # 同时 ``errors="replace"`` 保持了与底层 ``TextIOWrapper``
+        # （在 ``Popen`` 上构建时使用了 ``encoding="utf-8", errors="replace"``）一致的行为，
+        # 从而对二进制或编码错误的输出使用 U+FFFD 进行替换，而不是损坏整个缓冲区。
+        # https://gemini.google.com/app/42952ff33b0cedd9
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
         def _drain_iterable(stream):
-            # Fallback path: ``stream`` is not backed by a real OS file
-            # descriptor (no usable ``fileno()``).  This covers in-memory
-            # ProcessHandle adapters that expose stdout as a plain iterator of
-            # already-collected output (the legacy ``for line in proc.stdout``
-            # contract) rather than a live pipe.  Iterate it to EOF.  Without
-            # this, the drain thread would raise an unhandled exception and die
-            # silently, losing all of the process's output.
+            # 降级备用路径：``stream`` 并非由真实的操作系统文件描述符所支持
+            # （缺少可用的 ``fileno()``）。
+            # 该逻辑适用于内存中的 ProcessHandle 适配器，
+            # 它们将 stdout 暴露为已收集输出的普通迭代器
+            # （即旧有的 ``for line in proc.stdout`` 约定时），
+            # 而非实时连接的 Pipe。
+            # 对其进行迭代直至到达 EOF。
+            # 如果缺少这一处理，清空线程将会抛出未捕获的异常并默默终止，
+            # 从而丢失该进程的所有输出数据。
             try:
                 for piece in stream:
                     if piece is None:
@@ -645,12 +646,14 @@ class BaseEnvironment(ABC):
                     pass
 
         def _drain():
-            # Resolve a real OS file descriptor up front.  Real subprocesses and
-            # the SDK ``_ThreadedProcessHandle`` (os.pipe-backed) both return an
-            # integer fd here.  Mocks / iterator-style stdout streams either lack
-            # ``fileno()`` entirely or return a non-integer — in that case fall
-            # back to draining the stream as an iterable instead of crashing the
-            # thread (issue: 'list_iterator' object has no attribute 'fileno').
+            # 预先解析出真实的操作系统文件描述符（file descriptor）。
+            # 真实的子进程与 SDK 中的 ``_ThreadedProcessHandle``（由 os.pipe 支持）
+            # 此处都会返回一个整型文件描述符（fd）。
+            # 至于 Mock 对象或迭代器类型的 stdout 流，
+            # 要么完全缺少 ``fileno()`` 方法，要么会返回非整数值——
+            # 在这种情况下，将退回到将该流作为可迭代对象进行清空，
+            # 而不是直接导致线程崩溃
+            # （引发的 Issue：'list_iterator' 对象没有 'fileno' 属性）。
             stream = proc.stdout
             if stream is None:
                 return
@@ -662,9 +665,9 @@ class BaseEnvironment(ABC):
             if not isinstance(fd, int) or fd < 0:
                 _drain_iterable(stream)
                 return
-            # select.select does NOT work on pipe fds on Windows (only sockets).
-            # Use blocking os.read in a daemon thread instead — safe because
-            # EOF arrives promptly when bash exits.
+            # select.select 在 Windows 系统上无法应用于 Pipe 文件描述符（仅支持 Socket）。
+            # 取而代之的是在守护线程（Daemon Thread）中使用阻塞式的 os.read——
+            # 这一方案是安全的，因为当 bash 退出时，EOF 会被迅速触发。
             if os.name == "nt":
                 try:
                     while True:
@@ -725,10 +728,9 @@ class BaseEnvironment(ABC):
             "start": _now,
         }
 
-        # --- Debug tracing (opt-in via HERMES_DEBUG_INTERRUPT=1) -------------
-        # Captures loop entry/exit, interrupt state changes, and periodic
-        # heartbeats so we can diagnose "agent never sees the interrupt"
-        # reports without reproducing locally.
+        # --- 调试追踪（通过设置 HERMES_DEBUG_INTERRUPT=1 显式开启）-------------
+        # 捕获循环的进入/退出、中断状态变更以及定期心跳信息，
+        # 以便我们在无需本地复现的情况下，诊断“Agent 始终未收到中断信号”的相关问题。
         _tid = threading.current_thread().ident
         _pid = getattr(proc, "pid", None)
         _iter_count = 0
@@ -781,9 +783,10 @@ class BaseEnvironment(ABC):
                 # Periodic activity touch so the gateway knows we're alive
                 touch_activity_if_due(_activity_state, "terminal command running")
 
-                # Heartbeat every ~30s: proves the loop is alive and reports
-                # the activity-callback state (thread-local, can get clobbered
-                # by nested tool calls or executor thread reuse).
+                # 每隔约 30 秒发送一次心跳：
+                # 证明循环处于活跃状态，
+                # 并汇报 activity-callback 的状态
+                # （该状态为线程局部变量，可能会被嵌套的工具调用或执行器线程的复用所损坏）。
                 if _DEBUG_INTERRUPT and time.monotonic() - _last_heartbeat >= 30.0:
                     _cb_now_none = _get_activity_callback() is None
                     logger.info(
@@ -799,14 +802,14 @@ class BaseEnvironment(ABC):
                     _last_heartbeat = time.monotonic()
                     _cb_was_none = _cb_now_none
 
-                # Adaptive poll: start at 5ms so fast commands (echo, pwd,
-                # date, cat short files) return in ~6ms instead of being
-                # stuck waiting for the next 200ms tick. Back off
-                # exponentially toward 200ms so long-running commands
-                # (builds, tests, sleeps) don't pay measurable CPU in the
-                # poll loop. For an `echo` this saves ~195ms per tool call;
-                # for a 10s build the steady-state poll rate is identical
-                # to the old behavior.
+                # 自适应轮询：初始间隔设为 5ms，以便快速执行的命令
+                # （如 echo、pwd、date、查看短文件内容等）可以在约 6ms 内返回，
+                # 而不必被卡住等待下一个 200ms 的轮询 Tick。
+                # 随后指数级退避（Back off）至 200ms，
+                # 确保长时间运行的命令（构建、测试、sleep 等）
+                # 不会在轮询循环中消耗可察觉的 CPU 资源。
+                # 对于 `echo` 命令，每次工具调用可节省约 195ms 的时间；
+                # 对于耗时 10 秒的构建任务，其稳态下的轮询频率则与旧有行为完全一致。
                 time.sleep(_poll_sleep)
                 if _poll_sleep < 0.2:
                     _poll_sleep = min(_poll_sleep * 1.5, 0.2)
@@ -832,9 +835,11 @@ class BaseEnvironment(ABC):
                 pass  # cleanup is best-effort
             raise
 
-        # Drain thread now exits promptly after bash does (~300ms idle
-        # check).  A short join is enough; a long one would be a bug since
-        # it means the non-blocking loop itself stopped cooperating.
+        # 数据清空线程现在会在 bash 退出后迅速退出
+        # （经过约 300ms 的空闲检查）。
+        # 此处使用短时间的 join 就足够了；
+        # 如果耗时很长则意味着存在 Bug，
+        # 说明非阻塞循环本身已经停止协作。
         drain_thread.join(timeout=2)
 
         try:

@@ -2696,11 +2696,11 @@ def terminal_tool(
                     execute_kwargs = {
                         "timeout": effective_timeout,
                         "cwd": command_cwd,
-                        # Foreground model-facing output: cap retention while
-                        # streaming (head/tail window) so a verbose command
-                        # can't OOM the gateway before truncation (#64435).
-                        # Internal env.execute() consumers (file ops cat
-                        # reads, RPC reads) intentionally stay unbounded.
+                        # 前台面向模型的输出：在流式传输过程中对保留内容设置上限
+                        # （使用 head/tail 窗口），防止输出过多的命令
+                        # 在触发截断前导致 Gateway 发生内存溢出（OOM, #64435）。
+                        # 内部 env.execute() 的使用者（如文件操作中的 cat 读取、
+                        # RPC 读取）则有意保持无上限捕获。
                         "bounded_capture": True,
                     }
                     result = env.execute(command, **execute_kwargs)

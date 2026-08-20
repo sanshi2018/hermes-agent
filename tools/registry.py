@@ -16,7 +16,6 @@
 """
 
 import ast
-import functools
 import importlib
 import json
 import logging
@@ -26,50 +25,7 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set
 
-from hermes_constants import hermes_home_key
-
 logger = logging.getLogger(__name__)
-
-# Cap on a tool error body; only trims runaway interpolated exceptions (static msgs are ~115 chars).
-_MAX_TOOL_ERROR_CHARS = 2048
-_TOOL_ERROR_TRUNCATION_MARKER = "… [truncated]"
-# Logs keep more of the body than the model sees, but still a bounded amount.
-_MAX_LOGGED_ERROR_CHARS = 8192
-
-
-def _bound_error_text(text: str) -> str:
-    """Bound an error body destined for model context; logs keep a longer prefix."""
-    if len(text) <= _MAX_TOOL_ERROR_CHARS:
-        return text
-    logger.debug(
-        "tool error body truncated for context (%d chars): %s",
-        len(text),
-        text[:_MAX_LOGGED_ERROR_CHARS],
-    )
-    return text[:_MAX_TOOL_ERROR_CHARS] + _TOOL_ERROR_TRUNCATION_MARKER
-
-
-def _bound_json_error_result(result: str) -> str:
-    """Trim an oversized ``error`` field in a JSON string result.
-
-    Handlers that serialize exceptions directly — ``json.dumps({"error":
-    str(exc), ...})`` instead of ``tool_error()`` — bypass the cap in
-    ``tool_error``. Applied at the dispatch boundary so no registered tool
-    can return an unbounded error body that stacks across retries.
-    """
-    if len(result) <= _MAX_TOOL_ERROR_CHARS or '"error"' not in result:
-        return result
-    try:
-        payload = json.loads(result)
-    except ValueError:
-        return result
-    if not isinstance(payload, dict):
-        return result
-    error = payload.get("error")
-    if not isinstance(error, str) or len(error) <= _MAX_TOOL_ERROR_CHARS:
-        return result
-    payload["error"] = _bound_error_text(error)
-    return json.dumps(payload, ensure_ascii=False)
 
 
 def _is_registry_register_call(node: ast.AST) -> bool:
@@ -90,68 +46,25 @@ def _module_registers_tools(module_path: Path) -> bool:
 
     Only inspects module-body statements so that helper modules which happen
     to call ``registry.register()`` inside a function are not picked up.
-
-    A cheap text prefilter avoids the ``ast.parse`` cost for files that do not
-    mention both ``registry`` and ``register`` — a necessary condition for a
-    top-level ``registry.register()`` call to exist.
     """
     try:
         source = module_path.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    if "registry" not in source or "register" not in source:
-        return False
-    try:
         tree = ast.parse(source, filename=str(module_path))
-    except SyntaxError:
+    except (OSError, SyntaxError):
         return False
 
     return any(_is_registry_register_call(stmt) for stmt in tree.body)
 
 
 def discover_builtin_tools(tools_dir: Optional[Path] = None) -> List[str]:
-    """Import built-in self-registering tool modules and return their module names.
-
-    The per-file AST scan (:func:`_module_registers_tools`) costs ~145 ms over
-    ~100 files on a warm cache, so verdicts are memoized on disk keyed by
-    ``(mtime_ns, size)``. A file whose mtime_ns+size match the cached entry is
-    trusted without re-reading; any mismatch (or a corrupt/missing cache file)
-    falls back to a fresh scan for that file. The cache write is best-effort
-    and atomic, so concurrent processes can race harmlessly.
-    """
+    """Import built-in self-registering tool modules and return their module names."""
     tools_path = Path(tools_dir) if tools_dir is not None else Path(__file__).resolve().parent
-
-    cache = _load_discovery_cache()
-    fresh_cache: Dict[str, list] = {}
-    cache_dirty = False
-
-    module_names: List[str] = []
-    for path in sorted(tools_path.glob("*.py")):
-        if path.name in {"__init__.py", "registry.py", "mcp_tool.py"}:
-            continue
-        abs_path = str(path.resolve())
-        try:
-            st = path.stat()
-            stat_key = (st.st_mtime_ns, st.st_size)
-        except OSError:
-            continue
-        cached = cache.get(abs_path)
-        if (
-            isinstance(cached, (list, tuple))
-            and len(cached) == 3
-            and (cached[0], cached[1]) == stat_key
-        ):
-            registers = bool(cached[2])
-        else:
-            registers = _module_registers_tools(path)
-            cache_dirty = True
-        fresh_cache[abs_path] = [stat_key[0], stat_key[1], registers]
-        if registers:
-            module_names.append(f"tools.{path.stem}")
-
-    # Drop entries for files that no longer exist; rewrite only when changed.
-    if cache_dirty or set(fresh_cache) != set(cache):
-        _save_discovery_cache(fresh_cache)
+    module_names = [
+        f"tools.{path.stem}"
+        for path in sorted(tools_path.glob("*.py"))
+        if path.name not in {"__init__.py", "registry.py", "mcp_tool.py"}
+        and _module_registers_tools(path)
+    ]
 
     imported: List[str] = []
     for mod_name in module_names:
@@ -161,45 +74,6 @@ def discover_builtin_tools(tools_dir: Optional[Path] = None) -> List[str]:
         except Exception as e:
             logger.warning("Could not import tool module %s: %s", mod_name, e)
     return imported
-
-
-def _discovery_cache_path() -> Optional[Path]:
-    """Path of the tool-discovery verdict cache, or None if unresolvable."""
-    try:
-        # Deferred import keeps tools/registry.py a no-deps leaf at module
-        # import time (hermes_constants itself is stdlib-only, so no cycle).
-        from hermes_constants import get_hermes_home
-
-        return Path(get_hermes_home()) / "cache" / "tool_discovery_cache.json"
-    except Exception:
-        return None
-
-
-def _load_discovery_cache() -> Dict[str, list]:
-    """Read the discovery cache; any error → empty dict (full scan)."""
-    path = _discovery_cache_path()
-    if path is None:
-        return {}
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
-def _save_discovery_cache(cache: Dict[str, list]) -> None:
-    """Best-effort atomic write of the discovery cache. Never raises."""
-    path = _discovery_cache_path()
-    if path is None:
-        return
-    try:
-        from utils import atomic_json_write  # stdlib+yaml only; no cycle
-
-        path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_json_write(path, cache, indent=0)
-    except Exception as e:
-        logger.debug("Could not write tool discovery cache %s: %s", path, e)
 
 
 class ToolEntry:
@@ -238,15 +112,6 @@ class ToolEntry:
         self.dynamic_schema_overrides = dynamic_schema_overrides
 
 
-class _PluginOverridePolicy:
-    """Identity-bearing authorization record for one plugin generation."""
-
-    __slots__ = ("allowed",)
-
-    def __init__(self, allowed: bool) -> None:
-        self.allowed = bool(allowed)
-
-
 # ---------------------------------------------------------------------------
 # check_fn TTL 缓存
 #
@@ -264,60 +129,15 @@ class _PluginOverridePolicy:
 # 在上次成功后的短宽限期内失败时，我们会提供最后一次成功的 True，而不是缓存该失败。
 # 持续超出宽限期的一次失败将会被正常采纳，因此真正宕机的后端将停止发布其工具。
 # ---------------------------------------------------------------------------
-
 _CHECK_FN_TTL_SECONDS = 30.0
 # How long after a successful check a subsequent transient failure is treated
 # as a flake (last-good True is served) rather than a real outage. Kept short
 # so a genuinely-down backend is reflected within a couple of turns.
 _CHECK_FN_FAILURE_GRACE_SECONDS = 60.0
-_CHECK_FN_CACHE_MAX = 512
-_check_fn_cache: Dict[tuple[Callable, Optional[str]], tuple[float, bool]] = {}
+_check_fn_cache: Dict[Callable, tuple[float, bool]] = {}
 # Monotonic timestamp of the most recent True result per check_fn.
-_check_fn_last_good: Dict[tuple[Callable, Optional[str]], float] = {}
+_check_fn_last_good: Dict[Callable, float] = {}
 _check_fn_cache_lock = threading.Lock()
-CHECK_FN_CACHE_BYPASS = ""
-
-
-def _prune_check_fn_caches(now: float) -> None:
-    """Expire stale entries and cap profile-dimensional cache growth.
-
-    Caller must hold ``_check_fn_cache_lock``.
-    """
-    for key, (timestamp, _) in list(_check_fn_cache.items()):
-        if now - timestamp >= _CHECK_FN_TTL_SECONDS:
-            _check_fn_cache.pop(key, None)
-    for key, timestamp in list(_check_fn_last_good.items()):
-        if now - timestamp >= _CHECK_FN_FAILURE_GRACE_SECONDS:
-            _check_fn_last_good.pop(key, None)
-    while len(_check_fn_cache) >= _CHECK_FN_CACHE_MAX:
-        _check_fn_cache.pop(next(iter(_check_fn_cache)))
-    while len(_check_fn_last_good) >= _CHECK_FN_CACHE_MAX:
-        _check_fn_last_good.pop(next(iter(_check_fn_last_good)))
-
-
-def check_fn_cache_scope() -> Optional[str]:
-    """Return the active profile key when availability is profile-scoped.
-
-    Single-profile processes intentionally keep the historical process-wide
-    cache. A multiplex gateway installs a Hermes-home override for every
-    profile turn, so the canonical profile key is the stable isolation
-    boundary across repeated turns for that profile.
-    """
-    try:
-        from agent.secret_scope import is_multiplex_active
-
-        if not is_multiplex_active():
-            return None
-        from hermes_constants import get_hermes_home_override
-
-        override = get_hermes_home_override()
-        if not override:
-            return CHECK_FN_CACHE_BYPASS
-        return str(Path(override).expanduser().resolve())
-    except Exception:
-        # Fail closed: bypass both cache layers rather than aliasing requests
-        # whose multiplex profile identity could not be resolved.
-        return CHECK_FN_CACHE_BYPASS
 
 
 def _check_fn_cached(fn: Callable) -> bool:
@@ -330,22 +150,8 @@ def _check_fn_cached(fn: Callable) -> bool:
     竞争、探测超时）在会话中途悄悄移除工具。
     """
     now = time.monotonic()
-    scope = check_fn_cache_scope()
-    if scope == CHECK_FN_CACHE_BYPASS:
-        try:
-            return bool(fn())
-        except Exception:
-            logger.warning(
-                "check_fn %s raised while profile cache scope was unresolved; "
-                "dependent tools will be unavailable this turn",
-                getattr(fn, "__qualname__", fn),
-                exc_info=True,
-            )
-            return False
-    cache_key = (fn, scope)
     with _check_fn_cache_lock:
-        _prune_check_fn_caches(now)
-        cached = _check_fn_cache.get(cache_key)
+        cached = _check_fn_cache.get(fn)
         if cached is not None:
             ts, value = cached
             if now - ts < _CHECK_FN_TTL_SECONDS:
@@ -359,13 +165,12 @@ def _check_fn_cached(fn: Callable) -> bool:
         raised = True
 
     with _check_fn_cache_lock:
-        _prune_check_fn_caches(now)
         if value:
-            _check_fn_last_good[cache_key] = now
-            _check_fn_cache[cache_key] = (now, True)
+            _check_fn_last_good[fn] = now
+            _check_fn_cache[fn] = (now, True)
             return True
 
-        last_good = _check_fn_last_good.get(cache_key)
+        last_good = _check_fn_last_good.get(fn)
         if last_good is not None and now - last_good < _CHECK_FN_FAILURE_GRACE_SECONDS:
             # Recent success → treat this failure as a flake. Serve last-good
             # True and do NOT cache the failure, so the next call re-probes
@@ -386,7 +191,7 @@ def _check_fn_cached(fn: Callable) -> bool:
             getattr(fn, "__qualname__", fn),
             "raised" if raised else "returned False",
         )
-        _check_fn_cache[cache_key] = (now, False)
+        _check_fn_cache[fn] = (now, False)
         return False
 
 
@@ -398,83 +203,36 @@ def invalidate_check_fn_cache() -> None:
         _check_fn_last_good.clear()
 
 
-def get_cached_check_fn_result(fn: Callable) -> Optional[bool]:
-    """Return the current cached verdict for *fn* if its TTL is still valid.
-
-    Unlike :func:`_check_fn_cached`, this NEVER executes the probe. It is for
-    read-only surfaces (e.g. dashboard status panels) that need the last-known
-    availability without triggering network / auth / SDK work inside a request
-    path. Returns ``None`` when there is no fresh cached verdict.
-    """
-    now = time.monotonic()
-    scope = check_fn_cache_scope()
-    if scope == CHECK_FN_CACHE_BYPASS:
-        # Unresolved profile identity bypasses the cache entirely; there is no
-        # trustworthy cached verdict to report.
-        return None
-    with _check_fn_cache_lock:
-        cached = _check_fn_cache.get((fn, scope))
-        if cached is None:
-            return None
-        ts, value = cached
-        if now - ts < _CHECK_FN_TTL_SECONDS:
-            return value
-        return None
-
-
 class ToolRegistry:
     """Singleton registry that collects tool schemas + handlers from tool files."""
 
     def __init__(self):
-        # 内置及其他进程全局级的注册表。
         self._tools: Dict[str, ToolEntry] = {}
-        # 插件注册表是以解析后的 HERMES_HOME 为键的覆盖层（Overlay）。
-        # 某个 Profile 会优先看到属于自己的覆盖层，其次才是全局内置项。
-        self._scoped_tools: Dict[str, Dict[str, ToolEntry]] = {}
-        # 插件模块命名空间 -> 操作员针对内置覆盖的显式授权（Opt-in）。
-        # 授权记录受生命周期管理；
-        # 独立的作用域映射表将保持持久化，从而确保延迟回调仍被限制在 Profile 范围内。
-        self._plugin_override_policy: Dict[
-            tuple[Optional[str], str], _PluginOverridePolicy
-        ] = {}
-        # 在策略移除后，作用域归属关系仍保持持久，
-        # 以便延迟执行的代码依然限定在其模块被加载的 Profile 中。
-        self._plugin_module_scopes: Dict[str, Set[Optional[str]]] = {}
+        # 持久化映射表：插件模块命名空间（handler.__globals__["__name__"]）
+        # -> 用于覆盖内置功能的运算符显式选择（opt-in）策略。
+        #
+        # 该映射表在插件加载时填充且永不清空，
+        # 因此插件的覆盖授权会严格绑定到定义处理程序（handler）的代码上，
+        # 无论 register() 何时被调用
+        # （无论是在加载期间同步调用，还是在之后通过延迟/线程回调调用）。
+        self._plugin_override_policy: Dict[str, bool] = {}
         self._toolset_checks: Dict[str, Callable] = {}
         self._toolset_aliases: Dict[str, str] = {}
-        # MCP 动态刷新可能会在其他线程读取工具元数据时修改注册表，
-        # 因此需要保持修改操作的串行化，并让读取者基于稳定的快照进行访问。
+        # MCP 的动态刷新机制可能会在其他线程读取工具元数据时对注册表进行修改，
+        # 因此需要保持修改操作的序列化执行，
+        # 并确保读取者始终基于稳定的快照进行访问。
         self._lock = threading.RLock()
-        # 单调递增的代际计数器（Generation Counter）。
-        # 每次发生修改（注册 / 卸载 / 注册工具集别名 / MCP 刷新）时递增。
-        # 外部调用者（如 get_tool_definitions）可以据此进行记忆化缓存：
-        # 以该代际值为键的缓存条目，只要代际值未改变就一直有效。
+        # 单调递增的代际计数器（generation counter）。
+        # 每当发生变更操作（如注册、注销、注册工具集别名、MCP 刷新）时该值都会自增。
+        #
+        # 外部调用方（例如 get_tool_definitions）可以基于它进行缓存记忆：
+        # 只要该代际计数没有改变，以该代际值为键（key）的缓存条目就一直有效。
         self._generation: int = 0
 
-    @staticmethod
-    def current_scope_key() -> str:
-        """Return the active profile's canonical registry scope."""
-        return hermes_home_key()
-
-    def _merged_tools(self, scope: Optional[str] = None) -> Dict[str, ToolEntry]:
-        """Return global tools overlaid with one profile's plugin tools."""
-        active_scope = scope or self.current_scope_key()
-        merged = dict(self._tools)
-        merged.update(self._scoped_tools.get(active_scope, {}))
-        return merged
-
-    def _snapshot_state(
-        self,
-        scope: Optional[str] = None,
-    ) -> tuple[List[ToolEntry], Dict[str, Callable]]:
+    def _snapshot_state(self) -> tuple[List[ToolEntry], Dict[str, Callable]]:
         """Return a coherent snapshot of registry entries and toolset checks."""
         with self._lock:
-            entries = list(self._merged_tools(scope).values())
-            checks = dict(self._toolset_checks)
-            for entry in entries:
-                if entry.check_fn is not None:
-                    checks[entry.toolset] = entry.check_fn
-            return entries, checks
+            return list(self._tools.values()), dict(self._toolset_checks)
 
     def _snapshot_entries(self) -> List[ToolEntry]:
         """Return a stable snapshot of registered tool entries."""
@@ -504,34 +262,14 @@ class ToolRegistry:
                 return True
         return False
 
-    def get_entry(
-        self,
-        name: str,
-        *,
-        scope: Optional[str] = None,
-    ) -> Optional[ToolEntry]:
-        """Return the active profile's entry by name, falling back to global."""
+    def get_entry(self, name: str) -> Optional[ToolEntry]:
+        """Return a registered tool entry by name, or None."""
         with self._lock:
-            return self._merged_tools(scope).get(name)
-
-    def snapshot_registration(
-        self,
-        name: str,
-        *,
-        scope: Optional[str] = None,
-    ) -> Optional[ToolEntry]:
-        """Return the local slot state without following global fallback."""
-        with self._lock:
-            target = self._tools if scope is None else self._scoped_tools.get(scope, {})
-            return target.get(name)
+            return self._tools.get(name)
 
     def get_registered_toolset_names(self) -> List[str]:
         """Return sorted unique toolset names present in the registry."""
         return sorted({entry.toolset for entry in self._snapshot_entries()})
-
-    def get_all_entries(self) -> List[ToolEntry]:
-        """Return the active profile's merged tool entries."""
-        return self._snapshot_entries()
 
     def get_tool_names_for_toolset(self, toolset: str) -> List[str]:
         """Return sorted tool names registered under a given toolset."""
@@ -566,63 +304,15 @@ class ToolRegistry:
     # Registration
     # ------------------------------------------------------------------
 
-    def register_plugin_override_policy(
-        self,
-        module_namespace: str,
-        allowed: bool,
-        *,
-        scope: Optional[str] = None,
-    ) -> _PluginOverridePolicy:
-        """将插件模块命名空间绑定到其当前的操作员显式授权（Opt-in）。
-
-        带标识特性的返回结果使得插件在卸载/重新加载时，
-        能够撤销过期的授权，
-        同时又不会丢失持久的“模块-Profile”归属关系。
+    def register_plugin_override_policy(self, module_namespace: str, allowed: bool) -> None:
+        """将插件模块命名空间绑定到操作员针对“内置工具覆盖”的显式选择（opt-in）。
+        在加载时针对每个插件调用一次。
+        具有持久性：永不清理，因此后续来自该模块的
+        （即便是在线程中或延迟进行的）register() 调用
+        仍受相同的策略管控。
         """
         with self._lock:
-            policy = _PluginOverridePolicy(allowed)
-            self._plugin_override_policy[(scope, module_namespace)] = policy
-            self._plugin_module_scopes.setdefault(module_namespace, set()).add(scope)
-            return policy
-
-    def snapshot_plugin_override_policy(
-        self,
-        module_namespace: str,
-        *,
-        scope: Optional[str] = None,
-    ) -> Optional[_PluginOverridePolicy]:
-        """Return one local authorization generation without fallback."""
-        with self._lock:
-            return self._plugin_override_policy.get((scope, module_namespace))
-
-    def restore_plugin_override_policy(
-        self,
-        module_namespace: str,
-        current: _PluginOverridePolicy,
-        previous: Optional[_PluginOverridePolicy],
-        *,
-        scope: Optional[str] = None,
-    ) -> bool:
-        """CAS-restore policy state while retaining durable scope attribution."""
-        with self._lock:
-            key = (scope, module_namespace)
-            if self._plugin_override_policy.get(key) is not current:
-                return False
-            if previous is None:
-                self._plugin_override_policy.pop(key, None)
-            else:
-                self._plugin_override_policy[key] = previous
-            return True
-
-    def _plugin_override_allowed(
-        self,
-        scope: Optional[str],
-        module_namespace: str,
-    ) -> bool:
-        policy = self._plugin_override_policy.get((scope, module_namespace))
-        if policy is None and scope is not None:
-            policy = self._plugin_override_policy.get((None, module_namespace))
-        return bool(policy and policy.allowed)
+            self._plugin_override_policy[module_namespace] = bool(allowed)
 
     def _plugin_owner_of(self, handler: Callable) -> Optional[str]:
         """Return the plugin module namespace that defined *handler*, or None
@@ -636,85 +326,17 @@ class ToolRegistry:
         handlers live outside the plugin namespace and return None (unchanged
         behavior).
         """
-        mod = self._callable_module(handler)
-        if not mod:
+        try:
+            mod = handler.__globals__.get("__name__", "")  # type: ignore[attr-defined]
+        except AttributeError:
             return None
-        return self._plugin_namespace_of_module(mod)
-
-    @staticmethod
-    def _callable_module(handler: Callable) -> str:
-        """Resolve defining module through wrappers, partials, and objects."""
-        current = handler
-        seen: Set[int] = set()
-        while id(current) not in seen:
-            seen.add(id(current))
-            if isinstance(current, functools.partial):
-                current = current.func
-                continue
-            func = getattr(current, "__func__", None)
-            if func is not None:
-                current = func
-                continue
-            globals_dict = getattr(current, "__globals__", None)
-            if isinstance(globals_dict, dict):
-                module_name = globals_dict.get("__name__", "")
-                if module_name:
-                    return str(module_name)
-            wrapped = getattr(current, "__wrapped__", None)
-            if wrapped is not None:
-                current = wrapped
-                continue
-            break
-        module_name = getattr(current, "__module__", "")
-        if module_name:
-            return str(module_name)
-        return str(getattr(type(current), "__module__", "") or "")
-
-    def _plugin_namespace_of_module(
-        self,
-        module_namespace: str,
-    ) -> Optional[str]:
-        """Resolve a module/submodule to its durable plugin namespace."""
-        with self._lock:
-            matches = [
-                namespace
-                for namespace in self._plugin_module_scopes
-                if module_namespace == namespace
-                or module_namespace.startswith(f"{namespace}.")
-            ]
-            if matches:
-                return max(matches, key=len)
+        if mod in self._plugin_override_policy:
+            return mod
         # Also gate plugin modules currently loading but not yet policy-recorded
         # (defensive: a handler defined in the plugin namespace is plugin code).
-        if module_namespace.startswith("hermes_plugins."):
-            return ".".join(module_namespace.split(".")[:2])
+        if isinstance(mod, str) and mod.startswith("hermes_plugins."):
+            return mod
         return None
-
-    def _plugin_scope_of(self, module_namespace: str) -> Optional[str]:
-        """Return the profile scope bound to a loaded plugin module."""
-        with self._lock:
-            scopes = self._plugin_module_scopes.get(module_namespace)
-            if not scopes:
-                return None
-            active_scope = self.current_scope_key()
-            if active_scope in scopes:
-                return active_scope
-            if len(scopes) == 1:
-                return next(iter(scopes))
-            raise PermissionError(
-                f"Plugin module {module_namespace!r} is active in multiple "
-                "profiles and cannot register outside one of those scopes."
-            )
-
-    def plugin_scope_for_module(self, module_namespace: str) -> Optional[str]:
-        """Public host lookup for a loaded plugin module's immutable scope."""
-        owner = self._plugin_namespace_of_module(module_namespace)
-        return self._plugin_scope_of(owner or module_namespace)
-
-    def plugin_scope_for_callable(self, callback: Callable) -> Optional[str]:
-        """Return the durable plugin scope for any supported callable shape."""
-        module_name = self._callable_module(callback)
-        return self.plugin_scope_for_module(module_name) if module_name else None
 
     @staticmethod
     def _caller_module() -> str:
@@ -746,7 +368,6 @@ class ToolRegistry:
         max_result_size_chars: int | float | None = None,
         dynamic_schema_overrides: Callable = None,
         override: bool = False,
-        scope: Optional[str] = None,
     ):
         """注册一个工具。在模块导入时由各个工具文件调用。
 
@@ -757,58 +378,33 @@ class ToolRegistry:
         凡是会遮蔽来自其他工具集现有工具的注册行为都会被拒绝，
         以防止意外覆盖。
         """
-        handler_owner = self._plugin_owner_of(handler)
-        caller_owner = self._plugin_namespace_of_module(self._caller_module())
-        owner = caller_owner or handler_owner
-        if scope is None and owner is not None:
-            scope = self._plugin_scope_of(owner)
         with self._lock:
-            target = (
-                self._tools
-                if scope is None
-                else self._scoped_tools.setdefault(scope, {})
-            )
-            existing = (
-                self._tools.get(name)
-                if scope is None
-                else self._merged_tools(scope).get(name)
-            )
-            shadows_global = (
-                owner is not None
-                and scope is not None
-                and name not in target
-                and name in self._tools
-            )
-            if shadows_global:
-                if not override:
-                    logger.error(
-                        "Tool registration REJECTED: plugin %r attempted to "
-                        "shadow global tool %r without override=True",
-                        owner,
-                        name,
-                    )
-                    return
-                if not self._plugin_override_allowed(scope, owner):
-                    raise PermissionError(
-                        f"Plugin module {owner!r} cannot override built-in "
-                        f"tool {name!r} without operator opt-in "
-                        f"(allow_tool_override)."
-                    )
+            existing = self._tools.get(name)
             if existing and existing.toolset != toolset:
-                if override:
-                    if owner is not None and not self._plugin_override_allowed(
-                        scope, owner
-                    ):
+                # 允许 MCP 之间的相互覆盖（合法场景：服务器刷新，
+                # 或两个 MCP 服务器拥有重名的工具）。
+                both_mcp = (
+                    existing.toolset.startswith("mcp-")
+                    and toolset.startswith("mcp-")
+                )
+                if both_mcp:
+                    logger.debug(
+                        "Tool '%s': MCP toolset '%s' overwriting MCP toolset '%s'",
+                        name, toolset, existing.toolset,
+                    )
+                elif override:
+                    _owner = self._plugin_owner_of(handler)
+                    if _owner is not None and not self._plugin_override_policy.get(_owner, False):
                         logger.error(
                             "Tool registration REJECTED: plugin %r attempted to "
                             "override built-in tool %r (existing toolset %r) without "
                             "operator opt-in. Set "
                             "plugins.entries.<plugin_id>.allow_tool_override: true "
                             "in config.yaml to allow it.",
-                            owner, name, existing.toolset,
+                            _owner, name, existing.toolset,
                         )
                         raise PermissionError(
-                            f"Plugin module {owner!r} cannot override built-in "
+                            f"Plugin module {_owner!r} cannot override built-in "
                             f"tool {name!r} without operator opt-in "
                             f"(allow_tool_override)."
                         )
@@ -820,9 +416,8 @@ class ToolRegistry:
                         name, toolset, existing.toolset,
                     )
                 else:
-                    # Reject every cross-toolset shadow, including MCP-to-MCP
-                    # collisions. Legitimate MCP reconnect/refresh re-registers
-                    # within the same canonical toolset and remains allowed.
+                    # Reject shadowing — prevent plugins/MCP from overwriting
+                    # built-in tools or vice versa.
                     logger.error(
                         "Tool registration REJECTED: '%s' (toolset '%s') would "
                         "shadow existing tool from toolset '%s'. Pass "
@@ -831,7 +426,7 @@ class ToolRegistry:
                         name, toolset, existing.toolset,
                     )
                     return
-            target[name] = ToolEntry(
+            self._tools[name] = ToolEntry(
                 name=name,
                 toolset=toolset,
                 schema=schema,
@@ -850,7 +445,7 @@ class ToolRegistry:
             # banner.py reads (presence only, never called) to classify an
             # already-unavailable toolset as lazy-init vs disabled. Keep the
             # write path for that classification.
-            if scope is None and check_fn and toolset not in self._toolset_checks:
+            if check_fn and toolset not in self._toolset_checks:
                 self._toolset_checks[toolset] = check_fn
             self._generation += 1
 
@@ -875,45 +470,27 @@ class ToolRegistry:
         且不涉及插件覆盖的概念。
         """
         with self._lock:
-            caller_mod = self._caller_module()
-            caller_owner = self._plugin_namespace_of_module(caller_mod)
-            caller_scope = (
-                self._plugin_scope_of(caller_owner)
-                if caller_owner is not None
-                else None
-            )
-            target = (
-                self._scoped_tools.get(caller_scope, {})
-                if caller_scope is not None
-                else self._tools
-            )
-            entry = target.get(name)
-            if entry is None and caller_scope is not None:
-                if name in self._tools:
-                    raise PermissionError(
-                        f"Scoped plugin module {caller_mod!r} cannot deregister "
-                        f"process-global tool {name!r}; register a scoped "
-                        "override instead."
-                    )
-                return
+            entry = self._tools.get(name)
             if entry is None:
                 return
             if not entry.toolset.startswith("mcp-"):
+                caller_mod = self._caller_module()
                 owner = self._plugin_owner_of(entry.handler)
-                # Ownership check: bind to the plugin package root
-                # (``hermes_plugins.{name}``), not the exact module string.
-                # A handler defined in ``hermes_plugins.pkg.handlers`` is
-                # still owned by the ``hermes_plugins.pkg`` package — exact
-                # string equality would wrongly block root-module cleanup code
-                # from removing tools registered by a submodule of the same
-                # plugin (egilewski review on #55840).
-                same_plugin = bool(owner and caller_owner == owner)
+                # 所有权检查：绑定到插件包根目录（``hermes_plugins.{name}``），
+                # 而不是精确的模块字符串。
+                #
+                # 定义在 ``hermes_plugins.pkg.handlers`` 中的处理程序（handler），
+                # 其所有权依然属于 ``hermes_plugins.pkg`` 包——
+                # 如果使用精确的字符串相等校验，会导致根模块的清理代码
+                # 错误地无法移除由同一插件的子模块所注册的工具
+                # （参照 #55840 中 egilewski 的 Code Review 意见）。
+                caller_root = ".".join(caller_mod.split(".")[:2])
+                owner_root = ".".join(owner.split(".")[:2]) if owner else ""
+                same_plugin = bool(owner and caller_root == owner_root)
                 if (
-                    caller_owner is not None
+                    caller_mod.startswith("hermes_plugins.")
                     and not same_plugin
-                    and not self._plugin_override_allowed(
-                        caller_scope, caller_owner
-                    )
+                    and not self._plugin_override_policy.get(caller_root, False)
                 ):
                     logger.error(
                         "Tool deregistration REJECTED: plugin %r attempted to "
@@ -928,14 +505,11 @@ class ToolRegistry:
                         f"{name!r} (toolset {entry.toolset!r}) without operator "
                         f"opt-in (allow_tool_override)."
                     )
-            del target[name]
-            if caller_scope is not None and not target:
-                self._scoped_tools.pop(caller_scope, None)
-            # Drop the toolset check and aliases if this was the last tool in
-            # that toolset.
+            del self._tools[name]
+            # 如果这是该工具集中的最后一个工具，
+            # 则移除对应工具集的校验及别名。
             toolset_still_exists = any(
-                e.toolset == entry.toolset
-                for e in self._merged_tools(caller_scope).values()
+                e.toolset == entry.toolset for e in self._tools.values()
             )
             if not toolset_still_exists:
                 self._toolset_checks.pop(entry.toolset, None)
@@ -946,73 +520,6 @@ class ToolRegistry:
                 }
             self._generation += 1
         logger.debug("Deregistered tool: %s", name)
-
-    def restore_registration(
-        self,
-        name: str,
-        current: ToolEntry,
-        previous: Optional[ToolEntry],
-        *,
-        scope: Optional[str] = None,
-    ) -> bool:
-        """Restore a host-owned registration if it is still current.
-
-        This is the narrow inverse used by the plugin ownership ledger.  The
-        identity check is deliberate: another plugin (or another
-        ``PluginManager`` in a multi-profile process) may have registered a
-        newer entry under the same name, in which case unloading this entry
-        must leave the newer entry untouched.
-        """
-        with self._lock:
-            target = (
-                self._tools
-                if scope is None
-                else self._scoped_tools.setdefault(scope, {})
-            )
-            if target.get(name) is not current:
-                return False
-
-            if previous is None:
-                target.pop(name, None)
-            else:
-                target[name] = previous
-            if scope is not None and not target:
-                self._scoped_tools.pop(scope, None)
-
-            # Rebuild the affected toolset checks from the surviving entries.
-            # A plugin may have replaced an entry in the same toolset, so
-            # simply leaving the current check_fn behind would retain stale
-            # plugin state after restoration.
-            affected_toolsets = {current.toolset}
-            if previous is not None:
-                affected_toolsets.add(previous.toolset)
-            for toolset in affected_toolsets:
-                surviving = [
-                    entry for entry in self._merged_tools(scope).values()
-                    if entry.toolset == toolset
-                ]
-                check_fn = next(
-                    (entry.check_fn for entry in surviving if entry.check_fn),
-                    None,
-                )
-                if scope is None:
-                    if check_fn is None:
-                        self._toolset_checks.pop(toolset, None)
-                    else:
-                        self._toolset_checks[toolset] = check_fn
-                if not surviving and not any(
-                    entry.toolset == toolset
-                    for entries in self._scoped_tools.values()
-                    for entry in entries.values()
-                ):
-                    self._toolset_aliases = {
-                        alias: target
-                        for alias, target in self._toolset_aliases.items()
-                        if target != toolset
-                    }
-            self._generation += 1
-        logger.debug("Restored tool registration: %s", name)
-        return True
 
     # ------------------------------------------------------------------
     # Schema retrieval
@@ -1082,7 +589,7 @@ class ToolRegistry:
         接收到无法安全进行切片或大小计算的值。
         """
         if isinstance(result, str):
-            return _bound_json_error_result(result)
+            return result
         if (
             isinstance(result, dict)
             and result.get("_multimodal") is True
@@ -1096,22 +603,15 @@ class ToolRegistry:
             name,
             result_type,
         )
-        return tool_error(
-            f"Tool handler returned unsupported result type: {result_type}",
-            error_type="tool_result_contract",
-            tool=name,
-            result_type=result_type,
-        )
+        return json.dumps({
+            "error": f"Tool handler returned unsupported result type: {result_type}",
+            "error_type": "tool_result_contract",
+            "tool": name,
+            "result_type": result_type,
+        }, ensure_ascii=False)
 
-    def dispatch(
-        self,
-        name: str,
-        args: dict,
-        *,
-        scope: Optional[str] = None,
-        **kwargs,
-    ) -> str | dict:
-        """Execute a tool handler by name.
+    def dispatch(self, name: str, args: dict, **kwargs) -> str | dict:
+        """按名称执行指定的工具处理程序（handler）。
 
         * 异步处理程序（Async handlers）会自动通过 ``_run_async()`` 进行桥接适配。
         * 处理程序的返回结果在离开注册表前，
@@ -1119,9 +619,9 @@ class ToolRegistry:
         * 所有捕获到的异常都会以 ``{"error": "..."}`` 的统一格式返回，
           以保证错误输出格式的一致性。
         """
-        entry = self.get_entry(name, scope=scope)
+        entry = self.get_entry(name)
         if not entry:
-            return tool_error(f"Unknown tool: {name}")
+            return json.dumps({"error": f"Unknown tool: {name}"})
         try:
             if entry.is_async:
                 from model_tools import _run_async
@@ -1130,10 +630,7 @@ class ToolRegistry:
                 result = entry.handler(args, **kwargs)
             return self._normalize_handler_result(name, result)
         except Exception as e:
-            # exc_info already renders the exception, so keep the message copy bounded.
-            logger.exception(
-                "Tool %s dispatch error: %s", name, _bound_error_text(str(e))
-            )
+            logger.exception("Tool %s dispatch error: %s", name, e)
             # Route through the sanitizer so framing tokens / CDATA / fences
             # in exception strings don't reach the model as structural noise.
             # See model_tools._sanitize_tool_error for rationale.
@@ -1143,7 +640,7 @@ class ToolRegistry:
                 sanitized = _sanitize_tool_error(raw)
             except Exception:
                 sanitized = raw  # defensive: never let the sanitizer block error propagation
-            return tool_error(sanitized)
+            return json.dumps({"error": sanitized})
 
     # ------------------------------------------------------------------
     # Query helpers  (replace redundant dicts in model_tools.py)
@@ -1290,8 +787,7 @@ def tool_error(message, **extra) -> str:
     >>> tool_error("bad input", success=False)
     '{"error": "bad input", "success": false}'
     """
-    # Bound the context-bound copy so a raw exception can't bloat history across retries.
-    result = {"error": _bound_error_text(str(message))}
+    result = {"error": str(message)}
     if extra:
         result.update(extra)
     return json.dumps(result, ensure_ascii=False)

@@ -37,17 +37,15 @@ import threading
 from typing import Dict, List, Optional
 
 from agent.web_search_provider import WebSearchProvider
-from hermes_constants import hermes_home_key
 
 logger = logging.getLogger(__name__)
 
 
 _providers: Dict[str, WebSearchProvider] = {}
-_scoped_providers: Dict[str, Dict[str, WebSearchProvider]] = {}
 _lock = threading.Lock()
 
 
-def register_provider(provider: WebSearchProvider, *, scope: Optional[str] = None) -> None:
+def register_provider(provider: WebSearchProvider) -> None:
     """注册一个 Web 搜索/提取提供者。
 
     重复注册（使用相同的 ``name``）将覆盖先前的条目
@@ -59,14 +57,12 @@ def register_provider(provider: WebSearchProvider, *, scope: Optional[str] = Non
             f"register_provider() expects a WebSearchProvider instance, "
             f"got {type(provider).__name__}"
         )
-    raw_name = provider.name
-    if not isinstance(raw_name, str) or not raw_name.strip():
+    name = provider.name
+    if not isinstance(name, str) or not name.strip():
         raise ValueError("Web provider .name must be a non-empty string")
-    name = raw_name.strip()
     with _lock:
-        target = _providers if scope is None else _scoped_providers.setdefault(scope, {})
-        existing = target.get(name)
-        target[name] = provider
+        existing = _providers.get(name)
+        _providers[name] = provider
     if existing is not None:
         logger.debug(
             "Web provider '%s' re-registered (was %r)",
@@ -79,52 +75,19 @@ def register_provider(provider: WebSearchProvider, *, scope: Optional[str] = Non
         )
 
 
-def list_providers(*, scope: Optional[str] = None) -> List[WebSearchProvider]:
+def list_providers() -> List[WebSearchProvider]:
     """Return all registered providers, sorted by name."""
     with _lock:
-        merged = dict(_providers)
-        merged.update(_scoped_providers.get(scope or hermes_home_key(), {}))
-        items = list(merged.values())
+        items = list(_providers.values())
     return sorted(items, key=lambda p: p.name)
 
 
-def get_provider(name: str, *, scope: Optional[str] = None) -> Optional[WebSearchProvider]:
+def get_provider(name: str) -> Optional[WebSearchProvider]:
     """Return the provider registered under *name*, or None."""
     if not isinstance(name, str):
         return None
     with _lock:
-        key = name.strip()
-        return _scoped_providers.get(scope or hermes_home_key(), {}).get(key) or _providers.get(key)
-
-
-def snapshot_registration(
-    name: str, *, scope: Optional[str] = None
-) -> Optional[WebSearchProvider]:
-    with _lock:
-        target = _providers if scope is None else _scoped_providers.get(scope, {})
-        return target.get(name.strip())
-
-
-def restore_registration(
-    name: str,
-    current: WebSearchProvider,
-    previous: Optional[WebSearchProvider],
-    *,
-    scope: Optional[str] = None,
-) -> bool:
-    """Restore a plugin registration only when *current* is still installed."""
-    key = name.strip()
-    with _lock:
-        target = _providers if scope is None else _scoped_providers.setdefault(scope, {})
-        if target.get(key) is not current:
-            return False
-        if previous is None:
-            target.pop(key, None)
-        else:
-            target[key] = previous
-        if scope is not None and not target:
-            _scoped_providers.pop(scope, None)
-    return True
+        return _providers.get(name.strip())
 
 
 # ---------------------------------------------------------------------------
@@ -135,9 +98,9 @@ def restore_registration(
 def _read_config_key(*path: str) -> Optional[str]:
     """Resolve a dotted config key from ``config.yaml``. Returns None on miss."""
     try:
-        from hermes_cli.config import load_config_readonly
+        from hermes_cli.config import load_config
 
-        cfg = load_config_readonly()
+        cfg = load_config()
         cur = cfg
         for segment in path:
             if not isinstance(cur, dict):
@@ -199,7 +162,6 @@ def _resolve(configured: Optional[str], *, capability: str) -> Optional[WebSearc
     """
     with _lock:
         snapshot = dict(_providers)
-        snapshot.update(_scoped_providers.get(hermes_home_key(), {}))
 
     def _capable(p: WebSearchProvider) -> bool:
         if capability == "search":
@@ -340,4 +302,3 @@ def _reset_for_tests() -> None:
     """Clear the registry. **Test-only.**"""
     with _lock:
         _providers.clear()
-        _scoped_providers.clear()

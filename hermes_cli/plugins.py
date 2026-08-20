@@ -1,36 +1,33 @@
 """
-Hermes Plugin System
+Hermes 插件系统
 ====================
 
-Discovers, loads, and manages plugins from four sources:
+探索、加载并管理来自以下四个来源的插件：
 
-1. **Bundled plugins** – ``<repo>/plugins/<name>/`` (shipped with hermes-agent;
-   ``memory/`` and ``context_engine/`` subdirs are excluded — they have their
-   own discovery paths)
-2. **User plugins**   – ``~/.hermes/plugins/<name>/``
-3. **Project plugins** – ``./.hermes/plugins/<name>/`` (opt-in via
-   ``HERMES_ENABLE_PROJECT_PLUGINS``)
-4. **Pip plugins**     – packages that expose the ``hermes_agent.plugins``
-   entry-point group.
+1. **内置插件**   – ``<repo>/plugins/<name>/``（随 hermes-agent 一起发布；
+   跳过 ``memory/`` 和 ``context_engine/`` 子目录 — 它们拥有自己的探索路径）
+2. **用户插件**   – ``~/.hermes/plugins/<name>/``
+3. **项目插件**   – ``./.hermes/plugins/<name>/``（通过设置
+   ``HERMES_ENABLE_PROJECT_PLUGINS`` 手动开启）
+4. **Pip 插件**    – 暴露了 ``hermes_agent.plugins``
+   入口点组（entry-point group）的 Python 包。
 
-Later sources override earlier ones on name collision, so a user or project
-plugin with the same name as a bundled plugin replaces it.
+发生名称冲突时，后列出的来源会覆盖前面的来源，
+因此与内置插件同名的用户插件或项目插件将会替换原有的内置插件。
 
-Each directory plugin must contain a ``plugin.yaml`` manifest **and** an
-``__init__.py`` with a ``register(ctx)`` function.
+每个目录形式的插件都必须包含一个 ``plugin.yaml`` 清单文件，
+**以及**一个带有 ``register(ctx)`` 函数的 ``__init__.py`` 文件。
 
-Lifecycle hooks
+生命周期 Hook
 ---------------
-Plugins may register callbacks for any of the hooks in ``VALID_HOOKS``.
-The agent core calls ``invoke_hook(name, **kwargs)`` at the appropriate
-points.
+插件可以针对 ``VALID_HOOKS`` 中的任意 Hook 注册回调函数。
+Agent 核心会在适当的节点调用 ``invoke_hook(name, **kwargs)``。
 
-Tool registration
+工具注册
 -----------------
-``PluginContext.register_tool()`` delegates to ``tools.registry.register()``
-so plugin-defined tools appear alongside the built-in tools.
+``PluginContext.register_tool()`` 会委托给 ``tools.registry.register()`` 处理，
+从而使插件定义的工具能够与内置工具并列展示和使用。
 """
-
 from __future__ import annotations
 
 import asyncio
@@ -53,11 +50,12 @@ from hermes_cli.middleware import OBSERVER_SCHEMA_VERSION, VALID_MIDDLEWARE
 
 
 def get_bundled_plugins_dir() -> Path:
-    """Locate the bundled ``plugins/`` directory.
+    """定位内置的 ``plugins/`` 目录。
 
-    Honours ``HERMES_BUNDLED_PLUGINS`` (set by the Nix wrapper / packaged
-    installs) so read-only store paths are consulted first.  Falls back to
-    the in-repo path used during development.
+    优先遵循 ``HERMES_BUNDLED_PLUGINS`` 环境变量
+    （由 Nix 封装器 / 打包安装程序设置），
+    以便首先调取只读存储路径。
+    若未设置，则回退到开发期间使用的代码库内路径。
     """
     env_override = os.getenv("HERMES_BUNDLED_PLUGINS")
     if env_override:
@@ -290,27 +288,24 @@ class PluginManifest:
     provides_hooks: List[str] = field(default_factory=list)
     source: str = ""        # "user", "project", or "entrypoint"
     path: Optional[str] = None
-    # Plugin kind — see plugins.py module docstring for semantics.
-    # ``standalone`` (default): hooks/tools of its own; opt-in via
-    #                           ``plugins.enabled``.
-    # ``backend``: pluggable backend for an existing core tool (e.g.
-    #              image_gen). Built-in (bundled) backends auto-load;
-    #              user-installed still gated by ``plugins.enabled``.
-    # ``exclusive``: category with exactly one active provider (memory).
-    #              Selection via ``<category>.provider`` config key; the
-    #              category's own discovery system handles loading and the
-    #              general scanner skips these.
-    # ``platform``: gateway messaging platform adapter (e.g. IRC). Bundled
-    #              platform plugins auto-load so every shipped platform is
-    #              available out of the box; user-installed platform plugins
-    #              in ~/.hermes/plugins/ still gated by ``plugins.enabled``
-    #              (untrusted code).
+    # 插件类型 — 语义请参阅 plugins.py 模块文档字符串。
+    # ``standalone``（默认）：拥有自身的 hook/tool；通过 ``plugins.enabled`` 手动开启。
+    # ``backend``：现有核心工具的可插拔后端（例如 image_gen）。
+    #              内置（随源码发布）的后端会自动加载；
+    #              用户安装的后端仍受 ``plugins.enabled`` 管控。
+    # ``exclusive``：同一时刻仅能有一个活动提供方的分类（例如 memory）。
+    #               通过 ``<category>.provider`` 配置项进行选择；
+    #               该分类自身的探索系统负责具体加载，通用扫描程序会跳过这些插件。
+    # ``platform``：网关消息平台适配器（例如 IRC）。
+    #              内置的平台插件会自动加载，以便所有随软件发布的平台均可开箱即用；
+    #              位于 ~/.hermes/plugins/ 中用户安装的平台插件（非信任代码）
+    #              仍受 ``plugins.enabled`` 管控。
     kind: str = "standalone"
-    # Registry key — path-derived, used by ``plugins.enabled``/``disabled``
-    # lookups and by ``hermes plugins list``. For a flat plugin at
-    # ``plugins/disk-cleanup/`` the key is ``disk-cleanup``; for a nested
-    # category plugin at ``plugins/image_gen/openai/`` the key is
-    # ``image_gen/openai``. When empty, falls back to ``name``.
+    # 注册表键（Key）— 基于路径生成，用于 ``plugins.enabled``/``disabled``
+    # 的查找以及 ``hermes plugins list`` 命令。
+    # 对于位于 ``plugins/disk-cleanup/`` 的扁平插件，键为 ``disk-cleanup``；
+    # 对于位于 ``plugins/image_gen/openai/`` 的嵌套分类插件，
+    # 键为 ``image_gen/openai``。当该值为空时，回退使用 ``name``。
     key: str = ""
 
 
@@ -448,13 +443,14 @@ class PluginContext:
     # -- override trust gate ------------------------------------------------
 
     def _tool_override_allowed(self, tool_name: str) -> bool:
-        """Return True if this plugin is configured to override built-in tools.
+        """如果该插件被配置为允许覆盖内置工具，则返回 True。
 
-        Bundled plugins (shipped with Hermes core) are trusted by default —
-        an override there is a deliberate maintainer choice, not a third-party
-        plugin trying to elevate privilege. For every other source, require
-        ``allow_tool_override: true`` under
-        ``plugins.entries.<plugin_id>`` in config.yaml.
+        内置插件（随 Hermes 核心一同发布）默认受信任 —
+        其中的覆盖行为属于维护者的有意选择，
+        而非试图进行权限提升的第三方插件。
+        对于其他所有来源的插件，均需要在 config.yaml 中
+        针对 ``plugins.entries.<plugin_id>`` 配置
+        ``allow_tool_override: true``。
         """
         source = getattr(self.manifest, "source", "") or ""
         if source == "bundled":
@@ -533,23 +529,21 @@ class PluginContext:
         description: str = "",
         args_hint: str = "",
     ) -> None:
-        """Register a slash command (e.g. ``/lcm``) available in CLI and gateway sessions.
+        """注册一个可在 CLI 和网关会话中使用的斜杠命令（例如 ``/lcm``）。
 
-        The handler signature is ``fn(raw_args: str) -> str | None``.
-        It may also be an async callable — the gateway dispatch handles both.
+        处理函数的签名应为 ``fn(raw_args: str) -> str | None``。
+        它也可以是一个异步可调用对象 —— 网关分发机制同时支持这两种形式。
 
-        Unlike ``register_cli_command()`` (which creates ``hermes <subcommand>``
-        terminal commands), this registers in-session slash commands that users
-        invoke during a conversation.
+        与 ``register_cli_command()``（用于创建 ``hermes <subcommand>`` 终端命令）不同，
+        本方法注册的是会话内的斜杠命令，供用户在对话过程中调用。
 
-        ``args_hint`` is an optional short string (e.g. ``"<file>"`` or
-        ``"dias:7 formato:json"``) used by gateway adapters to surface the
-        command with an argument field — for example Discord's native slash
-        command picker. Plugin commands without ``args_hint`` register as
-        parameterless in Discord and still accept trailing text when invoked
-        as free-form chat.
+        ``args_hint`` 是一个可选的简短字符串（例如 ``"<file>"`` 或 ``"dias:7 formato:json"``），
+        网关适配器可通过它向用户展示带有参数输入框的命令
+        —— 例如 Discord 原生的斜杠命令选择器。
+        未设置 ``args_hint`` 的插件命令在 Discord 中将注册为无参命令，
+        但以自由文本形式调用时仍可接收后续追加的文本。
 
-        Names conflicting with built-in commands are rejected with a warning.
+        若命令名称与内置命令冲突，该注册将被拒绝并发出警告。
         """
         clean = name.lower().strip().lstrip("/").replace(" ", "-")
         if not clean:
@@ -740,14 +734,15 @@ class PluginContext:
     # -- web search/extract provider registration ----------------------------
 
     def register_web_search_provider(self, provider) -> None:
-        """Register a web search/extract backend.
+        """注册一个 Web 搜索/提取后端。
 
-        ``provider`` must be an instance of
-        :class:`agent.web_search_provider.WebSearchProvider`. The
-        ``provider.name`` attribute is what ``web.search_backend`` /
-        ``web.extract_backend`` / ``web.backend`` in ``config.yaml``
-        matches against when routing ``web_search`` / ``web_extract``
-        tool calls.
+        `provider` 必须是
+        :class:`agent.web_search_provider.WebSearchProvider` 的实例。
+
+        当路由 `web_search` / `web_extract` 工具调用时，
+        `config.yaml` 中的 `web.search_backend` /
+        `web.extract_backend` / `web.backend` 配置项
+        将与 `provider.name` 属性进行匹配。
         """
         from agent.web_search_provider import WebSearchProvider
         from agent.web_search_registry import register_provider as _register_web_provider
@@ -1321,11 +1316,11 @@ class PluginManager:
     # -----------------------------------------------------------------------
 
     def discover_and_load(self, force: bool = False) -> None:
-        """Scan all plugin sources and load each plugin found.
+        """扫描所有插件源并加载找到的每个插件。
 
-        When ``force`` is true, clear cached discovery state first so config
-        changes or newly-added bundled backends become visible in long-lived
-        sessions without requiring a full agent restart.
+        当 ``force`` 为 true 时，会先清除缓存的探测状态，
+        以便在无需完全重启 Agent 的情况下，
+        让配置变更或新添加的内置后端在长生命周期的会话中生效。
         """
         if self._discovered and not force:
             return
@@ -1345,12 +1340,13 @@ class PluginManager:
             self._aux_tasks.clear()
             self._slack_action_handlers.clear()
             self._context_engine = None
-        # Set the flag up front as a re-entrancy guard (a plugin's register()
-        # can transitively trigger discovery again), but reset it if the sweep
-        # raises so a failed scan is NOT cached as "discovered with an empty
-        # registry" — callers swallow the exception and would otherwise be
-        # permanently stranded on the early-return above (the "No web provider
-        # configured" class of failures).
+        # 预先设置该标志作为重入保护（插件的 register()
+        # 可能会间接再次触发探索过程），
+        # 但如果清理（sweep）引发异常，则重置该标志，
+        # 从而避免将失败的扫描错误地缓存为“以空注册表完成探索”——
+        # 调用方会捕获并消化该异常，
+        # 否则将会被永久困在上方的提前返回逻辑中
+        # （即“未配置 Web 提供商”这类失败情况）。
         self._discovered = True
         try:
             self._discover_and_load_inner()
@@ -1362,19 +1358,19 @@ class PluginManager:
         """The actual discovery sweep — see :meth:`discover_and_load`."""
         manifests: List[PluginManifest] = []
 
-        # 1. Bundled plugins (<repo>/plugins/<name>/)
+        # 1. 内置插件（<repo>/plugins/<name>/）
         #
-        # Repo-shipped plugins live next to hermes_cli/. Two layouts are
-        # supported (see ``_scan_directory`` for details):
+        # 随代码库发布的插件与 hermes_cli/ 平级放置。支持以下两种布局形式
+        # （详情参阅 ``_scan_directory``）：
         #
-        #   - flat: ``plugins/disk-cleanup/plugin.yaml`` (standalone)
-        #   - category: ``plugins/image_gen/openai/plugin.yaml`` (backend)
+        #   - 扁平结构（flat）：``plugins/disk-cleanup/plugin.yaml``（独立插件）
+        #   - 分类结构（category）：``plugins/image_gen/openai/plugin.yaml``（后端驱动）
         #
-        # ``memory/``, ``context_engine/``, and ``model-providers/`` are
-        # skipped at the top level — they have their own discovery systems
-        # (plugins/memory/__init__.py, providers/__init__.py). ``platforms/``
-        # is a category holding platform adapters (scanned one level deeper
-        # below).
+        # 在顶层目录下，``memory/``、``context_engine/`` 以及 ``model-providers/``
+        # 会被跳过 — 它们拥有各自独立的探索机制
+        # （plugins/memory/__init__.py, providers/__init__.py）。
+        # ``platforms/`` 则是存放平台适配器的分类目录
+        # （需在其下一层级进行扫描）。
         repo_plugins = get_bundled_plugins_dir()
         logger.debug("Scanning bundled plugins: %s", repo_plugins)
         bundled = self._scan_directory(
@@ -1414,13 +1410,13 @@ class PluginManager:
         logger.debug("  entrypoints: %d manifest(s)", len(ep_manifests))
         manifests.extend(ep_manifests)
 
-        # Load each manifest (skip user-disabled plugins).
-        # Later sources override earlier ones on key collision — user
-        # plugins take precedence over bundled, project plugins take
-        # precedence over user. Dedup here so we only load the final
-        # winner. Keys are path-derived (``image_gen/openai``,
-        # ``disk-cleanup``) so ``tts/openai`` and ``image_gen/openai``
-        # don't collide even when both manifests say ``name: openai``.
+        # 加载各个清单文件（跳过用户禁用的插件）。
+        # 当键（Key）发生冲突时，后列出的来源会覆盖前面的来源 —
+        # 用户插件优先于内置插件，项目插件优先于用户插件。
+        # 此处进行去重，以便我们只加载最终胜出的插件。
+        # 键是由路径生成（例如 ``image_gen/openai``、``disk-cleanup``），
+        # 因此即便两个清单文件中的 ``name: openai`` 相同，
+        # ``tts/openai`` 与 ``image_gen/openai`` 也不会发生冲突。
         disabled = _get_disabled_plugins()
         enabled = _get_enabled_plugins()  # None = opt-in default (nothing enabled)
         winners: Dict[str, PluginManifest] = {}
@@ -1453,12 +1449,11 @@ class PluginManager:
                 )
                 continue
 
-            # Model provider plugins are loaded by providers/__init__.py
-            # (its own lazy discovery keyed off first get_provider_profile()
-            # call). We record the manifest here for introspection but do
-            # not import the module — a second import would create two
-            # ProviderProfile instances and break the "last writer wins"
-            # override semantics between bundled and user plugins.
+            # 模型提供方（Model provider）插件由 providers/__init__.py 负责加载
+            # （其自身会在首次调用 get_provider_profile() 时触发延迟探索）。
+            # 此处我们仅记录清单信息以供自省，但不直接导入（import）该模块 —
+            # 二次导入会创建两个 ProviderProfile 实例，
+            # 从而破坏内置插件与用户插件之间“最后写入者胜出”的覆盖机制。
             if manifest.kind == "model-provider":
                 loaded = LoadedPlugin(manifest=manifest, enabled=True)
                 self._plugins[lookup_key] = loaded
@@ -1468,33 +1463,32 @@ class PluginManager:
                 )
                 continue
 
-            # Built-in backends auto-load — they ship with hermes and must
-            # just work. Selection among them (e.g. which image_gen backend
-            # services calls) is driven by ``<category>.provider`` config,
-            # enforced by the tool wrapper.
+            # 内置后端会自动加载 — 它们随 hermes 一起发布且必须开箱即用。
+            # 它们之间的选择（例如由哪个 image_gen 后端来处理调用）
+            # 由 ``<category>.provider`` 配置项控制，
+            # 并由工具包装器（tool wrapper）强制执行。
             if manifest.source == "bundled" and manifest.kind == "backend":
                 self._load_plugin(manifest)
                 continue
 
-            # Bundled platform plugins (gateway adapters: telegram, discord,
-            # feishu, teams, ...) are registered LAZILY. Their modules import
-            # heavy, platform-specific SDKs at module level (lark_oapi,
-            # microsoft_teams, discord.py, slack_bolt, ...), so eagerly loading
-            # all ~20 of them added several seconds to every `hermes`
-            # invocation — including plain `hermes chat`, which never touches a
-            # gateway platform. Instead we register a cheap deferred loader in
-            # the platform_registry keyed on the platform name; the real module
-            # is imported only when the gateway / cron / setup / send_message
-            # path actually asks for that platform. Every platform Hermes ships
-            # remains available out of the box — it just loads on first use.
+            # 内置的平台插件（网关适配器：telegram、discord、
+            # 飞书、teams 等）采用延迟（LAZY）方式进行注册。
+            # 它们的模块会在模块层级导入开销巨大且平台特定的 SDK
+            # （如 lark_oapi、microsoft_teams、discord.py、slack_bolt 等），
+            # 因此如果同步预加载全部约 20 个插件，会导致每次执行 `hermes` 命令时
+            # 都增加几秒钟的开销 — 甚至包括完全不涉及网关平台的普通 `hermes chat` 命令。
+            # 作为替代方案，我们在 platform_registry 中注册一个以平台名称为键（Key）的
+            # 轻量级延迟加载器；只有当网关、定时任务（cron）、初始化设置（setup）
+            # 或消息发送（send_message）路径确实请求该平台时，才会去真实导入对应的模块。
+            # Hermes 随附的所有平台依然保持开箱即用 — 只是变成了首次使用时才加载。
             if manifest.source == "bundled" and manifest.kind == "platform":
                 self._register_deferred_platform(manifest)
                 continue
 
-            # Everything else (standalone, user-installed backends,
-            # entry-point plugins) is opt-in via plugins.enabled.
-            # Accept both the path-derived key and the legacy bare name
-            # so existing configs keep working.
+            # 其他所有内容（独立插件、用户安装的后端、
+            # 入口点插件）均需通过 plugins.enabled 手动开启。
+            # 同时兼容由路径生成的键（key）以及传统的纯名称，
+            # 从而确保现有配置能够继续正常工作。
             is_enabled = (
                 enabled is not None
                 and (lookup_key in enabled or manifest.name in enabled)
@@ -1529,20 +1523,20 @@ class PluginManager:
         source: str,
         skip_names: Optional[Set[str]] = None,
     ) -> List[PluginManifest]:
-        """Read ``plugin.yaml`` manifests from subdirectories of *path*.
+        """从 *path* 的子目录中读取 ``plugin.yaml`` 清单文件。
 
-        Supports two layouts, mixed freely:
+        支持以下两种布局，且两者可混合使用：
 
-        * **Flat** — ``<root>/<plugin-name>/plugin.yaml``. Key is
-          ``<plugin-name>`` (e.g. ``disk-cleanup``).
-        * **Category** — ``<root>/<category>/<plugin-name>/plugin.yaml``,
-          where the ``<category>`` directory itself has no ``plugin.yaml``.
-          Key is ``<category>/<plugin-name>`` (e.g. ``image_gen/openai``).
-          Depth is capped at two segments.
+        * **扁平结构（Flat）** — ``<root>/<plugin-name>/plugin.yaml``。
+          键（Key）为 ``<plugin-name>``（例如 ``disk-cleanup``）。
+        * **分类结构（Category）** — ``<root>/<category>/<plugin-name>/plugin.yaml``，
+          其中 ``<category>`` 目录本身不包含 ``plugin.yaml``。
+          键（Key）为 ``<category>/<plugin-name>``（例如 ``image_gen/openai``）。
+          目录层级深度上限为两级。
 
-        *skip_names* is an optional allow-list of names to ignore at the
-        top level (kept for back-compat; the current call sites no longer
-        pass it now that categories are first-class).
+        *skip_names* 是一个可选的忽略名称白名单，用于跳过顶层的指定目录
+        （保留该参数是为了向下兼容；由于分类结构现已成为一级支持，
+        目前的调用位置已不再传递此参数）。
         """
         return self._scan_directory_level(
             path, source, skip_names=skip_names, prefix="", depth=0
@@ -1557,11 +1551,11 @@ class PluginManager:
         prefix: str,
         depth: int,
     ) -> List[PluginManifest]:
-        """Recursive implementation of :meth:`_scan_directory`.
+        """ :meth:`_scan_directory` 的递归实现。
 
-        ``prefix`` is the category path already accumulated ("" at root,
-        "image_gen" one level in). ``depth`` is the recursion depth; we
-        cap at 2 so ``<root>/a/b/c/`` is ignored.
+        ``prefix`` 是已累积的分类路径（根目录下为 ""，
+        下钻一层后为 "image_gen"）。``depth`` 为递归深度；
+        我们将其上限设为 2，因此 ``<root>/a/b/c/`` 会被忽略。
         """
         manifests: List[PluginManifest] = []
         if not path.is_dir():
@@ -1819,13 +1813,12 @@ class PluginManager:
                 logger.warning("Plugin '%s' has no register() function", manifest.name)
             else:
                 ctx = PluginContext(manifest, self)
-                # Snapshot registry state BEFORE register() so each registry's
-                # attribution counts only what THIS plugin actually added.
-                # The previous approach diffed names against all already-loaded
-                # plugins, which mis-credited a plugin that registered a hook /
-                # middleware / tool name an earlier plugin had already used:
-                # the shared name was attributed to the first plugin only, so
-                # later plugins under-reported in `hermes plugins list`.
+                # 在执行 register() 之前快照注册表的状态，
+                # 从而使各个注册表的归属统计仅包含“本插件”实际新增的内容。
+                # 此前的实现方式是将名称与所有已加载的插件进行对比差异，
+                # 这会导致对注册了已被早期插件使用过的 Hook / 中间件 / 工具名称的插件归属错误：
+                # 重名的部分仅被归入第一个插件，
+                # 从而导致后续插件在 `hermes plugins list` 中少报了注册项。
                 _tools_before = set(self._plugin_tool_names)
                 _hook_counts_before = {
                     h: len(cbs) for h, cbs in self._hooks.items()
@@ -1833,6 +1826,7 @@ class PluginManager:
                 _mw_counts_before = {
                     kind: len(cbs) for kind, cbs in self._middleware.items()
                 }
+                # Key met 例如调用disk-cleanup#def register()方法
                 register_fn(ctx)
                 loaded.tools_registered = [
                     t for t in self._plugin_tool_names
@@ -1874,12 +1868,12 @@ class PluginManager:
         self._plugins[manifest.key or manifest.name] = loaded
 
     def _load_directory_module(self, manifest: PluginManifest) -> types.ModuleType:
-        """Import a directory-based plugin as ``hermes_plugins.<slug>``.
+        """将基于目录的插件导入为 ``hermes_plugins.<slug>``。
 
-        The module slug is derived from ``manifest.key`` so category-namespaced
-        plugins (``image_gen/openai``) import as
-        ``hermes_plugins.image_gen__openai`` without colliding with any
-        future ``tts/openai``.
+        模块 slug 是基于 ``manifest.key`` 生成的，
+        因此带有分类命名空间的插件（例如 ``image_gen/openai``）
+        会导入为 ``hermes_plugins.image_gen__openai``，
+        而不会与未来可能出现的 ``tts/openai`` 发生冲突。
         """
         plugin_dir = Path(manifest.path)  # type: ignore[arg-type]
         init_file = plugin_dir / "__init__.py"

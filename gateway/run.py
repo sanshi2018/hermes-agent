@@ -6936,13 +6936,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 pass
             self._request_clean_exit(reason)
             return True
-        
-        # Discover Python plugins before shell hooks so plugin block
-        # decisions take precedence in tie cases.  The CLI startup path
-        # does this via an explicit call in hermes_cli/main.py; the
-        # gateway lazily imports run_agent inside per-request handlers,
-        # so the discover_plugins() side-effect in model_tools.py is NOT
-        # guaranteed to have run by the time we reach this point.
+
+        # 在 Shell 钩子之前优先探测 Python 插件，
+        # 以确保在发生冲突（平局）时插件的拦截决断拥有更高优先级。
+        # CLI 启动路径在 hermes_cli/main.py 中通过显式调用来完成此操作；
+        # 而网关会在每个请求的处理函数中延迟导入 run_agent，
+        # 因此无法保证执行到此处时 model_tools.py 中的 discover_plugins() 侧效应已经运行。
         try:
             from hermes_cli.plugins import discover_plugins
             discover_plugins()

@@ -305,10 +305,11 @@ class ToolRegistry:
     # ------------------------------------------------------------------
 
     def register_plugin_override_policy(self, module_namespace: str, allowed: bool) -> None:
-        """Bind a plugin module namespace to its operator opt-in for built-in
-        override. Called once per plugin at load time. Durable: never cleared,
-        so later (even threaded/delayed) register() calls from that module are
-        still gated by the same policy.
+        """将插件模块命名空间绑定到操作员针对“内置工具覆盖”的显式选择（opt-in）。
+        在加载时针对每个插件调用一次。
+        具有持久性：永不清理，因此后续来自该模块的
+        （即便是在线程中或延迟进行的）register() 调用
+        仍受相同的策略管控。
         """
         with self._lock:
             self._plugin_override_policy[module_namespace] = bool(allowed)

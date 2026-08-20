@@ -46,11 +46,11 @@ _lock = threading.Lock()
 
 
 def register_provider(provider: WebSearchProvider) -> None:
-    """Register a web search/extract provider.
+    """注册一个 Web 搜索/提取提供者。
 
-    Re-registration (same ``name``) overwrites the previous entry and logs
-    a debug message — makes hot-reload scenarios (tests, dev loops) behave
-    predictably.
+    重复注册（使用相同的 ``name``）将覆盖先前的条目
+    并记录一条调试信息——这能让热重载场景
+    （如测试、开发循环）的表现符合预期。
     """
     if not isinstance(provider, WebSearchProvider):
         raise TypeError(

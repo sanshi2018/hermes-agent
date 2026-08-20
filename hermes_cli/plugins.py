@@ -344,15 +344,14 @@ class PluginContext:
 
     @property
     def llm(self) -> Any:
-        """Return the plugin's :class:`agent.plugin_llm.PluginLlm` facade.
+        """返回插件的 :class:`agent.plugin_llm.PluginLlm` 门面（facade）。
 
-        Lets trusted plugins run host-owned chat or structured completions
-        against the user's active model and auth without bringing their
-        own provider keys. Override capability (model, agent id, auth
-        profile) is fail-closed by default and gated through
-        ``plugins.entries.<plugin_id>.llm.*`` config keys.
+        允许受信任的插件针对用户当前活动的模型和身份验证，
+        运行由宿主拥有的聊天或结构化补全，而无需自带提供商密钥。
+        覆盖功能（模型、agent id、auth 配置文件）默认采用故障关闭（fail-closed）策略，
+        并通过 ``plugins.entries.<plugin_id>.llm.*`` 配置键进行管控。
 
-        See :mod:`agent.plugin_llm` for the full surface."""
+        有关完整的接口表面，请参阅 :mod:`agent.plugin_llm`。"""
         if self._llm is None:
             from agent.plugin_llm import PluginLlm
             plugin_id = self.manifest.key or self.manifest.name
@@ -363,17 +362,15 @@ class PluginContext:
 
     @property
     def profile_name(self) -> str:
-        """Return the active Hermes profile name (e.g. ``"default"``).
+        """返回当前活动的 Hermes 配置文件名称（例如 ``"default"``）。
 
-        Derived from ``HERMES_HOME`` via
-        :func:`hermes_cli.profiles.get_active_profile_name`, so it works in
-        every execution context — interactive CLI, gateway, and
-        kanban-spawned worker sessions alike — without depending on
-        ``_cli_ref`` (which is ``None`` outside an interactive CLI run).
+        通过 :func:`hermes_cli.profiles.get_active_profile_name` 从 ``HERMES_HOME`` 推导得出，
+        因此它在所有执行上下文（交互式 CLI、网关以及看板派生的 Worker 会话）中均可正常工作，
+        且不依赖于 ``_cli_ref``（在交互式 CLI 运行之外，该值均为 ``None``）。
 
-        Returns ``"default"`` for the default profile, the profile id when
-        running under ``~/.hermes/profiles/<name>``, or ``"custom"`` when
-        ``HERMES_HOME`` points somewhere unrecognized.
+        针对默认配置文件返回 ``"default"``；
+        当运行在 ``~/.hermes/profiles/<name>`` 下时返回配置文件 ID；
+        当 ``HERMES_HOME`` 指向无法识别的位置时，则返回 ``"custom"``。
         """
         try:
             from hermes_cli.profiles import get_active_profile_name
@@ -396,20 +393,17 @@ class PluginContext:
         emoji: str = "",
         override: bool = False,
     ) -> None:
-        """Register a tool in the global registry **and** track it as plugin-provided.
+        """在全局注册表中注册一个工具，**同时**将其标记为由插件提供。
 
-        Pass ``override=True`` to replace an existing built-in tool with the
-        same name (e.g. swap the default ``browser_navigate`` for a custom
-        CDP-backed implementation). Without it, attempting to register a name
-        already claimed by a different toolset is rejected.
+        传入 ``override=True`` 可以替换同名的现存内置工具
+        （例如：将默认的 ``browser_navigate`` 替换为自定义的基于 CDP 的实现）。
+        如果不传该参数，尝试注册已被其他工具集占用的名称将被拒绝。
 
-        ``override=True`` against a built-in tool requires the operator to
-        opt in via ``plugins.entries.<plugin_id>.allow_tool_override: true``
-        in config.yaml — mirrors the trust gate pattern used for
-        ``ctx.llm`` provider/model overrides (#23194). Without that gate,
-        any enabled plugin could silently replace a privileged built-in
-        like ``shell_exec`` or ``write_file`` and exfiltrate everything
-        the model invokes through it.
+        针对内置工具使用 ``override=True`` 需要操作员在 config.yaml 中
+        通过 ``plugins.entries.<plugin_id>.allow_tool_override: true`` 进行显式开启
+        —— 这与用于 ``ctx.llm`` 提供商/模型覆盖的信任门控模式（trust gate pattern）保持一致（#23194）。
+        如果没有该门控，任何已启用的插件都可以悄悄替换像 ``shell_exec`` 或 ``write_file``
+        这样的特权内置工具，并窃取模型通过它们调用的所有内容。
         """
         if override and not self._tool_override_allowed(name):
             plugin_id = self.manifest.key or self.manifest.name
@@ -470,15 +464,15 @@ class PluginContext:
     # -- message injection --------------------------------------------------
 
     def inject_message(self, content: str, role: str = "user") -> bool:
-        """Inject a message into the active conversation.
+        """向当前活动会话中注入一条消息。
 
-        If the agent is idle (waiting for user input), this starts a new turn.
-        If the agent is running, this interrupts and injects the message.
+        如果 Agent 处于空闲状态（正在等待用户输入），这将开启一个新的轮次（turn）。
+        如果 Agent 正在运行中，这会打断当前进程并注入该消息。
 
-        This enables plugins (e.g. remote control viewers, messaging bridges)
-        to send messages into the conversation from external sources.
+        这使得插件（例如远程控制查看器、消息桥接器）
+        能够从外部源向会话中发送消息。
 
-        Returns True if the message was queued successfully.
+        如果消息成功排队，则返回 True。
         """
         cli = self._manager._cli_ref
         if cli is None:

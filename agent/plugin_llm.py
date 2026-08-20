@@ -258,13 +258,12 @@ def _check_overrides(
     requested_agent_id: Optional[str],
     requested_profile: Optional[str],
 ) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
-    """Apply the trust gate. Returns the validated overrides as
-    ``(provider, model, agent_id, profile)`` or raises
-    :class:`PluginLlmTrustError`.
+    """应用信任门控（trust gate）。
+    以 ``(provider, model, agent_id, profile)`` 形式返回校验后的覆盖项，
+    或引发 :class:`PluginLlmTrustError` 异常。
 
-    Each override (``provider``, ``model``, ``agent_id``, ``profile``)
-    is independently gated. ``provider`` and ``model`` each have an
-    optional allowlist via ``allowed_providers`` / ``allowed_models``.
+    每个覆盖项（``provider``、``model``、``agent_id``、``profile``）均独立受控。
+    ``provider`` 与 ``model`` 均可通过 ``allowed_providers`` / ``allowed_models`` 指定可选的允许列表（allowlist）。
     """
     final_provider: Optional[str] = None
     final_model: Optional[str] = None
@@ -596,12 +595,12 @@ def _resolve_attribution(
 
 
 class PluginLlm:
-    """Host-owned LLM access for one trusted plugin.
+    """针对单个受信任插件的由宿主拥有的 LLM 访问权限。
 
-    Instances are constructed by :class:`hermes_cli.plugins.PluginContext`
-    and exposed as ``ctx.llm``. Plugins should not instantiate this
-    directly — the constructor binds plugin identity for trust-gate
-    enforcement.
+    实例由 :class:`hermes_cli.plugins.PluginContext` 构建，
+    并公开为 ``ctx.llm``。
+    插件不应直接实例化此类 ——
+    构造函数绑定了插件身份，用于信任门控（trust-gate）的强制执行。
     """
 
     def __init__(
@@ -632,14 +631,13 @@ class PluginLlm:
         profile: Optional[str] = None,
         purpose: Optional[str] = None,
     ) -> PluginLlmCompleteResult:
-        """Run a host-owned chat completion against the user's active model.
+        """针对用户当前活动的模型运行由宿主拥有的聊天补全（chat completion）。
 
-        ``messages`` is the standard OpenAI shape. ``provider``,
-        ``model``, ``agent_id``, and ``profile`` follow the same
-        explicit shape as the host's main config (``model.provider``
-        + ``model.model``). Each is independently gated by
-        ``plugins.entries.<id>.llm.allow_*_override`` (see module
-        docstring).
+        ``messages`` 符合标准 OpenAI 的格式形状。
+        ``provider``、``model``、``agent_id`` 以及 ``profile``
+        遵循与宿主主配置相同的显式结构（``model.provider`` + ``model.model``）。
+        每一个选项都由 ``plugins.entries.<id>.llm.allow_*_override`` 独立管控
+        （详见模块文档字符串）。
         """
         policy = self._policy_loader(self._plugin_id)
         eff_provider, eff_model, eff_agent, eff_profile = _check_overrides(

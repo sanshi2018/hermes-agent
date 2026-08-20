@@ -1,76 +1,75 @@
-"""SelfHostedOIDCProvider — generic self-hosted OpenID Connect dashboard auth.
+"""SelfHostedOIDCProvider —— 通用的自托管 OpenID Connect 仪表盘身份验证。
 
-A standards-compliant OpenID Connect Relying Party for the ``hermes dashboard``
-OAuth gate. Unlike the bundled ``nous`` provider (which encodes Nous Portal's
-bespoke contract — ``agent:{instance_id}`` client ids, a custom access-token
-JWT, the ``x-nous-refresh-token`` header, an ``oauth_contract_version`` claim),
-this provider speaks **plain OIDC** so it works against any conformant
-self-hosted identity provider:
+用于 ``hermes dashboard`` OAuth 网关、符合标准的 OpenID Connect 依赖方（RP）。
+不同于内置的 ``nous`` 提供者（它使用了 Nous Portal 的定制协议 ——
+如 ``agent:{instance_id}`` 客户端 ID、自定义访问令牌 JWT、
+``x-nous-refresh-token`` 响应头以及 ``oauth_contract_version`` Claim），
+本提供者使用的是**标准 OIDC**，因此可以配合任何符合规范的自托管身份提供者（IDP）工作：
 
     Authentik · Keycloak · Zitadel · Authelia · Auth0 · Okta · Google · …
 
-It is a pure drop-in plugin: it implements the five
-:class:`~hermes_cli.dashboard_auth.DashboardAuthProvider` methods and touches
-nothing in core auth/runtime/login. The HTTP round trip, cookies, CSRF
-``state`` check and ``redirect_uri`` reconstruction are all owned by
-``hermes_cli/dashboard_auth/routes.py``; this provider only:
+它是一个纯粹的即插即用插件：实现了五个
+:class:`~hermes_cli.dashboard_auth.DashboardAuthProvider` 方法，
+且不触碰核心身份验证/运行时/登录逻辑中的任何内容。
+HTTP 往返请求、Cookie、CSRF ``state`` 校验以及 ``redirect_uri`` 重构
+均由 ``hermes_cli/dashboard_auth/routes.py`` 负责；
+本提供者仅负责：
 
-  1. discovers the IDP's endpoints from ``{issuer}/.well-known/openid-configuration``,
-  2. builds the ``/authorize`` URL with PKCE (S256),
-  3. exchanges the authorization code for tokens at the discovered
-     ``token_endpoint``,
-  4. verifies the **ID token** (RS256/ES256) against the discovered
-     ``jwks_uri`` with ``iss`` / ``aud`` pinned to the configured issuer /
-     client id, and maps standard OIDC claims (``sub``, ``email``, ``name``)
-     onto a :class:`~hermes_cli.dashboard_auth.Session`.
+  1. 从 ``{issuer}/.well-known/openid-configuration`` 自动发现 IDP 的端点，
+  2. 使用 PKCE（S256）构建 ``/authorize`` URL，
+  3. 在自动发现的 ``token_endpoint`` 端点用授权码（Authorization Code）换取 Token，
+  4. 对照自动发现的 ``jwks_uri`` 校验 **ID 令牌**（RS256/ES256），
+     并将 ``iss`` / ``aud`` 绑定至配置的 Issuer / Client ID，
+     同时将标准 OIDC Claims（``sub``, ``email``, ``name``）映射为
+     :class:`~hermes_cli.dashboard_auth.Session` 对象。
 
-Why the ID token (not the access token)? OIDC guarantees the ID token is a
-signed JWT carrying identity claims — that is its entire purpose. The access
-token's format is opaque to the client per the spec; many IDPs issue random
-opaque strings the client cannot verify locally. Verifying the ID token is the
-only choice that is universally correct across self-hosted IDPs. (The ``nous``
-provider verifies its *access* token because Nous Portal mints a custom JWT
-access token with the dashboard claims baked in — a non-OIDC shortcut.)
+为什么选择 ID 令牌（而不是访问令牌）？
+因为 OIDC 保证了 ID 令牌是包含身份 Claims 的签名 JWT —— 这正是它的核心作用。
+而根据规范，访问令牌的格式对客户端而言是透明/不透明的；
+许多 IDP 签发的都是随机不透明字符串，客户端无法进行本地校验。
+校验 ID 令牌是跨各种自托管 IDP 保持通用且正确性的唯一选择。
+（``nous`` 提供者校验其*访问*令牌，是因为 Nous Portal 签发的是
+嵌入了仪表盘 Claims 的定制 JWT 访问令牌 —— 这是一种非 OIDC 的捷径做法。）
 
-Both **public** (PKCE-only) and **confidential** (PKCE + ``client_secret``)
-clients are supported. A self-hoster who registers a public client configures
-no secret and the token-endpoint calls authenticate with PKCE alone (the
-default). A self-hoster whose IDP defaults the client to *confidential*
-(Authentik and Keycloak commonly do) sets ``client_secret`` and the provider
-additionally authenticates the client at the token endpoint, choosing
-``client_secret_basic`` (HTTP Basic header) or ``client_secret_post`` (secret
-in the form body) from the IDP's advertised
-``token_endpoint_auth_methods_supported``. PKCE is sent in **both** modes —
-the secret is client authentication layered on top, never a replacement for
-PKCE (OAuth 2.1 / RFC 9700 keep PKCE mandatory regardless).
+同时支持**公开（Public）**客户端（仅 PKCE）和**机密（Confidential）**客户端（PKCE + ``client_secret``）。
+注册为公开客户端的自托管用户无需配置 Secret，
+在 token 端点的调用仅靠 PKCE 进行身份验证（默认行为）。
+如果用户的 IDP 默认将客户端设置为*机密*模式（Authentik 和 Keycloak 通常如此），
+则设置 ``client_secret``，提供者会在 token 端点对客户端进行附加认证，
+并根据 IDP 宣告的 ``token_endpoint_auth_methods_supported``
+自动选择 ``client_secret_basic``（HTTP Basic 标头）
+或 ``client_secret_post``（Form 表单体中的 Secret）。
+PKCE 会在**两种**模式下发送 ——
+Secret 是叠加在上面的客户端身份验证，绝非 PKCE 的替代品
+（无论如何，OAuth 2.1 / RFC 9700 均要求强制使用 PKCE）。
 
-Configuration surfaces (env wins over config.yaml when set non-empty, so a
-provisioned-but-not-populated secret can't shadow a valid config.yaml entry —
-same precedence convention as the ``nous`` plugin)::
+配置项（环境变量在设为非空值时优先级高于 config.yaml，
+从而避免已声明但未填充值的 Secret 覆盖 config.yaml 中的有效条目 ——
+与 ``nous`` 插件保持相同的优先级规范）：:
 
-    # config.yaml — canonical surface
+    # config.yaml — 规范配置入口
     dashboard:
       oauth:
         provider: self-hosted
         self_hosted:
-          issuer: https://auth.example.com/application/o/hermes/   # required
-          client_id: hermes-dashboard                              # required
-          scopes: "openid profile email"                           # optional
-          # client_secret: set ONLY for a confidential client. It is a
-          # credential — prefer the env var / ~/.hermes/.env over config.yaml.
+          issuer: https://auth.example.com/application/o/hermes/   # 必填
+          client_id: hermes-dashboard                              # 必填
+          scopes: "openid profile email"                           # 选填
+          # client_secret: 仅在机密客户端时设置。
+          # 属于敏感凭据 —— 建议优先使用环境变量 / ~/.hermes/.env 而非 config.yaml。
 
-    # Environment overrides (Docker/Fly secret injection)
+    # 环境变量重写（用于 Docker/Fly 密钥注入）
     HERMES_DASHBOARD_OIDC_ISSUER
     HERMES_DASHBOARD_OIDC_CLIENT_ID
-    HERMES_DASHBOARD_OIDC_SCOPES        # optional; defaults to "openid profile email"
-    HERMES_DASHBOARD_OIDC_CLIENT_SECRET # optional; set for a confidential client
-                                        # (the .env file is the canonical home —
-                                        # it's a secret, not a behavioural setting)
+    HERMES_DASHBOARD_OIDC_SCOPES        # 选填；默认为 "openid profile email"
+    HERMES_DASHBOARD_OIDC_CLIENT_SECRET # 选填；为机密客户端设置
+                                        # （.env 文件是其规范存放地 ——
+                                        # 它属于密钥，而非行为配置项）
 
-Skip reasons: when the plugin loads but can't register (missing issuer /
-client_id), it writes a human-readable reason to the module-level
-:data:`LAST_SKIP_REASON` so the gate's fail-closed branch can surface a useful
-operator error instead of the bare "no providers registered".
+跳过原因（Skip reasons）：当插件已加载但无法注册时（缺失 issuer / client_id），
+它会将易于阅读的原因写入模块级的 :data:`LAST_SKIP_REASON` 中，
+以便网关的“安全关闭（fail-closed）”分支能够向运维人员呈现有用的错误提示，
+而不是仅仅显示苍白的 "no providers registered"。
 """
 
 from __future__ import annotations

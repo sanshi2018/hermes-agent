@@ -135,22 +135,20 @@ VALID_HOOKS: Set[str] = {
     "post_tool_call",
     "transform_terminal_output",
     "transform_tool_result",
-    # Transform LLM output before it's returned to the user.
-    # Plugins return a string to replace the response text, or None/empty to leave unchanged.
-    # First non-None string wins. Useful for vocabulary/personality transformation.
+    # 在将 LLM 输出返回给用户之前对其进行转换。
+    # 插件可以返回一个字符串来替换响应文本，或者返回 None/空值以保持内容不变。
+    # 以第一个非 None 的字符串结果为准。常用于词汇转换或人设风格塑造。
     "transform_llm_output",
     "pre_llm_call",
     "post_llm_call",
-    # Verification-loop gate. Fired once per turn when the agent has edited code
-    # and is about to verify/finish (after the verify-on-stop guard). A callback
-    # may keep the agent going — run a check, defer it, tidy the diff — instead
-    # of stopping by returning:
-    #   {"action": "continue", "message": "<follow-up instruction>"}
-    # The Claude-Code Stop shape {"decision": "block", "reason": "..."} (block
-    # the stop == keep going) is accepted too. Anything else lets the turn
-    # finish. Hermes' shipped guidance lives in the evidence-based
-    # verification-stop nudge; this hook is for user/plugin policy and is
-    # bounded by agent.max_verify_nudges.
+    # 验证循环门控（Verification-loop gate）。
+    # 当 Agent 编辑了代码并准备进行验证/结束时（在 verify-on-stop 守卫之后），每轮会触发一次。
+    # 回调可以通过返回以下内容，让 Agent 继续运行（例如运行一项检查、延迟验证或清理 diff），而不是直接停止：
+    #   {"action": "continue", "message": "<后续指令>"}
+    # 同时也兼容 Claude-Code Stop 的格式：{"decision": "block", "reason": "..."}（阻止停止 == 继续运行）。
+    # 返回其他任何内容都会允许本轮正常结束。
+    # Hermes 内置的引导逻辑基于循证验证停止的提醒机制；
+    # 本 Hook 则用于用户/插件的策略管控，且受限于 agent.max_verify_nudges 的次数上限。
     "pre_verify",
     "pre_api_request",
     "post_api_request",
@@ -161,52 +159,50 @@ VALID_HOOKS: Set[str] = {
     "on_session_reset",
     "subagent_start",
     "subagent_stop",
-    # Gateway pre-dispatch hook. Fired once per incoming MessageEvent
-    # after the internal-event guard but BEFORE auth/pairing and agent
-    # dispatch. Plugins may return a dict to influence flow:
-    #   {"action": "skip",    "reason": "..."}  -> drop message (no reply)
-    #   {"action": "rewrite", "text": "..."}    -> replace event.text, continue
-    #   {"action": "allow"}  /  None             -> normal dispatch
-    # Kwargs: event: MessageEvent, gateway: GatewayRunner, session_store.
+    # 网关预分发 Hook。
+    # 在内部事件守卫之后、但在身份验证/配对以及 Agent 分发之前，
+    # 对每个接收到的 MessageEvent 触发一次。
+    # 插件可以返回一个字典来影响执行流程：
+    #   {"action": "skip",    "reason": "..."}  -> 丢弃消息（不作回复）
+    #   {"action": "rewrite", "text": "..."}    -> 替换 event.text，然后继续
+    #   {"action": "allow"}  /  None             -> 正常分发
+    # 关键字参数：event: MessageEvent, gateway: GatewayRunner, session_store。
     "pre_gateway_dispatch",
-    # Approval lifecycle hooks. Fired by tools/approval.py when a dangerous
-    # command needs an approval decision -- fires for CLI-interactive prompts,
-    # gateway/ACP approvals, and smart-mode auxiliary-LLM decisions.
-    # Observers only: return values are ignored. Plugins cannot veto or
-    # pre-answer an approval from these hooks (use pre_tool_call to block
-    # a tool before it reaches approval).
+    # 审批生命周期 Hook。
+    # 当危险命令需要审批决策时，由 tools/approval.py 触发 ——
+    # 覆盖 CLI 交互式提示、网关/ACP 审批以及智能模式（smart-mode）辅助 LLM 决策场景。
+    # 仅作为观察者：返回值会被忽略。
+    # 插件无法通过这些 Hook 否决或提前响应审批（若想在工具进入审批前阻止它，请使用 pre_tool_call）。
     #
-    # Kwargs for pre_approval_request:
+    # pre_approval_request 的关键字参数：
     #   command: str, description: str, pattern_key: str, pattern_keys: list[str],
     #   session_key: str, surface: "cli" | "gateway" | "smart"
-    # Kwargs for post_approval_response: same as above plus
+    # post_approval_response 的关键字参数：与上述相同，并附加：
     #   choice: "once" | "session" | "always" | "deny" | "timeout"
     #           | "smart_approve" | "smart_deny"
-    #   decided_by: "aux_llm"  -- only on surface="smart"
+    #   decided_by: "aux_llm"  --仅在 surface="smart" 时提供
     "pre_approval_request",
     "post_approval_response",
-    # Kanban task lifecycle hooks. Fired by hermes_cli.kanban_db when a task
-    # transitions state, AFTER the change is committed to the board DB (so the
-    # hook always sees durable state and a slow plugin can never hold the
-    # SQLite write lock). Observers only: return values are ignored.
+    # 看板任务生命周期 Hook。
+    # 当任务发生状态转变、且变更已提交至看板数据库后，由 hermes_cli.kanban_db 触发
+    # （因此该 Hook 看到的始终是持久化状态，且慢速插件绝不会占用 SQLite 写锁）。
+    # 仅作为观察者：返回值会被忽略。
     #
-    # WHICH PROCESS each fires in matters, because kanban workers run as
-    # separate `hermes -p <profile> chat -q` subprocesses:
-    #   - kanban_task_claimed   -> the DISPATCHER process (gateway-embedded
-    #                              dispatcher or `hermes kanban dispatch`),
-    #                              right before the worker subprocess spawns.
-    #   - kanban_task_completed -> the WORKER process, when it calls
-    #                              kanban_complete (or a CLI/manual complete).
-    #   - kanban_task_blocked   -> the WORKER process (worker-initiated block)
-    #                              or whichever process drove the block.
-    # A plugin that needs to observe every transition centrally should hook in
-    # the dispatcher; one that needs per-task in-session context should hook in
-    # the worker.
+    # 每个 Hook 在【哪个进程】中触发非常关键，
+    # 因为看板 Worker 是作为独立的 `hermes -p <profile> chat -q` 子进程运行的：
+    #   - kanban_task_claimed   -> 在 分发器进程（网关嵌入式分发器或 `hermes kanban dispatch`）中触发，
+    #                              紧接在 Worker 子进程派生之前。
+    #   - kanban_task_completed -> 在 WORKER 进程中触发，当其调用 kanban_complete
+    #                              （或通过 CLI/手动完成）时。
+    #   - kanban_task_blocked   -> 在 WORKER 进程（Worker 发起的阻塞）
+    #                              或驱动该阻塞的对应进程中触发。
+    # 如果插件需要集中观察每一次状态转变，应当在分发器中挂载 Hook；
+    # 如果需要在会话内获取每个任务的具体上下文，则应当在 Worker 中挂载 Hook。
     #
-    # Common kwargs: task_id: str, board: str | None, assignee: str | None,
-    #   run_id: int | None, profile_name: str.
-    # kanban_task_completed adds: summary: str | None.
-    # kanban_task_blocked adds:   reason: str | None.
+    # 通用关键字参数：task_id: str, board: str | None, assignee: str | None,
+    #   run_id: int | None, profile_name: str。
+    # kanban_task_completed 附加参数：summary: str | None。
+    # kanban_task_blocked 附加参数：  reason: str | None。
     "kanban_task_claimed",
     "kanban_task_completed",
     "kanban_task_blocked",
@@ -499,11 +495,15 @@ class PluginContext:
         handler_fn: Callable | None = None,
         description: str = "",
     ) -> None:
-        """Register a CLI subcommand (e.g. ``hermes honcho ...``).
+        """
+        注册一个 CLI 子命令（例如 ``hermes honcho ...``）。
 
-        The *setup_fn* receives an argparse subparser and should add any
-        arguments/sub-subparsers.  If *handler_fn* is provided it is set
-        as the default dispatch function via ``set_defaults(func=...)``."""
+        *setup_fn* 接收一个 argparse 的子解析器（subparser），
+        并应当在其中添加对应的参数或下级子解析器。
+
+        如果提供了 *handler_fn*，
+        它将被设置为默认的分发函数（通过 ``set_defaults(func=...)``）。
+        """
         self._manager._cli_commands[name] = {
             "name": name,
             "help": help,
@@ -571,26 +571,26 @@ class PluginContext:
     # -- tool dispatch -------------------------------------------------------
 
     def dispatch_tool(self, tool_name: str, args: dict, **kwargs) -> str:
-        """Dispatch a tool call through the registry, with parent agent context.
+        """
+        在父 Agent 上下文中，通过注册表分发工具调用。
 
-        This is the public interface for plugin slash commands that need to call
-        tools like ``delegate_task`` without reaching into framework internals.
-        The parent agent (if available) is resolved automatically — plugins never
-        need to access the agent directly.
+        这是面向插件斜杠命令（slash commands）的公开接口，用于需要调用诸如
+        ``delegate_task`` 等工具的场景，无需直接触及框架内部机制。
+        父 Agent（如果可用）会被自动解析——插件永远无需直接访问 Agent。
 
-        Args:
-            tool_name: Registry name of the tool (e.g. ``"delegate_task"``).
-            args: Tool arguments dict (same as what the model would pass).
-            **kwargs: Extra keyword args forwarded to the registry dispatch.
+        参数：
+            tool_name: 工具在注册表中的名称（例如 ``"delegate_task"``）。
+            args: 工具参数字典（与模型传递的格式相同）。
+            **kwargs: 转发给注册表分发函数的额外关键字参数。
 
-        Returns:
-            JSON string from the tool handler (same format as model tool calls).
+        返回：
+            来自工具处理函数的 JSON 字符串（格式与模型工具调用相同）。
         """
         from tools.registry import registry
 
-        # Wire up parent agent context when available (CLI mode).
-        # In gateway mode _cli_ref is None — tools degrade gracefully
-        # (workspace hints fall back to TERMINAL_CWD, no spinner).
+        # 当父 Agent 上下文可用时进行关联（CLI 模式）。
+        # 在 Gateway 模式下，_cli_ref 为 None —— 工具会优雅降级
+        # （工作区提示退回使用 TERMINAL_CWD，且不显示加载动画）。
         if "parent_agent" not in kwargs:
             cli = self._manager._cli_ref
             agent = getattr(cli, "agent", None) if cli else None
@@ -602,12 +602,12 @@ class PluginContext:
     # -- context engine registration -----------------------------------------
 
     def register_context_engine(self, engine) -> None:
-        """Register a context engine to replace the built-in ContextCompressor.
+        """注册一个上下文引擎以替换内置的 ContextCompressor。
 
-        Only one context engine plugin is allowed. If a second plugin tries
-        to register one, it is rejected with a warning.
+        仅允许注册一个上下文引擎插件。
+        若有第二个插件尝试注册，将被拒绝并收到警告。
 
-        The engine must be an instance of ``agent.context_engine.ContextEngine``.
+        该引擎必须是 ``agent.context_engine.ContextEngine`` 的实例。
         """
         if self._manager._context_engine is not None:
             logger.warning(
@@ -634,13 +634,11 @@ class PluginContext:
     # -- image gen provider registration ------------------------------------
 
     def register_image_gen_provider(self, provider) -> None:
-        """Register an image generation backend.
+        """注册一个图像生成后端。
 
-        ``provider`` must be an instance of
-        :class:`agent.image_gen_provider.ImageGenProvider`. The
-        ``provider.name`` attribute is what ``image_gen.provider`` in
-        ``config.yaml`` matches against when routing ``image_generate``
-        tool calls.
+        ``provider`` 必须是 :class:`agent.image_gen_provider.ImageGenProvider` 的实例。
+        在路由 ``image_generate`` 工具调用时，
+        ``config.yaml`` 中的 ``image_gen.provider`` 会与 ``provider.name`` 属性进行匹配。
         """
         from agent.image_gen_provider import ImageGenProvider
         from agent.image_gen_registry import register_provider
@@ -661,17 +659,17 @@ class PluginContext:
     # -- dashboard auth provider registration --------------------------------
 
     def register_dashboard_auth_provider(self, provider) -> None:
-        """Register a dashboard authentication provider.
+        """注册仪表盘身份验证提供者。
 
-        ``provider`` must be an instance of
-        :class:`hermes_cli.dashboard_auth.DashboardAuthProvider`. Used by
-        the dashboard OAuth auth gate, which engages when the dashboard
-        binds to a non-loopback host without ``--insecure``.
+        ``provider`` 必须是
+        :class:`hermes_cli.dashboard_auth.DashboardAuthProvider` 的实例。
+        用于仪表盘的 OAuth 身份验证网关，当仪表盘绑定到
+        非回环主机且未指定 ``--insecure`` 参数时会被激活。
 
-        Misbehaving providers (wrong type, duplicate name) are logged at
-        WARNING and silently ignored — never raised — so a broken plugin
-        cannot crash the host. Same convention as
-        ``register_image_gen_provider``.
+        行为异常的提供者（类型错误或名称重复）会被记录为 WARNING 级别的日志，
+        并被静默忽略 —— 绝不会抛出异常 —— 从而确保损坏的插件
+        不会导致宿主机崩溃。该规范与
+        ``register_image_gen_provider`` 保持一致。
         """
         from hermes_cli.dashboard_auth import (
             DashboardAuthProvider, register_provider,
@@ -701,13 +699,13 @@ class PluginContext:
     # -- video gen provider registration -------------------------------------
 
     def register_video_gen_provider(self, provider) -> None:
-        """Register a video generation backend.
+        """注册一个视频生成后端。
 
-        ``provider`` must be an instance of
-        :class:`agent.video_gen_provider.VideoGenProvider`. The
-        ``provider.name`` attribute is what ``video_gen.provider`` in
-        ``config.yaml`` matches against when routing ``video_generate``
-        tool calls.
+        ``provider`` 必须是
+        :class:`agent.video_gen_provider.VideoGenProvider` 的实例。
+        在路由 ``video_generate`` 工具调用时，
+        ``config.yaml`` 中的 ``video_gen.provider`` 会与
+        ``provider.name`` 属性进行匹配。
         """
         from agent.video_gen_provider import VideoGenProvider
         from agent.video_gen_registry import register_provider as _register_video_provider
@@ -757,18 +755,18 @@ class PluginContext:
     # -- browser provider registration ---------------------------------------
 
     def register_browser_provider(self, provider) -> None:
-        """Register a cloud browser backend.
+        """注册一个云浏览器后端。
 
-        ``provider`` must be an instance of
-        :class:`agent.browser_provider.BrowserProvider`. The
-        ``provider.name`` attribute is what ``browser.cloud_provider`` in
-        ``config.yaml`` matches against when routing cloud-mode
-        ``browser_*`` tool calls.
+        ``provider`` 必须是
+        :class:`agent.browser_provider.BrowserProvider` 的实例。
+        在路由云端模式的 ``browser_*`` 工具调用时，
+        ``config.yaml`` 中的 ``browser.cloud_provider`` 会与
+        ``provider.name`` 属性进行匹配。
 
-        Mirrors :meth:`register_web_search_provider` exactly — same
-        registration shape, same gating, same logging. The browser
-        subsystem's dispatcher (:func:`tools.browser_tool._get_cloud_provider`)
-        consults the registry built up by these calls.
+        与 :meth:`register_web_search_provider` 完全对称 —— 拥有相同的
+        注册形式、门控机制和日志记录。浏览器子系统的
+        分发器（:func:`tools.browser_tool._get_cloud_provider`）
+        会查询由这些调用构建起来的注册表。
         """
         from agent.browser_provider import BrowserProvider
         from agent.browser_registry import register_provider as _register_browser_provider
@@ -789,33 +787,33 @@ class PluginContext:
     # -- secret source registration -------------------------------------------
 
     def register_secret_source(self, source) -> None:
-        """Register an external secret-manager backend.
+        """注册一个外部密钥管理器后端。
 
-        ``source`` must be an instance of
-        :class:`agent.secret_sources.base.SecretSource`.  Registered
-        sources run during ``load_hermes_dotenv()`` startup — after
-        ``~/.hermes/.env`` loads, before Hermes reads credentials — when
-        their ``secrets.<source.name>`` config section is enabled.  The
-        orchestrator (``agent.secret_sources.registry.apply_all``) owns
-        ordering, mapped-vs-bulk precedence, conflict warnings, and
-        provenance; the source only fetches.
+        ``source`` 必须是
+        :class:`agent.secret_sources.base.SecretSource` 的实例。
+        当 ``secrets.<source.name>`` 配置项启用时，
+        已注册的源将在启动期间的 ``load_hermes_dotenv()`` 流程中运行 ——
+        即在加载 ``~/.hermes/.env`` 之后、Hermes 读取凭据之前。
+        编排器（``agent.secret_sources.registry.apply_all``）负责掌控
+        加载顺序、映射模式与批量模式的优先级、冲突警告以及来源追溯；
+        密钥源本身仅负责提取数据。
 
-        NOTE ON TIMING: plugin discovery happens later in startup than
-        the first ``load_hermes_dotenv()`` call, so a plugin-registered
-        source is not consulted by the initial env load of the process
-        that discovers it.  It IS consulted by every subsequently
-        spawned Hermes process (gateway children, cron sessions,
-        subagents), and immediately after a
-        ``reset_secret_source_cache()`` re-pull.  Plugin sources are
-        therefore best for supplying credentials to the running fleet;
-        the bundled sources cover first-process bootstrap.
+        关于时序的说明：插件发现机制在启动流程中的发生节点
+        晚于首次调用 ``load_hermes_dotenv()``，
+        因此，发现该插件的当前进程在初始加载环境变量时，
+        并不会查询由插件注册的密钥源。
+        但此后派生的每个 Hermes 进程（网关子进程、Cron 会愿、
+        Subagent），以及在执行 ``reset_secret_source_cache()`` 重新拉取后，
+        **都会**对其进行查询。
+        因此，插件密钥源最适合用于为运行中的集群提供凭据；
+        而内置密钥源则用于覆盖首个进程的引导启动（Bootstrap）。
 
-        Contract requirements (rejected with a warning otherwise):
-        inherit from ``SecretSource``, ``api_version`` matching
-        ``SECRET_SOURCE_API_VERSION``, lowercase unique ``name``,
-        ``shape`` of ``"mapped"`` or ``"bulk"``, unique ``scheme`` (when
-        set), and a ``fetch()`` that never raises and never prompts.
-        See the base-module docstring for the full contract.
+        契约要求（若不满足将被拒绝并发出警告）：
+        继承自 ``SecretSource``；``api_version`` 需匹配 ``SECRET_SOURCE_API_VERSION``；
+        拥有小写的唯一 ``name``；``shape`` 为 ``"mapped"`` 或 ``"bulk"``；
+        拥有唯一的 ``scheme``（若设置）；
+        以及实现一个绝不抛出异常、也绝不进行交互提示的 ``fetch()`` 方法。
+        完整的契约要求请参见基类模块的文档字符串。
         """
         from agent.secret_sources.base import SecretSource
         from agent.secret_sources.registry import register_source
@@ -836,24 +834,23 @@ class PluginContext:
     # -- TTS provider registration -------------------------------------------
 
     def register_tts_provider(self, provider) -> None:
-        """Register a text-to-speech backend.
+        """注册一个文本转语音（TTS）后端。
 
-        ``provider`` must be an instance of
-        :class:`agent.tts_provider.TTSProvider`. The ``provider.name``
-        attribute is what ``tts.provider`` in ``config.yaml`` matches
-        against when routing ``text_to_speech`` tool calls — **but
-        only when**:
+        ``provider`` 必须是
+        :class:`agent.tts_provider.TTSProvider` 的实例。
+        在路由 ``text_to_speech`` 工具调用时，
+        ``config.yaml`` 中的 ``tts.provider`` 会与
+        ``provider.name`` 属性进行匹配 —— **但仅在满足以下条件时生效**：
 
-        1. ``provider.name`` is NOT a built-in TTS provider name
-           (``edge``, ``openai``, ``elevenlabs``, …). Built-ins always
-           win — the registry rejects shadowing names with a warning.
-        2. There is NO ``tts.providers.<name>: type: command`` entry
-           with the same name. Command-providers (PR #17843) win on
-           name collision because config is more local than plugin
-           install.
+        1. ``provider.name`` **不是** 内置的 TTS 提供者名称
+           （如 ``edge``, ``openai``, ``elevenlabs`` 等）。
+           内置项始终优先 —— 注册表会拒绝覆盖同名内置项并发出警告。
+        2. 配置中 **不存在** 同名的 ``tts.providers.<name>: type: command`` 条目。
+           发生名称冲突时，命令行提供者（Command-provider，PR #17843）会优先于插件注册，
+           因为配置文件的作用域比插件安装更为局域化。
 
-        Coexists with the command-provider registry rather than
-        replacing it — see issue #30398 for the full design rationale.
+        本机制与命令行提供者注册表共存，而非替换后者 ——
+        完整的设计原理请参见 Issue #30398。
         """
         from agent.tts_provider import TTSProvider
         from agent.tts_registry import register_provider as _register_tts_provider
@@ -874,30 +871,28 @@ class PluginContext:
     # -- transcription (STT) provider registration ---------------------------
 
     def register_transcription_provider(self, provider) -> None:
-        """Register a speech-to-text backend.
+        """注册一个语音转文本（STT）后端。
 
-        ``provider`` must be an instance of
-        :class:`agent.transcription_provider.TranscriptionProvider`.
-        The ``provider.name`` attribute is what ``stt.provider`` in
-        ``config.yaml`` matches against when routing
-        :func:`tools.transcription_tools.transcribe_audio` calls —
-        **but only when**:
+        ``provider`` 必须是
+        :class:`agent.transcription_provider.TranscriptionProvider` 的实例。
+        在路由 :func:`tools.transcription_tools.transcribe_audio` 调用时，
+        ``config.yaml`` 中的 ``stt.provider`` 会与 ``provider.name`` 属性进行匹配 ——
+        **但仅在满足以下条件时生效**：
 
-        1. ``provider.name`` is NOT a built-in STT provider name
-           (``local``, ``local_command``, ``groq``, ``openai``,
-           ``mistral``, ``xai``). Built-ins always win — the registry
-           rejects shadowing names with a warning.
-        2. There is NO ``stt.providers.<name>: type: command`` entry
-           with the same name. Command-providers win on name
-           collision because config is more local than plugin install
-           — same precedence rule as TTS.
+        1. ``provider.name`` **不是** 内置的 STT 提供者名称
+           （如 ``local``, ``local_command``, ``groq``, ``openai``,
+           ``mistral``, ``xai``）。内置项始终优先 —— 注册表会拒绝
+           覆盖同名内置项并发出警告。
+        2. 配置中 **不存在** 同名的 ``stt.providers.<name>: type: command`` 条目。
+           发生名称冲突时，命令行提供者会优先于插件注册，
+           因为配置文件的作用域比插件安装更为局域化 ——
+           该优先级规则与 TTS 保持一致。
 
-        Coexists with the in-tree dispatcher and the STT
-        command-provider registry rather than replacing them. The 6
-        built-in STT backends keep their native implementations in
-        ``tools/transcription_tools.py``; this hook is for *new* Python
-        engines (OpenRouter, SenseAudio, Gemini-STT, custom proprietary
-        backends).
+        本机制与内置分发器以及 STT 命令行提供者注册表共存，
+        而非替换它们。6 个内置的 STT 后端继续保留它们在
+        ``tools/transcription_tools.py`` 中的原生实现；
+        本 Hook 专用于 *新型* Python 引擎（如 OpenRouter,
+        SenseAudio, Gemini-STT, 自定义专有后端）。
         """
         from agent.transcription_provider import TranscriptionProvider
         from agent.transcription_registry import register_provider as _register_stt_provider
@@ -928,17 +923,17 @@ class PluginContext:
         install_hint: str = "",
         **entry_kwargs: Any,
     ) -> None:
-        """Register a gateway platform adapter.
+        """注册一个网关平台适配器。
 
-        The adapter_factory receives a ``PlatformConfig`` and returns a
-        ``BasePlatformAdapter`` subclass instance.  The gateway calls
-        ``check_fn()`` before instantiation to verify dependencies.
+        适配器工厂（adapter_factory）接收一个 ``PlatformConfig`` 参数，
+        并返回一个 ``BasePlatformAdapter`` 子类的实例。网关在实例化前
+        会先调用 ``check_fn()`` 以验证相关的依赖条件。
 
-        Extra keyword arguments are forwarded to ``PlatformEntry`` (e.g.
-        ``setup_fn``, ``emoji``, ``allowed_users_env``, ``platform_hint``).
-        Unknown keys raise TypeError from the dataclass constructor.
+        额外的关键字参数将被转发给 ``PlatformEntry``
+        （例如 ``setup_fn``、``emoji``、``allowed_users_env``、``platform_hint`` 等）。
+        若传入未知参数键，数据类构造函数将抛出 TypeError 异常。
 
-        Example::
+        示例：:
 
             ctx.register_platform(
                 name="irc",
@@ -978,35 +973,34 @@ class PluginContext:
         action_id: Any,
         callback: Callable,
     ) -> None:
-        """Register a Slack Block Kit action handler from a plugin.
+        """从插件中注册一个 Slack Block Kit 操作处理器。
 
-        Hermes' Slack adapter wires registered handlers into its
-        ``slack_bolt.AsyncApp`` at connect time. The callback is invoked
-        when a user clicks a button (or interacts with another Block Kit
-        action element) whose ``action_id`` matches.
+        Hermes 的 Slack 适配器会在连接时将已注册的处理器绑定到其
+        ``slack_bolt.AsyncApp`` 中。当用户点击按钮
+        （或与其他 Block Kit 操作元素交互）且其 ``action_id`` 匹配时，
+        该回调函数将被调用。
 
-        Callback signature follows the slack_bolt convention::
+        回调函数签名遵循 slack_bolt 的约定规范：:
 
             async def handler(ack, body, action) -> None:
-                await ack()  # required, within 3 seconds
+                await ack()  # 必须在 3 秒内执行
                 ...
 
-        Args:
-            action_id: Whatever ``slack_bolt.App.action()`` accepts —
-                a literal ``action_id`` string, a compiled ``re.Pattern``
-                for matching multiple ids, or a constraint dict
-                (e.g. ``{"action_id": "...", "block_id": "..."}``).
-            callback: Async callable receiving ``(ack, body, action)``.
+        参数：
+            action_id: ``slack_bolt.App.action()`` 所接受的任意形式 ——
+                字符串字面量的 ``action_id``、用于匹配多个 ID 的已编译 ``re.Pattern``，
+                或是约束条件字典（例如 ``{"action_id": "...", "block_id": "..."}``）。
+            callback: 接收 ``(ack, body, action)`` 参数的异步可调用对象。
 
-        Raises:
-            ValueError: if ``callback`` is not callable, or ``action_id``
-                is empty/None.
+        抛出异常：
+            ValueError: 当 ``callback`` 不是可调用对象，
+                或 ``action_id`` 为空/None 时抛出。
 
-        Example::
+        示例：:
 
             async def _on_approve(ack, body, action):
                 await ack()
-                # apply some workflow keyed on action["value"]
+                # 根据 action["value"] 执行某些工作流操作
 
             ctx.register_slack_action_handler("inbox_sweep_approve", _on_approve)
         """
@@ -1041,42 +1035,41 @@ class PluginContext:
         description: str,
         defaults: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Register a plugin-defined auxiliary LLM task.
+        """注册一个由插件定义的辅助 LLM 任务。
 
-        Auxiliary tasks are LLM-backed side jobs (vision analysis, web extraction,
-        compression, smart-approval, etc.) that route through ``auxiliary_client.py``.
-        Each task has its own ``auxiliary.<key>`` config block where users can
-        pin a provider/model independent of the main chat model.
+        辅助任务是基于 LLM 的侧边任务（视觉分析、网页提取、
+        压缩、智能审批等），其调用路由均经过 ``auxiliary_client.py`` 处理。
+        每个任务拥有独立的 ``auxiliary.<key>`` 配置块，
+        用户可以在其中固定与主 Chat 模型无关的 Provider 和模型。
 
-        Plugins use this to declare their own auxiliary tasks without touching
-        core files. After registration, the task:
+        插件利用此功能来声明自身的辅助任务，而无需修改核心文件。
+        注册成功后，该任务会：
 
-          - Appears in the ``hermes model → Configure auxiliary models`` picker
-          - Has its provider/model/base_url/api_key bridged from config.yaml to
-            ``AUXILIARY_<KEY_UPPER>_*`` env vars at gateway startup
-          - Gets default routing fields (provider="auto", model="", etc.) merged
-            into loaded configs so ``cfg.get("auxiliary", {}).get(key)`` works
+          - 显示在 ``hermes model → Configure auxiliary models`` 的选择器中
+          - 在网关启动时，其 Provider/Model/Base_URL/API_Key 会从 config.yaml
+            桥接映射至 ``AUXILIARY_<KEY_UPPER>_*`` 环境变量中
+          - 将默认路由字段（provider="auto", model="" 等）合并入已加载的配置中，
+            使得 ``cfg.get("auxiliary", {}).get(key)`` 可以正常读取
 
-        Args:
-            key: stable task key (snake_case). Used in config ``auxiliary.<key>``
-                and env vars ``AUXILIARY_<KEY_UPPER>_*``. Must not shadow a
-                built-in task key (vision, compression, web_extract, approval,
-                mcp, title_generation, skills_hub, curator).
-            display_name: human-readable name shown in the picker.
-            description: short one-line description shown next to the name.
-            defaults: optional dict of default routing fields. Recognized keys:
-                ``provider`` (default "auto"), ``model`` (default ""),
-                ``base_url`` (default ""), ``api_key`` (default ""),
-                ``timeout`` (default 60), ``extra_body`` (default {}),
-                plus any task-specific extras (e.g. ``download_timeout``).
-                Unknown keys are preserved verbatim — the plugin owns the
-                schema for its own task.
+        参数：
+            key: 稳定的任务标识键（snake_case 命名）。用于配置项 ``auxiliary.<key>``
+                以及环境变量 ``AUXILIARY_<KEY_UPPER>_*``。不得与内置任务标识键相冲突
+                （如 vision, compression, web_extract, approval,
+                mcp, title_generation, skills_hub, curator）。
+            display_name: 显示在选择器中的易读名称。
+            description: 显示在名称旁边的简短单行说明。
+            defaults: 包含默认路由字段的可选字典。可识别的键包括：
+                ``provider``（默认为 "auto"）、``model``（默认为 ""）、
+                ``base_url``（默认为 ""）、``api_key``（默认为 ""）、
+                ``timeout``（默认为 60）、``extra_body``（默认为 {}），
+                以及任何特定于任务的额外参数（例如 ``download_timeout``）。
+                未知键将被原样保留 —— 插件自行负责其任务的 Schema。
 
-        Raises:
-            ValueError: if *key* is empty, contains invalid characters, or
-                shadows a built-in auxiliary task key.
+        抛出异常：
+            ValueError: 当 *key* 为空、包含非法字符，
+                或覆盖了内置的辅助任务标识键时抛出。
 
-        Example:
+        示例：
             ctx.register_auxiliary_task(
                 key="memory_retain_filter",
                 display_name="Memory retain filter",
@@ -1084,7 +1077,7 @@ class PluginContext:
                 defaults={"provider": "auto", "timeout": 30},
             )
         """
-        # Validate key shape
+        # 校验 key 的格式
         if not key or not isinstance(key, str):
             raise ValueError(
                 f"Plugin '{self.manifest.name}' tried to register auxiliary task "
@@ -1147,28 +1140,24 @@ class PluginContext:
     # -- redaction pattern registration --------------------------------------
 
     def register_redaction_patterns(self, patterns) -> int:
-        """Additively register secret-token regexes with the redaction engine.
+        """向脱敏引擎中追加注册密钥 Token 的正则表达式。
 
-        Accepted patterns join the vendor-prefix alternation in
-        :mod:`agent.redact` and are masked everywhere built-in patterns
-        apply — logs, terminal output, transport errors, transcripts —
-        with the same head/tail masking and the same non-reusable
-        sentinel on ``file_read`` content. Historically every new vendor
-        token format required a core PR appending to
-        ``_PREFIX_PATTERNS``; provider plugins should own their own
-        format instead.
+        接收的模式会加入到 :mod:`agent.redact` 中的供应商前缀交替匹配中，
+        并在内置模式适用的所有地方（日志、终端输出、传输错误、对话记录）被掩码遮蔽，
+        且保持相同的首尾掩码规则以及在 ``file_read`` 内容上的不可复用标记。
+        在过去，每个新的供应商 Token 格式都需要提交核心 PR 来追加到
+        ``_PREFIX_PATTERNS`` 中；而提供者插件应当自行管理其格式。
 
-        The registry is **additive-only**: plugins can extend what gets
-        masked but cannot remove or weaken built-in patterns, so a
-        plugin can only ever over-redact, never expose. The operator's
-        global opt-out (``security.redact_secrets: false``) applies to
-        plugin patterns exactly as it does to built-ins.
+        该注册表是**仅允许追加**的：插件只能扩展需要被掩码的内容，
+        而无法移除或削弱内置的模式，因此插件只会产生过度脱敏，
+        而绝不会导致数据泄露。运维人员的全局 Opt-out 配置
+        （``security.redact_secrets: false``）对插件模式的效力与内置模式完全一致。
 
-        Each pattern must compile as a regex and start with at least 2
-        literal characters (e.g. ``r"nvapi-[A-Za-z0-9_-]{20,}"``).
-        Invalid entries are warned and skipped — never raised.
+        每个模式都必须能够编译为正则表达式，且至少以 2 个字面字符开头
+        （例如 ``r"nvapi-[A-Za-z0-9_-]{20,}"``）。
+        非法的条目会被警告并跳过 —— 绝不抛出异常。
 
-        Returns the number of patterns accepted.
+        返回被接收的模式数量。
         """
         from agent.redact import register_redaction_patterns as _register
 
@@ -1208,12 +1197,13 @@ class PluginContext:
     # -- middleware registration -------------------------------------------
 
     def register_middleware(self, kind: str, callback: Callable) -> None:
-        """Register a behavior-changing middleware callback.
+        """注册一个用于改变行为的中间件回调函数。
 
-        Middleware is separate from observer hooks: request middleware may
-        rewrite the effective payload, and execution middleware may wrap the
-        real callback. Unknown kinds are stored for forward compatibility but
-        warned so plugin authors can catch typos.
+        中间件与观察者 Hook（Observer hooks）是相互独立的：
+        请求中间件（Request middleware）可以重写生效的 Payload，
+        而执行中间件（Execution middleware）则可以包装真实的回调函数。
+        为了保持向前兼容性，未知的类型会被保存，
+        但系统会发出警告，以便插件开发者能够及时发现拼写错误。
         """
         if kind not in VALID_MIDDLEWARE:
             logger.warning(
@@ -1234,17 +1224,16 @@ class PluginContext:
         path: Path,
         description: str = "",
     ) -> None:
-        """Register a read-only skill provided by this plugin.
+        """注册一个由该插件提供的只读技能（Skill）。
 
-        The skill becomes resolvable as ``'<plugin_name>:<name>'`` via
-        ``skill_view()``.  It does **not** enter the flat
-        ``~/.hermes/skills/`` tree and is **not** listed in the system
-        prompt's ``<available_skills>`` index — plugin skills are
-        opt-in explicit loads only.
+        该技能可以通过 ``skill_view()`` 以 ``'<plugin_name>:<name>'`` 的形式进行解析。
+        它**不会**进入平铺的 ``~/.hermes/skills/`` 目录树，
+        也**不会**被列入系统提示词（System Prompt）的 ``<available_skills>`` 索引中 ——
+        插件技能仅支持通过显式指定进行选择性加载（Opt-in）。
 
-        Raises:
-            ValueError: if *name* contains ``':'`` or invalid characters.
-            FileNotFoundError: if *path* does not exist.
+        抛出异常：
+            ValueError: 当 *name* 包含 ``':'`` 或非法字符时抛出。
+            FileNotFoundError: 当 *path* 路径不存在时抛出。
         """
         from agent.skill_utils import _NAMESPACE_RE
 
@@ -2438,15 +2427,15 @@ def get_plugin_commands() -> Dict[str, dict]:
 
 
 def get_plugin_auxiliary_tasks() -> List[Dict[str, Any]]:
-    """Return all plugin-registered auxiliary tasks as a stable-ordered list.
+    """将所有由插件注册的辅助任务以稳定排序的列表形式返回。
 
-    Each entry is the registration dict from
-    :meth:`PluginContext.register_auxiliary_task`:
-    ``{key, display_name, description, defaults, plugin}``.
+    每个列表项都是来自
+    :meth:`PluginContext.register_auxiliary_task` 的注册字典：
+    ``{key, display_name, description, defaults, plugin}``。
 
-    Triggers idempotent plugin discovery so callers can read the registry
-    before any explicit ``discover_plugins()`` call. Sorted by ``key`` for
-    deterministic ordering in pickers and tests.
+    该方法会触发幂等的插件发现机制，
+    因此调用方可以在进行任何显式 ``discover_plugins()`` 调用之前读取注册表。
+    结果按 ``key`` 进行排序，以确保选择器和测试中的确定性顺序。
     """
     manager = _ensure_plugins_discovered()
     return [manager._aux_tasks[k] for k in sorted(manager._aux_tasks)]

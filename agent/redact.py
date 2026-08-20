@@ -1310,36 +1310,29 @@ def _rebuild_prefix_matcher() -> None:
 
 
 def register_redaction_patterns(patterns, source: str = "plugin") -> int:
-    """Additively register credential-token regexes with the redaction engine.
+    """向脱敏引擎中追加注册凭据 Token 的正则表达式。
 
-    Each accepted pattern joins the vendor-prefix alternation used by
-    ``redact_sensitive_text`` (same masking, same head/tail rules, same
-    non-reusable sentinel on ``file_read``) — everywhere built-in patterns
-    apply: logs, terminal output, transport errors, transcripts.
+    每个被接收的模式都会加入到 ``redact_sensitive_text`` 所使用的供应商前缀交替匹配中
+    （保持相同的掩码处理、相同的首尾规则，以及在 ``file_read`` 内容上相同的不可复用标记）——
+    适用于内置模式生效的所有地方：日志、终端输出、传输错误、对话记录。
 
-    Per-pattern validation (invalid entries are warned and skipped, never
-    raised — a broken plugin must not break startup):
+    逐项模式校验（非法的条目会被警告并跳过，绝不抛出异常 —— 损坏的插件绝不能影响正常启动）：
 
-    * must be a non-empty string that compiles as a regex;
-    * must not contain a top-level alternation (``ab|.*`` would escape
-      the literal-prefix guarantee below through its unprefixed branch;
-      grouped alternation after the prefix, ``ab(?:x|y)``, is allowed);
-    * must not nest unbounded quantifiers (``(a+)+``-style patterns can
-      backtrack catastrophically, and registered patterns run against
-      every log line and tool output — see
-      ``_has_nested_unbounded_repeat``);
-    * must start with at least 2 literal characters (the pre-screen
-      substring gate in ``_has_known_prefix_substring`` needs a literal
-      anchor; it also structurally rules out redact-everything patterns
-      like ``.*``);
-    * duplicates of built-in or already-registered patterns are skipped.
+    * 必须是能够编译为正则表达式的非空字符串；
+    * 顶级匹配中不得包含交替符号（如 ``ab|.*`` 的无前缀分支会绕过下文的字面前缀保障；
+      允许在前缀之后使用分组交替，例如 ``ab(?:x|y)``）；
+    * 不得嵌套无界量词（类似 ``(a+)+`` 风格的模式会导致灾难性回溯，
+      而已注册的模式会对每行日志和工具输出都进行匹配 —— 参见 ``_has_nested_unbounded_repeat``）；
+    * 必须至少以 2 个字面字符开头（``_has_known_prefix_substring`` 中的预筛选子串门控需要字面量锚点；
+      这也从结构上杜绝了像 ``.*`` 这类匹配所有内容的脱敏模式）；
+    * 与内置模式或已注册模式重复的条目将被跳过。
 
-    Args:
-        patterns: iterable of regex strings (e.g. ``[r"nvapi-[A-Za-z0-9_-]{20,}"]``).
-        source: attribution label for log lines (e.g. ``"plugin:my-plugin"``).
+    参数：
+        patterns: 正则表达式字符串的可迭代对象（例如 ``[r"nvapi-[A-Za-z0-9_-]{20,}"]``）。
+        source: 用于日志输出的归属标签（例如 ``"plugin:my-plugin"``）。
 
-    Returns:
-        The number of patterns actually accepted.
+    返回：
+        实际被接收的模式数量。
     """
     accepted = []
     for pattern in patterns or []:

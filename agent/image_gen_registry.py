@@ -34,11 +34,11 @@ _lock = threading.Lock()
 
 
 def register_provider(provider: ImageGenProvider) -> None:
-    """Register an image generation provider.
+    """注册一个图像生成后端。
 
-    Re-registration (same ``name``) overwrites the previous entry and logs
-    a debug message — this makes hot-reload scenarios (tests, dev loops)
-    behave predictably.
+    ``provider`` 必须是 :class:`agent.image_gen_provider.ImageGenProvider` 的实例。
+    在路由 ``image_generate`` 工具调用时，
+    ``config.yaml`` 中的 ``image_gen.provider`` 会与 ``provider.name`` 属性进行匹配。
     """
     if not isinstance(provider, ImageGenProvider):
         raise TypeError(

@@ -35,11 +35,10 @@ _lock = threading.Lock()
 
 
 def register_provider(provider: VideoGenProvider) -> None:
-    """Register a video generation provider.
+    """注册一个视频生成提供者。
 
-    Re-registration (same ``name``) overwrites the previous entry and logs
-    a debug message — this makes hot-reload scenarios (tests, dev loops)
-    behave predictably.
+    重复注册（相同的 ``name``）将覆盖先前的条目并记录一条调试日志 ——
+    这使得热重载场景（如测试、开发循环）的行为更加可预测。
     """
     if not isinstance(provider, VideoGenProvider):
         raise TypeError(

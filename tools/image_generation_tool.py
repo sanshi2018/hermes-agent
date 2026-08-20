@@ -42,11 +42,11 @@ fal_client: Any = None
 
 
 def _load_fal_client() -> Any:
-    """Lazily import fal_client and rebind the module global on first use.
+    """延迟导入 fal_client，并在首次使用时重新绑定模块全局变量。
 
-    Idempotent. Returns the (now-loaded) ``fal_client`` module reference.
-    Skips the import if the global is already truthy — this preserves the
-    test pattern of monkeypatching the module global to install a mock.
+    具有幂等性。返回（现已加载的）``fal_client`` 模块引用。
+    若全局变量已为真值，则跳过导入 —— 这样可以保留
+    通过 Monkeypatch 覆盖模块全局变量以安装 Mock 的测试模式。
     """
     global fal_client
     if fal_client is not None:
@@ -619,14 +619,15 @@ def _build_fal_edit_payload(
     seed: Optional[int] = None,
     overrides: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Build a FAL *edit* request payload (image-to-image) from unified inputs.
+    """从统一的输入中构建 FAL *编辑* 请求体（图生图）。
 
-    Every FAL edit endpoint takes ``image_urls`` (a list of source/reference
-    image URLs) plus the prompt. Size handling differs from text-to-image:
-    most edit endpoints auto-infer output dimensions from the input image, so
-    we only send ``image_size`` / ``aspect_ratio`` when the edit endpoint's
-    ``edit_supports`` whitelist accepts it. Keys outside ``edit_supports`` are
-    stripped before submission.
+    每个 FAL 编辑端点都会接收 ``image_urls``
+    （源图像/参考图像的 URL 列表）以及提示词。
+    尺寸处理机制与文生图有所不同：
+    大多数编辑端点会自动从输入图像中推断输出尺寸，
+    因此我们仅在编辑端点的 ``edit_supports`` 白名单允许时，
+    才会发送 ``image_size`` / ``aspect_ratio``。
+    白名单 ``edit_supports`` 之外的键在提交前都会被移除。
     """
     meta = FAL_MODELS[model_id]
     edit_supports = meta.get("edit_supports") or set()
@@ -804,11 +805,11 @@ def _force_artifact_sync(env: Any) -> None:
 
 
 def _postprocess_image_generate_result(raw: str, task_id: str | None = None) -> str:
-    """Annotate successful local image results with backend-visible paths.
+    """为成功的本地图像结果标注后端可见的路径。
 
-    ``image`` remains the host/gateway-deliverable path.  When the active
-    terminal backend has a different filesystem, ``agent_visible_image`` gives
-    the path the agent can use with terminal/file tools.
+    ``image`` 保持为宿主机/网关可交付的路径。当激活的
+    终端后端拥有不同的文件系统时，``agent_visible_image`` 会提供
+    Agent 在使用终端/文件工具时可用的路径。
     """
     try:
         payload = json.loads(raw) if isinstance(raw, str) else raw
@@ -846,20 +847,21 @@ def image_generate_tool(
     image_url: Optional[str] = None,
     reference_image_urls: Optional[list] = None,
 ) -> str:
-    """Generate an image from a text prompt, or edit a source image, via FAL.
+    """通过 FAL 根据文本提示词生成图像，或对源图像进行编辑。
 
-    Routing: when ``image_url`` (or ``reference_image_urls``) is provided AND
-    the configured model declares an ``edit_endpoint``, the call routes to that
-    image-to-image / edit endpoint; otherwise it's plain text-to-image.
+    路由规则：当提供 ``image_url``（或 ``reference_image_urls``）
+    且配置的模型声明了 ``edit_endpoint`` 时，
+    调用将路由至该图生图/编辑端点；
+    否则，按照纯文生图进行处理。
 
-    The agent-facing schema exposes ``prompt``, ``aspect_ratio``, ``image_url``
-    and ``reference_image_urls``; the remaining kwargs are overrides for direct
-    Python callers and are filtered per-model via the ``supports`` /
-    ``edit_supports`` whitelist (unsupported overrides are silently dropped so
-    legacy callers don't break when switching models).
+    面向 Agent 的 Schema 暴露了 ``prompt``、``aspect_ratio``、``image_url``
+    以及 ``reference_image_urls``；
+    其余 kwargs 参数为直接调用 Python 的重写项，
+    并通过 ``supports`` / ``edit_supports`` 白名单按模型进行过滤
+    （不支持的重写项将被静默丢弃，以确保旧版调用方在切换模型时不会报错）。
 
-    Returns a JSON string with ``{"success": bool, "image": url | None,
-    "modality": "text" | "image", "error": str, "error_type": str}``.
+    返回一个 JSON 字符串，格式为：
+    ``{"success": bool, "image": url | None, "modality": "text" | "image", "error": str, "error_type": str}``。
     """
     model_id, meta = _resolve_fal_model()
 
@@ -1277,20 +1279,19 @@ def _dispatch_to_plugin_provider(
     image_url: Optional[str] = None,
     reference_image_urls: Optional[list] = None,
 ):
-    """Route the call to a plugin-registered provider when one is selected.
+    """当选中了某个已注册的插件提供者时，将调用路由至该提供者。
 
-    Returns a JSON string on dispatch, or ``None`` to fall through to the
-    in-tree FAL fallback in ``image_generate_tool``.
+    分发成功时返回 JSON 字符串；若返回 ``None``，则降级回
+    ``image_generate_tool`` 中内置的 FAL 备用路径。
 
-    Dispatch fires when ``image_gen.provider`` is explicitly set — including
-    ``"fal"`` itself, which now resolves to the
-    ``plugins/image_gen/fal/`` plugin (the plugin re-enters this module's
-    pipeline via ``_it`` indirection so behavior is identical to the
-    direct call, just routed through the registry).
+    当明确设置了 ``image_gen.provider`` 时便会触发分发 —— 包括
+    ``"fal"`` 本身，它现在会解析为
+    ``plugins/image_gen/fal/`` 插件（该插件通过 ``_it`` 间接调用
+    重新进入本模块的流水线，因此其行为与直接调用完全一致，只是经过了注册表路由）。
 
-    ``image_url`` / ``reference_image_urls`` enable image-to-image / editing:
-    they are forwarded to the provider's ``generate()`` so the backend can
-    route to its edit endpoint.
+    ``image_url`` / ``reference_image_urls`` 用于启用图生图 / 图像编辑功能：
+    它们会被转发给提供者的 ``generate()`` 方法，以便后端能够
+    将其路由至相应的编辑端点。
     """
     configured = _read_configured_image_provider()
     if not configured:
@@ -1519,9 +1520,9 @@ def _handle_image_generate(args, **kw):
     reference_image_urls = args.get("reference_image_urls")
     task_id = kw.get("task_id")
 
-    # Route to a plugin-registered provider if one is active (and it's
-    # not the in-tree FAL path). When ``image_gen.provider == "krea"`` this
-    # already reaches the Krea plugin's managed gateway path.
+    # 如果存在处于激活状态的插件注册提供者，则路由至该提供者（并且它
+    # 不是内置的 FAL 路径）。当 ``image_gen.provider == "krea"`` 时，
+    # 此操作就已经触达了 Krea 插件托管的网关路径。
     dispatched = _dispatch_to_plugin_provider(
         prompt, aspect_ratio,
         image_url=image_url,

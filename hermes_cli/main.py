@@ -3261,13 +3261,12 @@ _AUX_TASKS: list[tuple[str, str, str]] = [
 
 
 def _all_aux_tasks() -> list[tuple[str, str, str]]:
-    """Return built-in + plugin-registered auxiliary tasks for picker/menu use.
+    """返回用于选择器/菜单展示的“内置 + 插件注册”的辅助任务列表。
 
-    Built-in tasks come first (preserving order), followed by plugin tasks
-    sorted by key. Used by ``_aux_config_menu``, ``_reset_aux_to_auto``, and
-    display-name lookups so plugin-registered tasks (registered via
-    :meth:`hermes_cli.plugins.PluginContext.register_auxiliary_task`) appear
-    in the same surfaces as built-in ones without core knowing about them.
+    内置任务排在前面（保持原有顺序），后续接按 key 排序的插件任务。
+    供 ``_aux_config_menu``、``_reset_aux_to_auto`` 以及显示名称查找功能使用，
+    使得通过 :meth:`hermes_cli.plugins.PluginContext.register_auxiliary_task` 注册的插件任务
+    无需修改核心代码，即可与内置任务呈现在相同的界面中。
     """
     tasks = list(_AUX_TASKS)
     try:

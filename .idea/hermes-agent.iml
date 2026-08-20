@@ -6,7 +6,7 @@
       <excludeFolder url="file://$MODULE_DIR$/tests" />
       <excludeFolder url="file://$MODULE_DIR$/website" />
     </content>
-    <orderEntry type="jdk" jdkName="uv (hermes-agent) (2)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="uv (hermes-agent)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

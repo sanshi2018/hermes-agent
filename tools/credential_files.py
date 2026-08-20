@@ -388,14 +388,15 @@ def map_cache_path_to_container(
     host_path: str,
     container_base: str = "/root/.hermes",
 ) -> Optional[str]:
-    """Map a host cache path to its mounted path under *container_base*.
+    """将宿主机缓存路径映射为其在 *container_base* 下的挂载路径。
 
-    Returns the POSIX container path when *host_path* lives under one of the
-    auto-mounted cache directories, otherwise ``None``.  Backend-agnostic: the
-    caller decides which ``container_base`` applies (Docker ``/root/.hermes``,
-    SSH ``<remote_home>/.hermes``, etc.) and whether translation is wanted.
-    Always joins with ``posixpath`` because container/remote paths are POSIX
-    regardless of the host OS.
+    当 *host_path* 位于某个自动挂载的缓存目录下时，
+    返回 POSIX 容器路径，否则返回 ``None``。
+    与后端无关：由调用方决定适用的 ``container_base``
+    （例如 Docker 的 ``/root/.hermes``，SSH 的 ``<remote_home>/.hermes`` 等）
+    以及是否需要进行路径转换。
+    由于无论宿主操作系统如何，容器/远程路径均为 POSIX 标准，
+    因此始终使用 ``posixpath`` 进行路径拼接。
     """
     path = Path(host_path)
     for mount in get_cache_directory_mounts(container_base=container_base):

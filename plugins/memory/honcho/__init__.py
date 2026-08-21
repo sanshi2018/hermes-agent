@@ -1,18 +1,24 @@
-"""Honcho memory plugin — MemoryProvider for Honcho AI-native memory.
+# Honcho 内存插件 Python 注释翻译
 
-Provides cross-session user modeling with dialectic Q&A, semantic search,
-peer cards, and persistent conclusions via the Honcho SDK. Honcho provides AI-native cross-session user
-modeling with dialectic Q&A, semantic search, peer cards, and conclusions.
+"""Honcho 内存插件 — 用于 Honcho AI 原生内存的 MemoryProvider。
 
-Five tools (profile, search, reasoning, context, conclude) are exposed
-through the MemoryProvider interface.
+通过 Honcho SDK 提供跨会话的用户建模功能，
+支持辩证式问答（dialectic Q&A）、语义搜索（semantic search）、
+同伴卡片（peer cards）以及持久化结论（persistent conclusions）。
+Honcho 提供了包含辩证问答、语义搜索、同伴卡片与结论提取的 AI 原生跨会话用户建模能力。
 
-Config: Uses the existing Honcho config chain:
-  1. $HERMES_HOME/honcho.json (profile-scoped)
-  2. ~/.honcho/config.json (legacy global)
-  3. Environment variables
+通过 MemoryProvider 接口暴露了 5 个工具：
+- profile（用户画像）
+- search（搜索）
+- reasoning（推理）
+- context（上下文）
+- conclude（推导结论）
+
+配置：使用现有的 Honcho 配置链：
+  1. $HERMES_HOME/honcho.json（配置文件 / Profile 作用域）
+  2. ~/.honcho/config.json（旧版全局配置）
+  3. 环境变量
 """
-
 from __future__ import annotations
 
 import json
@@ -30,10 +36,14 @@ from tools.registry import tool_error
 logger = logging.getLogger(__name__)
 
 
-# Gateway-internal notifications can arrive through the same user-role channel
-# as genuine user messages. They are execution metadata, not conversation, and
-# must never become durable personal memory. Keep this deliberately anchored:
-# a human discussing one of these strings mid-message is still valid input.
+# 网关内部通知可能会与真实的用户消息
+# 通过同一个用户角色（user-role）通道送达。
+# 它们属于执行元数据而非对话内容，
+# 绝不能转化为持久的个人记忆。
+#
+# 请保持这一明确界限：
+# 即使人类用户在消息中讨论了这些字符串，
+# 该消息依然是有效的输入。
 _INTERNAL_GATEWAY_TURN_RE = re.compile(
     r"^\s*(?:"
     r"\[ASYNC (?:DELEGATION )?(?:BATCH )?COMPLETE[^\]]*\]|"

@@ -2791,25 +2791,23 @@ class PluginContext:
         install_hint: str = "",
         **entry_kwargs: Any,
     ) -> Optional[PluginRegistration]:
-        """Register a gateway platform adapter.
+        """注册一个网关平台适配器。
 
-        The adapter_factory receives a ``PlatformConfig`` and returns a
-        ``BasePlatformAdapter`` subclass instance.
+        ``adapter_factory`` 接收一个 ``PlatformConfig``，
+        并返回一个 ``BasePlatformAdapter`` 子类的实例。
 
-        ``check_fn`` is a PASSIVE dependency probe — "are deps importable
-        right now?".  It must never install anything: status displays and
-        config loading call it freely.  If your platform's SDK is
-        lazy-installable, pass the ACTIVE installer separately as
-        ``ensure_deps_fn`` (forwarded via ``entry_kwargs``); the gateway
-        calls it from ``create_adapter()`` when ``check_fn`` is False,
-        right before connecting the platform.
+        ``check_fn`` 是一个“被动”依赖项检测函数 —— 用于检查“当前依赖是否可被导入？”。
+        它绝对不能安装任何内容：状态显示和配置加载过程会随时调用它。
+        如果你的平台 SDK 支持按需（延迟）安装，
+        请将“主动”安装器作为 ``ensure_deps_fn`` 单独传递（通过 ``entry_kwargs`` 转发）；
+        当 ``check_fn`` 返回 False 时，网关会在即将连接平台之前，
+        从 ``create_adapter()`` 中调用它。
 
-        Extra keyword arguments are forwarded to ``PlatformEntry`` (e.g.
-        ``setup_fn``, ``emoji``, ``allowed_users_env``, ``platform_hint``,
-        ``ensure_deps_fn``).  Unknown keys raise TypeError from the
-        dataclass constructor.
+        额外的关键字参数将转发给 ``PlatformEntry``
+        （例如 ``setup_fn``、``emoji``、``allowed_users_env``、``platform_hint``、``ensure_deps_fn``）。
+        未知的参数键将由 dataclass 构造函数抛出 TypeError。
 
-        Example::
+        示例：
 
             ctx.register_platform(
                 name="irc",

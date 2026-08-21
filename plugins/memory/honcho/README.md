@@ -1,260 +1,247 @@
-# Honcho Memory Provider
+# Honcho 记忆提供程序（Honcho Memory Provider）
 
-AI-native cross-session user modeling with multi-pass dialectic reasoning, session summaries, bidirectional peer tools, and persistent conclusions.
+具备多轮辩证推理、会话摘要、双向 Peer 工具以及持久化结论的 AI 原生跨会话用户建模方案。
 
-> **Honcho docs:** <https://docs.honcho.dev/v3/guides/integrations/hermes>
+> **Honcho 文档：** https://docs.honcho.dev/v3/guides/integrations/hermes
 
-## Requirements
+## 环境要求
 
 - `pip install honcho-ai`
-- A Honcho Cloud account — connect via OAuth sign-in or an API key from
-  [app.honcho.dev](https://app.honcho.dev) — or a self-hosted instance
+- Honcho Cloud 账号 — 通过 OAuth 登录或从 [app.honcho.dev](https://app.honcho.dev/) 获取 API 密钥进行连接 — 或自托管实例
 
-## Setup
+## 配置设置
 
-```bash
-hermes memory setup honcho   # configure Honcho directly (works on a fresh install)
-hermes memory setup          # generic picker, choose Honcho from the list
+Bash
+
+```
+hermes memory setup honcho   # 直接配置 Honcho（适用于全新安装）
+hermes memory setup          # 通用选择器，从列表中选择 Honcho
 ```
 
-For cloud, the wizard asks **OAuth, device code, or API key**. OAuth opens a
-browser sign-in and stores the grant itself — nothing to copy; tokens refresh
-automatically. On SSH/headless machines choose **device**: the CLI prints a
-short code and a link you open in a browser on any other machine; setup
-completes once you approve there. The desktop app offers the browser flow as
-a **Connect** link next to the memory-provider dropdown.
+对于云端版本，配置向导会询问 **OAuth、设备代码（device code）或 API 密钥**。OAuth 会打开浏览器登录并自动存储授权 — 无需手动复制；Token 会自动刷新。在 SSH 或无头（headless）机器上，请选择 **device**：CLI 会输出一段简短的代码和链接，你可以在其他任何机器的浏览器中打开该链接；在浏览器中批准后设置即告完成。桌面端应用会在记忆提供程序下拉菜单旁提供一个 **Connect** 链接用于打开浏览器授权流程。
 
-Or manually:
-```bash
+或手动配置：
+
+Bash
+
+```
 hermes config set memory.provider honcho
 echo "HONCHO_API_KEY=***" >> ~/.hermes/.env
 ```
 
-> `hermes honcho setup` also works, but only **after** Honcho is the active
-> memory provider — the `honcho` subcommand is registered for the active
-> provider only. On a fresh install, use `hermes memory setup honcho`.
+> `hermes honcho setup` 同样可用，但前提必须是 Honcho **已被激活**为当前记忆提供程序 — `honcho` 子命令仅针对当前处于激活状态的提供程序注册。对于全新安装，请使用 `hermes memory setup honcho`。
 
-## Architecture Overview
+## 架构概览
 
-### Two-Layer Context Injection
+### 双层上下文注入
 
-Context is injected into the **user message** at API-call time (not the system prompt) to preserve prompt caching. Only a static mode header goes in the system prompt. The injected block is wrapped in `<memory-context>` fences with a system note clarifying it's background data, not new user input.
+上下文会在 API 调用时注入到 **用户消息（user message）** 中（而非系统提示词中），以保留 Prompt 缓存。系统提示词中仅包含静态模式标头。注入的文本块包裹在 `<memory-context>` 标签中，并附带系统备注，明确指出这是背景数据而非新的用户输入。
 
-Two independent layers, each on its own cadence:
+分为两个独立层，每层拥有各自的执行节奏（cadence）：
 
-**Layer 1 — Base context** (refreshed every `contextCadence` turns):
-1. **SESSION SUMMARY** — from `session.context(summary=True)`, placed first
-2. **User Representation** — Honcho's evolving model of the user
-3. **User Peer Card** — key facts snapshot
-4. **AI Self-Representation** — Honcho's model of the AI peer
-5. **AI Identity Card** — AI peer facts
+**第 1 层 — 基础上下文（Base context）**（每 `contextCadence` 轮刷新一次）：
 
-**Layer 2 — Dialectic supplement** (fired every `dialecticCadence` turns):
-Multi-pass `.chat()` reasoning about the user, appended after base context.
+1. **会话摘要（SESSION SUMMARY）** — 来自 `session.context(summary=True)`，置于首位
+2. **用户画像（User Representation）** — Honcho 持续演进的用户模型
+3. **用户 Peer 卡片（User Peer Card）** — 关键事实快照
+4. **AI 自我画像（AI Self-Representation）** — Honcho 构建的 AI Peer 模型
+5. **AI 身份卡片（AI Identity Card）** — AI Peer 的事实数据
 
-Both layers are joined, then truncated to fit `contextTokens` budget via `_truncate_to_budget` (tokens × 4 chars, word-boundary safe).
+**第 2 层 — 辩证补充（Dialectic supplement）**（每 `dialecticCadence` 轮触发一次）：
 
-### Latest-Message Query Rewrite (opt-in)
+针对用户展开的多轮 `.chat()` 推理，附加在基础上下文之后。
 
-When `queryRewrite: true`, dialectic pass 0 first uses the shared
-`memory_query_rewrite` auxiliary task to turn the latest message into one
-concise memory-retrieval question. The rewritten question is used for the
-dialectic request; base-context retrieval still uses the raw message as its
-search query. If rewriting times out or returns an invalid result, the plugin
-falls back to the existing cold/warm prompt below. With the flag on, the
-generic dialectic prewarm is skipped so it cannot shadow the first user
-message.
+两层合并后，通过 `_truncate_to_budget` 按 `contextTokens` 预算进行截断（Token 数 × 4 个字符，且保证词边界安全）。
 
-**Off by default** — the rewrite adds one auxiliary-model call per dialectic
-cycle (not per pass). Select a fast, inexpensive model under `hermes model`
--> auxiliary models -> **Memory query rewrite**; its request timeout is
-`auxiliary.memory_query_rewrite.timeout` in config.yaml (default 8s). The
-task and module (`plugins/memory/query_rewrite.py`) are provider-agnostic —
-any memory provider can reuse them. `dialecticCadence` still controls how
-often the cycle runs.
+### 最新消息查询重写（可选项）
 
-### Cold Start vs Warm Session Prompts
+当设置 `queryRewrite: true` 时，辩证第 0 轮（pass 0）首先会使用共享的 `memory_query_rewrite` 辅助任务，将最新消息重写为一个简短的记忆检索问题。重写后的问题将用于辩证请求；而基础上下文检索仍使用原始消息作为搜索查询。如果重写超时或返回无效结果，插件将回退到下文所述的冷/热提示词。开启该标志后，会跳过通用的辩证预热，从而不会覆盖第一条用户消息。
 
-When latest-message rewriting is unavailable, dialectic pass 0 automatically
-selects its fallback prompt based on session state:
+**默认关闭** — 该重写会在每个辩证周期（并非每轮 pass）增加一次辅助模型调用。请在 `hermes model` -> auxiliary models -> **Memory query rewrite** 下选择一个快速且低成本的模型；其请求超时时间在 config.yaml 中的 `auxiliary.memory_query_rewrite.timeout` 进行配置（默认 8 秒）。该任务和模块（`plugins/memory/query_rewrite.py`）与具体提供程序无关 — 任何记忆提供程序均可复用它们。`dialecticCadence` 依然控制周期运行的频率。
 
-- **Cold** (no base context cached): "Who is this person? What are their preferences, goals, and working style? Focus on facts that would help an AI assistant be immediately useful."
-- **Warm** (base context exists): "Given what's been discussed in this session so far, what context about this user is most relevant to the current conversation? Prioritize active context over biographical facts."
+### 冷启动 vs 热会话提示词
 
-Not configurable — determined automatically.
+当最新消息重写不可用时，辩证第 0 轮会根据会话状态自动选择回退提示词：
 
-### Dialectic Depth (Multi-Pass Reasoning)
+- **冷启动（Cold）**（未缓存基础上下文）：“这个人是谁？他们的偏好、目标和工作风格是什么？重点关注能够帮助 AI 助手立即发挥作用的事实。”
+- **热会话（Warm）**（已存在基础上下文）：“根据本会话目前讨论的内容，与当前对话最相关的用户上下文是什么？优先考虑活跃的上下文，而非背景履历等事实。”
 
-`dialecticDepth` (1–3, clamped) controls how many `.chat()` calls fire per dialectic cycle:
+不可配置 — 自动判定。
 
-| Depth | Passes | Behavior |
-|-------|--------|----------|
-| 1 | single `.chat()` | Base query only (cold or warm prompt) |
-| 2 | audit + synthesis | Pass 0 result is self-audited; pass 1 does targeted synthesis. Conditional bail-out if pass 0 returns strong signal (>300 chars or structured with bullets/sections >100 chars) |
-| 3 | audit + synthesis + reconciliation | Pass 2 reconciles contradictions across prior passes into a final synthesis |
+### 辩证深度（多轮推理）
 
-### Proportional Reasoning Levels
+`dialecticDepth`（1–3，超限将被限制）控制每个辩证周期触发的 `.chat()` 调用次数：
 
-When `dialecticDepthLevels` is not set, each pass uses a proportional level relative to `dialecticReasoningLevel` (the "base"):
+| **深度** | **轮数（Passes）** | **行为**                                                     |
+| -------- | ------------------ | ------------------------------------------------------------ |
+| 1        | 单次 `.chat()`     | 仅基础查询（冷启动或热会话提示词）                           |
+| 2        | 审查 + 综合        | 对 Pass 0 结果进行自我审查；Pass 1 进行针对性综合。如果 Pass 0 返回强信号（>300 字符，或包含列表/分段的结构化内容 >100 字符），则条件性提前退出 |
+| 3        | 审查 + 综合 + 调和 | Pass 2 调和先前各轮之间的矛盾，输出最终的综合结果            |
 
-| Depth | Pass levels |
-|-------|-------------|
-| 1 | [base] |
-| 2 | [minimal, base] |
-| 3 | [minimal, base, low] |
+### 等比例推理级别
 
-Override with `dialecticDepthLevels`: an explicit array of reasoning level strings per pass.
+当未设置 `dialecticDepthLevels` 时，每一轮会使用相对于 `dialecticReasoningLevel`（“基准级别”）的等比例级别：
 
-### Query-Adaptive Reasoning Level
+| **深度** | **各轮推理级别**     |
+| -------- | -------------------- |
+| 1        | [base]               |
+| 2        | [minimal, base]      |
+| 3        | [minimal, base, low] |
 
-The auto-injected dialectic scales `dialecticReasoningLevel` by query length: +1 level at ≥120 chars, +2 at ≥400, clamped at `reasoningLevelCap` (default `"high"`). Disable with `reasoningHeuristic: false` to pin every auto call to `dialecticReasoningLevel`.
+可使用 `dialecticDepthLevels` 进行重写：显式指定每一轮推理级别字符串数组。
 
-### Three Orthogonal Dialectic Knobs
+### 查询自适应推理级别
 
-| Knob | Controls | Type |
-|------|----------|------|
-| `dialecticCadence` | How often — minimum turns between dialectic firings | int |
-| `dialecticDepth` | How many — passes per firing (1–3) | int |
-| `dialecticReasoningLevel` | How hard — reasoning ceiling per `.chat()` call | string |
+自动注入的辩证逻辑会根据查询长度动态调整 `dialecticReasoningLevel`：当 ≥120 字符时提升 1 级，≥400 字符时提升 2 级，最高不超过 `reasoningLevelCap`（默认为 `"high"`）。设置 `reasoningHeuristic: false` 可禁用此特性，将每次自动调用固定为 `dialecticReasoningLevel`。
 
-### Input Sanitization
+### 三个独立的辩证控制旋钮
 
-`run_conversation` strips leaked `<memory-context>` blocks from user input before processing. When `saveMessages` persists a turn that included injected context, the block can reappear in subsequent turns via message history. The sanitizer removes `<memory-context>` blocks plus associated system notes.
+| **控制项**                | **控制内容**                              | **类型** |
+| ------------------------- | ----------------------------------------- | -------- |
+| `dialecticCadence`        | 触发频率 — 两次辩证触发之间的最小对话轮数 | int      |
+| `dialecticDepth`          | 触发轮数 — 单次触发的轮数（1–3）          | int      |
+| `dialecticReasoningLevel` | 推理强度 — 每次 `.chat()` 调用的推理上限  | string   |
 
-## Tools
+### 输入清理（Sanitization）
 
-Five bidirectional tools. All accept an optional `peer` parameter (`"user"` or `"ai"`, default `"user"`).
+`run_conversation` 会在处理前从用户输入中剥离泄露的 `<memory-context>` 块。当 `saveMessages` 持久化包含注入上下文的对话轮次时，该块可能会通过消息历史记录重新出现在后续轮次中。清理器会移除 `<memory-context>` 块及关联的系统备注。
 
-| Tool | LLM call? | Description |
-|------|-----------|-------------|
-| `honcho_profile` | No | Peer card — key facts snapshot |
-| `honcho_search` | No | Cross-session message search (hybrid semantic + keyword, ranked excerpts; 800 tok default, 2000 max) |
-| `honcho_context` | No | Full session context: summary, representation, card, messages |
-| `honcho_reasoning` | Yes | LLM-synthesized answer via dialectic `.chat()` |
-| `honcho_conclude` | No | Write, list/search, or delete persistent conclusions (list surfaces the ids delete needs) |
+## 工具
 
-Tool visibility depends on `recallMode`: hidden in `context` mode, always present in `tools` and `hybrid`.
+提供 5 个双向工具。所有工具均接受可选的 `peer` 参数（`"user"` 或 `"ai"`，默认值为 `"user"`）。
 
-## Config Resolution
+| **工具**           | **是否调用 LLM？** | **描述**                                                     |
+| ------------------ | ------------------ | ------------------------------------------------------------ |
+| `honcho_profile`   | 否                 | Peer 卡片 — 关键事实快照                                     |
+| `honcho_search`    | 否                 | 跨会话消息搜索（混合语义 + 关键词，按相关度排序的摘录；默认 800 tokens，上限 2000） |
+| `honcho_context`   | 否                 | 完整会话上下文：摘要、画像、卡片、消息                       |
+| `honcho_reasoning` | 是                 | 通过辩证 `.chat()` 综合生成的 LLM 回答                       |
+| `honcho_conclude`  | 否                 | 写入、列表/搜索或删除持久化结论（列表会展示删除所需的 ID）   |
 
-Config is read from the first file that exists:
+工具可见性取决于 `recallMode`：在 `context` 模式下隐藏，在 `tools` 和 `hybrid` 模式下始终存在。
 
-| Priority | Path | Scope |
-|----------|------|-------|
-| 1 | `$HERMES_HOME/honcho.json` | Profile-local (isolated Hermes instances) |
-| 2 | `~/.hermes/honcho.json` | Default profile (shared host blocks) |
-| 3 | `~/.honcho/config.json` | Global (cross-app interop) |
+## 配置解析逻辑
 
-Host key is derived from the active Hermes profile: `hermes` (default) or `hermes_<profile>`.
+配置将从第一个存在的文件中读取：
 
-For every key, resolution order is: **host block > root > env var > default**.
+| **优先级** | **路径**                   | **作用域**                         |
+| ---------- | -------------------------- | ---------------------------------- |
+| 1          | `$HERMES_HOME/honcho.json` | 配置文件级别（隔离的 Hermes 实例） |
+| 2          | `~/.hermes/honcho.json`    | 默认配置文件（共享的主机块）       |
+| 3          | `~/.honcho/config.json`    | 全局（跨应用互操作）               |
 
-## Full Configuration Reference
+主机键（Host key）衍生自处于激活状态的 Hermes Profile：`hermes`（默认）或 `hermes_<profile>`。
 
-### Identity & Connection
+对于每个配置键，解析顺序依次为：**主机块（host block） > 根配置（root） > 环境变量（env var） > 默认值（default）**。
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `apiKey` | string | — | API key. Falls back to `HONCHO_API_KEY` env var. When connected via OAuth, holds the auto-refreshing access token instead |
-| `oauth` | object | — | OAuth grant (refresh token, expiry, client, token endpoint). Written by the Connect/sign-in flows and rotated automatically — not hand-edited. Optional: an API key alone works without it |
-| `baseUrl` | string | — | Base URL for self-hosted Honcho. Local URLs auto-skip API key auth |
-| `environment` | string | `"production"` | SDK environment mapping |
-| `enabled` | bool | auto | Master toggle. Auto-enables when `apiKey` or `baseUrl` present |
-| `workspace` | string | host key | Honcho workspace ID. Shared environment — all profiles in the same workspace can see the same user identity and related memories |
-| `peerName` | string | — | User peer identity |
-| `aiPeer` | string | host key | AI peer identity |
+## 完整配置项参考
 
-### Identity Mapping (Gateway Multi-User)
+### 身份与连接
 
-In gateway deployments (Telegram, Discord, Slack, etc.) each user arrives with a platform-native runtime ID (Telegram UID, Discord snowflake, Slack user). These three keys control how those runtime IDs map to Honcho peers. The resolver is config-driven and deterministic — no automatic merging or runtime inference.
+| **键名**      | **类型** | **默认值**     | **描述**                                                     |
+| ------------- | -------- | -------------- | ------------------------------------------------------------ |
+| `apiKey`      | string   | —              | API 密钥。回退使用 `HONCHO_API_KEY` 环境变量。通过 OAuth 连接时，该键将存储自动刷新的访问令牌 |
+| `oauth`       | object   | —              | OAuth 授权信息（刷新令牌、过期时间、客户端、令牌端点）。由连接/登录流程自动写入并自动轮换 — 请勿手动编辑。可选：单独配置 API 密钥即可生效，无需 OAuth |
+| `baseUrl`     | string   | —              | 自托管 Honcho 的基础 URL。本地 URL 会自动跳过 API 密钥身份验证 |
+| `environment` | string   | `"production"` | SDK 环境映射                                                 |
+| `enabled`     | bool     | auto           | 主开关。当存在 `apiKey` 或 `baseUrl` 时自动启用              |
+| `workspace`   | string   | host key       | Honcho 工作区 ID。共享环境 — 同一工作区中的所有 Profile 都可以查看相同的用户身份和相关记忆 |
+| `peerName`    | string   | —              | 用户 Peer 身份                                               |
+| `aiPeer`      | string   | host key       | AI Peer 身份                                                 |
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `pinUserPeer` | bool | `false` | When `true`, every gateway runtime user collapses to `peerName`. Single-operator deployments where you want all your platforms (and any other users) to share one peer |
-| `userPeerAliases` | object | `{}` | Map of runtime IDs to peer IDs (`{"7654321": "alice"}`). Many-to-one is the intended pattern — alias all your runtime IDs to one peer name. One-to-many is not supported; one runtime ID resolves to exactly one peer |
-| `runtimePeerPrefix` | string | `""` | Prepended to unknown runtime IDs to namespace them (e.g. `"telegram_"` → `telegram_7654321`). Used only when no alias matches. Prevents collisions between platforms whose runtime IDs share the same shape |
+### 身份映射（网关多用户）
 
-> **Deprecated:** `pinPeerName` is a legacy alias for `pinUserPeer`, still read for back-compat (`pinUserPeer` wins where both are set). `hermes honcho setup` migrates it onto `pinUserPeer` on touch and never writes it.
+在网关部署（Telegram、Discord、Slack 等）中，每个用户都会携带平台原生的运行时 ID（Telegram UID、Discord snowflake、Slack 用户名等）。以下三个配置项控制这些运行时 ID 如何映射到 Honcho Peer。解析器完全由配置驱动且具有确定性 — 不会进行自动合并或运行时推断。
 
-**Resolver ladder** (first match wins):
+| **键名**            | **类型** | **默认值** | **描述**                                                     |
+| ------------------- | -------- | ---------- | ------------------------------------------------------------ |
+| `pinUserPeer`       | bool     | `false`    | 设置为 `true` 时，每个网关运行时用户都会折叠为 `peerName`。适用于单操作员部署，以便所有平台（及其他用户）共享同一个 Peer |
+| `userPeerAliases`   | object   | `{}`       | 运行时 ID 到 Peer ID 的映射（如 `{"7654321": "alice"}`）。多对一是预期用法 — 将所有运行时 ID 别名映射到一个 Peer 名称。不支持一对多；一个运行时 ID 仅精准解析为一个 Peer |
+| `runtimePeerPrefix` | string   | `""`       | 添加在未知运行时 ID 前面的前缀，用于划分命名空间（例如 `"telegram_"` → `telegram_7654321`）。仅在没有匹配的别名时使用。防止运行时 ID 形状相同的平台之间发生冲突 |
+
+> **已废弃：** `pinPeerName` 是 `pinUserPeer` 的旧别名，目前仍可读取以保持向下兼容（两者同时设置时 `pinUserPeer` 优先）。`hermes honcho setup` 在触发时会将其迁移至 `pinUserPeer`，且不再写入该旧字段。
+
+**解析阶梯**（首次匹配即止）：
 
 ```
-1. pinUserPeer / pinPeerName=true → return peerName (ignore runtime ID)
-2. userPeerAliases[runtime_id]   → return aliased peer
-3. userPeerAliases[runtime_id_alt] → check alt-ID too (Telegram UID + username, etc.)
-4. runtimePeerPrefix + runtime_id → namespaced peer, with sha256 collision escalation
-5. raw sanitized runtime_id      → fallback peer
-6. peerName                      → no runtime ID at all (CLI/TUI)
-7. session-key fallback          → no config either
+1. pinUserPeer / pinPeerName=true → 返回 peerName（忽略运行时 ID）
+2. userPeerAliases[runtime_id]   → 返回别名对应的 peer
+3. userPeerAliases[runtime_id_alt] → 检查备用 ID（Telegram UID + 用户名等）
+4. runtimePeerPrefix + runtime_id → 划分命名空间的 peer，带 sha256 冲突升级处理
+5. 原始清理后的 runtime_id      → 回退 peer
+6. peerName                      → 无运行时 ID（CLI/TUI）
+7. session-key 回退              → 无相关配置
 ```
 
-**Why no `pinAiPeer`?** The AI peer is already pinned by construction — `aiPeer` is the only AI-side identity setting and the resolver never overrides it. Only the user-side peer has the runtime-vs-config tension that `pinUserPeer` resolves.
+**为什么没有 `pinAiPeer`？** AI Peer 在结构设计上已经固定 — `aiPeer` 是 AI 侧唯一的身份设置，解析器绝不会覆盖它。只有用户侧 Peer 存在需要由 `pinUserPeer` 解决的“运行时 vs 配置”冲突。
 
-**Host vs root semantics.** All three keys are accepted at both root and `hosts.<host>` levels. Host-level wins. For maps and prefixes, host-level *replaces* the root value as a whole (not merge), so a host can intentionally own its identity universe or wipe it with `userPeerAliases: {}` / `runtimePeerPrefix: ""`.
+**主机块 vs 根语义。** 这三个配置键在根级别和 `hosts.<host>` 级别均被接受。主机级别优先。对于映射和前缀，主机级别会**整体替换**根级别的值（而非合并），因此主机可以刻意拥有独立的身份体系，或通过 `userPeerAliases: {}` / `runtimePeerPrefix: ""` 将其清空。
 
-**Setup — gateway identity tree.** `hermes honcho setup` only asks about identity mapping when it detects a connected gateway platform (it inspects the gateway config; off-gateway the step is skipped because these keys do nothing without a runtime user ID). When it runs, it asks *who talks to this gateway?* and derives the keys:
+**设置 — 网关身份树。** `hermes honcho setup` 仅在检测到已连接网关平台时才会询问身份映射（它会检查网关配置；在无网关环境下将跳过此步骤，因为没有运行时用户 ID 时这些键不会起作用）。运行时，它会询问*谁在与此网关通信？*并导出配置键：
 
-- **just me** → `pinUserPeer: true`. Every non-agent gateway user collapses to `peerName`; the pin overrides all aliases, so pick this only when no user-side identity needs its own peer. Personal use where you connect Hermes to your own Telegram/Discord/etc. If separate agents reach the gateway and each needs a distinct peer, do **not** pin — leave `pinUserPeer: false` and map them via `userPeerAliases` (the `[e]` editor).
-- **me + other people, pooled** → `pinUserPeer: false` + `userPeerAliases` mapping your runtime IDs to `peerName`. You stay on the shared history; everyone else gets their own peer.
-- **me + other people / only other people** → `pinUserPeer: false`, optional `runtimePeerPrefix`. Each runtime user → own peer. For bots serving many humans.
+- **只有我（just me）** → `pinUserPeer: true`。所有非 Agent 网关用户都会归并为 `peerName`；固定设置会覆盖所有别名，因此仅在不需要为用户侧身份分配独立 Peer 时选择此项。适用于将 Hermes 连接到个人 Telegram/Discord 等的个人使用场景。如果有多个独立的 Agent 接入网关且各自需要不同的 Peer，**请勿**锁定 — 保持 `pinUserPeer: false` 并通过 `userPeerAliases`（`[e]` 编辑器）进行映射。
+- **我 + 其他人，池化共享（me + other people, pooled）** → `pinUserPeer: false` + `userPeerAliases`（将你的运行时 ID 映射到 `peerName`）。你可以继续使用共享历史记录；其他所有人拥有各自独立的 Peer。
+- **我 + 其他人 / 仅其他人（me + other people / only other people）** → `pinUserPeer: false`，可选设置 `runtimePeerPrefix`。每个运行时用户 → 拥有各自的 Peer。适用于服务众多用户的 Bot。
 
-Pick **[e]** at the prompt to set the three keys directly instead of going through the tree.
+在提示符处选择 **[e]** 可直接设置这三个键，而无需通过向导树。
 
-**Un-pinning (single → per-user).** Flipping `pinUserPeer` from `true` to `false` does not migrate data. Memory accumulated under `peerName` while pinned stays there; runtime users now resolve to fresh, empty peers. To preserve your own continuity, choose the **pooled** path — alias your runtime IDs back to `peerName` so your turns keep landing on the pooled history while other users get their own peers. The wizard offers this steer automatically when it detects you're un-pinning a previously pinned profile.
+**解绑固定（单用户 → 每用户）。** 将 `pinUserPeer` 从 `true` 切换为 `false` **不会**迁移已有数据。固定期间在 `peerName` 下积累的记忆将保留在该处；运行时用户现在将解析为全新的空白 Peer。为了保持你个人记忆的连续性，请选择 **池化（pooled）** 路径 — 将你的运行时 ID 别名映射回 `peerName`，这样你的对话将继续存入池化历史记录中，而其他用户则获得各自的 Peer。当向导检测到你正在取消固定先前固定的配置文件时，会自动提供此引导。
 
-### Memory & Recall
+### 记忆与召回
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `recallMode` | string | `"hybrid"` | `"hybrid"` (auto-inject + tools), `"context"` (auto-inject only, tools hidden), `"tools"` (tools only, no injection). Legacy `"auto"` → `"hybrid"` |
-| `observationMode` | string | `"directional"` | Preset: `"directional"` (all on) or `"unified"` (user observes self, AI observes others). Use `observation` object for granular control |
-| `observation` | object | — | Per-peer observation config (see Observation section) |
+| **键名**          | **类型** | **默认值**      | **描述**                                                     |
+| ----------------- | -------- | --------------- | ------------------------------------------------------------ |
+| `recallMode`      | string   | `"hybrid"`      | `"hybrid"`（自动注入 + 工具），`"context"`（仅自动注入，隐藏工具），`"tools"`（仅工具，不注入）。旧版 `"auto"` → `"hybrid"` |
+| `observationMode` | string   | `"directional"` | 预设：`"directional"`（全部开启）或 `"unified"`（用户观察自我，AI 观察他人）。若要进行精细控制，请使用 `observation` 对象 |
+| `observation`     | object   | —               | 单 Peer 观察配置（见 Observation 章节）                      |
 
-### Write Behavior
+### 写入行为
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `writeFrequency` | string/int | `"async"` | `"async"` (background), `"turn"` (sync per turn), `"session"` (batch on end), or integer N (every N turns) |
-| `saveMessages` | bool | `true` | Persist messages to Honcho API. When `false`, all automatic writes are skipped — raw turns (`sync_turn`), conclusion mirroring (`on_memory_write`), and session-end/shutdown flushes — while read and tools paths stay fully functional. |
+| **键名**         | **类型**   | **默认值** | **描述**                                                     |
+| ---------------- | ---------- | ---------- | ------------------------------------------------------------ |
+| `writeFrequency` | string/int | `"async"`  | `"async"`（后台异步），`"turn"`（每轮同步），`"session"`（结束时批量写入），或整数 N（每 N 轮写入一次） |
+| `saveMessages`   | bool       | `true`     | 将消息持久化保存至 Honcho API。当设置为 `false` 时，所有自动写入都将被跳过 — 包含原始对话轮次（`sync_turn`）、结论镜像（`on_memory_write`）以及会话结束/关闭时的刷新 — 而读取和工具路径仍保持完备的功能。 |
 
-### Session Resolution
+### 会话解析
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `sessionStrategy` | string | `"per-directory"` | `"per-directory"`, `"per-session"`, `"per-repo"` (git root), `"global"` |
-| `sessionPeerPrefix` | bool | `false` | Prepend peer name to session keys |
-| `sessions` | object | `{}` | Manual directory-to-session-name mappings |
+| **键名**            | **类型** | **默认值**        | **描述**                                                     |
+| ------------------- | -------- | ----------------- | ------------------------------------------------------------ |
+| `sessionStrategy`   | string   | `"per-directory"` | `"per-directory"`（按目录）、`"per-session"`（按会话）、`"per-repo"`（按 Git 仓库根目录）、`"global"`（全局） |
+| `sessionPeerPrefix` | bool     | `false`           | 在会话键前加上 Peer 名称                                     |
+| `sessions`          | object   | `{}`              | 手动的“目录到会话名称”映射                                   |
 
-#### Session Name Resolution
+#### 会话名称解析
 
-The Honcho session name determines which conversation bucket memory lands in. Resolution follows a priority chain — first match wins:
+Honcho 会话名称决定了记忆落入哪个对话桶中。解析遵循优先级链 — 首次匹配即止：
 
-| Priority | Source | Example session name |
-|----------|--------|---------------------|
-| 1 | Manual map (`sessions` config) | `"myproject-main"` |
-| 2 | `/title` command (mid-session rename) | `"refactor-auth"` |
-| 3 | Gateway session key (Telegram, Discord, etc.) | `"agent-main-telegram-dm-8439114563"` |
-| 4 | `per-session` strategy | Hermes session ID (`20260415_a3f2b1`) |
-| 5 | `per-repo` strategy | Git root directory name (`hermes-agent`) |
-| 6 | `per-directory` strategy | Current directory basename (`src`) |
-| 7 | `global` strategy | Workspace name (`hermes`) |
+| **优先级** | **来源**                           | **示例会话名称**                      |
+| ---------- | ---------------------------------- | ------------------------------------- |
+| 1          | 手动映射（`sessions` 配置）        | `"myproject-main"`                    |
+| 2          | `/title` 命令（会话中重命名）      | `"refactor-auth"`                     |
+| 3          | 网关会话键（Telegram、Discord 等） | `"agent-main-telegram-dm-8439114563"` |
+| 4          | `per-session` 策略                 | Hermes 会话 ID (`20260415_a3f2b1`)    |
+| 5          | `per-repo` 策略                    | Git 根目录名称 (`hermes-agent`)       |
+| 6          | `per-directory` 策略               | 当前目录基准名 (`src`)                |
+| 7          | `global` 策略                      | 工作区名称 (`hermes`)                 |
 
-Gateway platforms always resolve via priority 3 (per-chat isolation) regardless of `sessionStrategy`. The strategy setting only affects CLI sessions.
+无论 `sessionStrategy` 如何设置，网关平台始终通过优先级 3（按聊天隔离）进行解析。该策略设置仅影响 CLI 会话。
 
-If `sessionPeerPrefix` is `true`, the peer name is prepended: `alice-hermes-agent`.
+如果 `sessionPeerPrefix` 设置为 `true`，则会附加 Peer 名称前缀：`alice-hermes-agent`。
 
-#### What each strategy produces
+#### 各策略的产出效果
 
-- **`per-directory`** — basename of `$PWD`. Opening hermes in `~/code/myapp` and `~/code/other` gives two separate sessions. Same directory = same session across runs.
-- **`per-repo`** — git root directory name. All subdirectories within a repo share one session. Falls back to `per-directory` if not inside a git repo.
-- **`per-session`** — Hermes session ID (timestamp + hex). Every `hermes` invocation starts a fresh Honcho session. Falls back to `per-directory` if no session ID is available.
-- **`global`** — workspace name. One session for everything. Memory accumulates across all directories and runs.
+- **`per-directory`** — `$PWD` 的基准目录名。在 `~/code/myapp` 和 `~/code/other` 中打开 hermes 会产生两个独立的会话。相同目录 = 跨运行共享同一会话。
+- **`per-repo`** — Git 根目录名称。仓库中的所有子目录共享同一个会话。如果不在 Git 仓库内，则回退至 `per-directory`。
+- **`per-session`** — Hermes 会话 ID（时间戳 + 十六进制）。每次调用 `hermes` 都会启动一个新的 Honcho 会话。如果没有可用会话 ID，则回退至 `per-directory`。
+- **`global`** — 工作区名称。所有内容使用同一个会话。记忆会在所有目录和运行中累积。
 
-### Multi-Profile Pattern
+### 多 Profile 模式
 
-Multiple Hermes profiles can share one workspace while maintaining separate AI identities. Config resolution is **host block > root > env var > default** — host blocks inherit from root, so shared settings only need to be declared once:
+多个 Hermes Profile 可以共享一个工作区，同时保持独立的 AI 身份。配置解析逻辑为 **主机块 > 根 > 环境变量 > 默认值** — 主机块继承自根，因此共享设置只需声明一次：
 
-```json
+JSON
+
+```
 {
   "apiKey": "***",
   "workspace": "hermes",
@@ -274,104 +261,109 @@ Multiple Hermes profiles can share one workspace while maintaining separate AI i
 }
 ```
 
-Both profiles see the same user (`yourname`) in the same shared environment (`hermes`), but each AI peer builds its own observations, conclusions, and behavior patterns. The coder's memory stays code-oriented; the main agent's stays broad.
+两个 Profile 在同一个共享环境（`hermes`）中看到相同的用户（`yourname`），但每个 AI Peer 都会构建各自的观察结果、结论和行为模式。Coder 的记忆保持以代码为导向；主 Agent 的记忆则保持通用广泛。
 
-Host key is derived from the active Hermes profile: `hermes` (default) or `hermes_<profile>` (e.g. `hermes -p coder` -> host key `hermes_coder`). Older `hermes.<profile>` host blocks are still read for compatibility and are migrated when the CLI writes profile-scoped Honcho config.
+主机键继承自激活的 Hermes Profile：`hermes`（默认）或 `hermes_<profile>`（例如 `hermes -p coder` -> 主机键为 `hermes_coder`）。为了兼容性，旧版的 `hermes.<profile>` 主机块仍可读取，并在 CLI 写入 Profile 作用域的 Honcho 配置时进行迁移。
 
-### Dialectic & Reasoning
+### 辩证与推理
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `dialecticDepth` | int | `1` | Passes per dialectic cycle (1–3, clamped). 1=single query, 2=audit+synthesis, 3=audit+synthesis+reconciliation |
-| `dialecticDepthLevels` | array | — | Optional array of reasoning level strings per pass. Overrides proportional defaults. Example: `["minimal", "low", "medium"]` |
-| `dialecticReasoningLevel` | string | `"low"` | Base reasoning level for `.chat()`: `"minimal"`, `"low"`, `"medium"`, `"high"`, `"max"` |
-| `dialecticDynamic` | bool | `true` | When `true`, model can override reasoning level per-call via `honcho_reasoning` tool. When `false`, always uses `dialecticReasoningLevel` |
-| `dialecticMaxChars` | int | `600` | Max chars of the auto-injected dialectic supplement. Applies only to auto-injection — explicit `honcho_reasoning` tool results return in full |
-| `dialecticMaxInputChars` | int | `10000` | Max chars for dialectic query input to `.chat()`. Honcho cloud limit: 10k |
-| `reasoningHeuristic` | bool | `true` | Query-adaptive: auto-scale the auto-injected dialectic's level up by query length (+1 at ≥120 chars, +2 at ≥400), clamped at `reasoningLevelCap`. `false` pins every auto call to `dialecticReasoningLevel` |
-| `reasoningLevelCap` | string | `"high"` | Ceiling for `reasoningHeuristic` scaling: `"minimal"`, `"low"`, `"medium"`, `"high"`, `"max"` |
+| **键名**                  | **类型** | **默认值** | **描述**                                                     |
+| ------------------------- | -------- | ---------- | ------------------------------------------------------------ |
+| `dialecticDepth`          | int      | `1`        | 每个辩证周期发生的轮数（1–3，超限将被限制）。1=单次查询，2=审查+综合，3=审查+综合+调和 |
+| `dialecticDepthLevels`    | array    | —          | 每一轮可配置的推理级别字符串数组（可选）。重写等比例默认值。示例：`["minimal", "low", "medium"]` |
+| `dialecticReasoningLevel` | string   | `"low"`    | `.chat()` 的基础推理级别：`"minimal"`、`"low"`、`"medium"`、`"high"`、`"max"` |
+| `dialecticDynamic`        | bool     | `true`     | 设置为 `true` 时，模型可以通过 `honcho_reasoning` 工具按需覆盖每次调用的推理级别。设置为 `false` 时，始终使用 `dialecticReasoningLevel` |
+| `dialecticMaxChars`       | int      | `600`      | 自动注入辩证补充的最大字符数。仅适用于自动注入 — 显式调用的 `honcho_reasoning` 工具结果将完整返回 |
+| `dialecticMaxInputChars`  | int      | `10000`    | 传给 `.chat()` 的辩证查询输入最大字符数。Honcho 云端限制：10k |
+| `reasoningHeuristic`      | bool     | `true`     | 查询自适应：根据查询长度自动上调自动注入辩证的级别（≥120 字符 +1，≥400 字符 +2），上限为 `reasoningLevelCap`。设置为 `false` 将每次自动调用固定为 `dialecticReasoningLevel` |
+| `reasoningLevelCap`       | string   | `"high"`   | `reasoningHeuristic` 动态调整的上限：`"minimal"`、`"low"`、`"medium"`、`"high"`、`"max"` |
 
-### Token Budgets
+### Token 预算
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `contextTokens` | int | SDK default | Token budget for `context()` API calls. Also gates prefetch truncation (tokens × 4 chars) |
-| `messageMaxChars` | int | `25000` | Max chars per message sent via `add_messages()`. Exceeding this triggers chunking with `[continued]` markers. Honcho cloud limit: 25k |
+| **键名**          | **类型** | **默认值** | **描述**                                                     |
+| ----------------- | -------- | ---------- | ------------------------------------------------------------ |
+| `contextTokens`   | int      | SDK 默认值 | `context()` API 调用的 Token 预算。同时也限制预取截断的上限（tokens × 4 字符） |
+| `messageMaxChars` | int      | `25000`    | 通过 `add_messages()` 发送的单条消息最大字符数。超出此限制将触发带有 `[continued]` 标记的分块。Honcho 云端限制：25k |
 
-### Cadence (Cost Control)
+### 节奏控制（成本控制）
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `contextCadence` | int | `1` | Minimum turns between base context refreshes (session summary + representation + card) |
-| `dialecticCadence` | int | `1` | Minimum turns between dialectic `.chat()` firings |
-| `injectionFrequency` | string | `"every-turn"` | `"every-turn"` or `"first-turn"` (inject base context on the first user message only; the dialectic supplement keeps its own cadence) |
-| `queryRewrite` | bool | `false` | Rewrite the latest message into a retrieval query before dialectic (one extra auxiliary LLM call per cycle) |
-| `firstTurnBaseWait` | float | `3.0` | Max seconds turn 1 waits for base context / session init. `0` disables the wait (fully async; context surfaces on later turns). Turns 2+ never wait on a stalled init |
-| `firstTurnDialecticWait` | float | `2.0` | Max seconds turn 1 waits for a dialectic result. `0` disables |
+| **键名**                 | **类型** | **默认值**     | **描述**                                                     |
+| ------------------------ | -------- | -------------- | ------------------------------------------------------------ |
+| `contextCadence`         | int      | `1`            | 基础上下文刷新的最小间隔轮数（会话摘要 + 画像 + 卡片）       |
+| `dialecticCadence`       | int      | `1`            | 辩证 `.chat()` 触发的最小间隔轮数                            |
+| `injectionFrequency`     | string   | `"every-turn"` | `"every-turn"`（每轮）或 `"first-turn"`（仅在首条用户消息注入基础上下文；辩证补充保持自身的节奏） |
+| `queryRewrite`           | bool     | `false`        | 在辩证前将最新消息重写为检索查询（每个周期增加一次辅助 LLM 调用） |
+| `firstTurnBaseWait`      | float    | `3.0`          | 第 1 轮等待基础上下文/会话初始化的最大秒数。`0` 表示禁用等待（完全异步；上下文将在后续轮次展现）。第 2 轮及以后绝不等待卡住的初始化 |
+| `firstTurnDialecticWait` | float    | `2.0`          | 第 1 轮等待辩证结果的最大秒数。`0` 表示禁用                  |
 
-### Observation (Granular)
+### 观察模式（精细化）
 
-Maps 1:1 to Honcho's per-peer `SessionPeerConfig`. When present, overrides `observationMode` preset.
+1:1 映射到 Honcho 的单 Peer 配置 `SessionPeerConfig`。存在时将覆盖 `observationMode` 预设。
 
-```json
+JSON
+
+```
 "observation": {
   "user": { "observeMe": true, "observeOthers": true },
   "ai":   { "observeMe": true, "observeOthers": true }
 }
 ```
 
-| Field | Default | Description |
-|-------|---------|-------------|
-| `user.observeMe` | `true` | User peer self-observation (Honcho builds user representation) |
-| `user.observeOthers` | `true` | User peer observes AI messages |
-| `ai.observeMe` | `true` | AI peer self-observation (Honcho builds AI representation) |
-| `ai.observeOthers` | `true` | AI peer observes user messages (enables cross-peer dialectic) |
+| **字段**             | **默认值** | **描述**                                  |
+| -------------------- | ---------- | ----------------------------------------- |
+| `user.observeMe`     | `true`     | 用户 Peer 自我观察（Honcho 构建用户画像） |
+| `user.observeOthers` | `true`     | 用户 Peer 观察 AI 消息                    |
+| `ai.observeMe`       | `true`     | AI Peer 自我观察（Honcho 构建 AI 画像）   |
+| `ai.observeOthers`   | `true`     | AI Peer 观察用户消息（启用跨 Peer 辩证）  |
 
-Presets:
-- `"directional"` (default): all four `true`
-- `"unified"`: user `observeMe=true`, AI `observeOthers=true`, rest `false`
+预设值：
 
-### Hardcoded Limits
+- `"directional"`（默认）：上述 4 项均为 `true`
+- `"unified"`：用户 `observeMe=true`，AI `observeOthers=true`，其余为 `false`
 
-| Limit | Value |
-|-------|-------|
-| Search tool max tokens | 2000 (hard cap), 800 (default) |
-| Peer card fetch tokens | 200 |
+### 硬编码限制
 
-## Environment Variables
+| **限制项**           | **数值**                      |
+| -------------------- | ----------------------------- |
+| 搜索工具最大 tokens  | 2000（硬上限），800（默认值） |
+| Peer 卡片获取 tokens | 200                           |
 
-| Variable | Fallback for |
-|----------|-------------|
-| `HONCHO_API_KEY` | `apiKey` |
-| `HONCHO_BASE_URL` | `baseUrl` |
-| `HONCHO_ENVIRONMENT` | `environment` |
-| `HERMES_HONCHO_HOST` | Host key override |
-| `HONCHO_OAUTH_DASHBOARD` | OAuth authorize origin (default: cloud dashboard; local-dev `localhost:3000`) |
-| `HONCHO_OAUTH_AUTHORIZE_URL` | Full authorize URL (overrides the dashboard origin) |
-| `HONCHO_OAUTH_TOKEN_URL` | Token endpoint (default: cloud API; local-dev `localhost:8000`) |
-| `HONCHO_OAUTH_DEVICE_AUTH_URL` | Device-authorization endpoint (default: derived from the token URL) |
-| `HONCHO_OAUTH_CLIENT_ID` | OAuth client (default `hermes-agent`) |
-| `HONCHO_OAUTH_SCOPE` | Requested scope (default `write`) |
+## 环境变量
 
-## CLI Commands
+| **环境变量**                   | **回退/对应的配置项**                                        |
+| ------------------------------ | ------------------------------------------------------------ |
+| `HONCHO_API_KEY`               | `apiKey`                                                     |
+| `HONCHO_BASE_URL`              | `baseUrl`                                                    |
+| `HONCHO_ENVIRONMENT`           | `environment`                                                |
+| `HERMES_HONCHO_HOST`           | 主机键（Host key）重写                                       |
+| `HONCHO_OAUTH_DASHBOARD`       | OAuth 授权 Source 域（默认：云端 Dashboard；本地开发为 `localhost:3000`） |
+| `HONCHO_OAUTH_AUTHORIZE_URL`   | 完整授权 URL（覆盖 Dashboard 域名）                          |
+| `HONCHO_OAUTH_TOKEN_URL`       | Token 端点（默认：云端 API；本地开发为 `localhost:8000`）    |
+| `HONCHO_OAUTH_DEVICE_AUTH_URL` | 设备授权端点（默认：由 Token URL 派生）                      |
+| `HONCHO_OAUTH_CLIENT_ID`       | OAuth 客户端 ID（默认为 `hermes-agent`）                     |
+| `HONCHO_OAUTH_SCOPE`           | 请求的作用域 Scope（默认为 `write`）                         |
 
-| Command | Description |
-|---------|-------------|
-| `hermes memory setup honcho` | Configure Honcho directly — works on a fresh install |
-| `hermes honcho setup` | Interactive setup wizard (only registered once Honcho is the active provider; redirects to `hermes memory setup`) |
-| `hermes honcho status` | Show resolved config for active profile |
-| `hermes honcho enable` / `disable` | Toggle Honcho for active profile |
-| `hermes honcho mode <mode>` | Change recall or observation mode |
-| `hermes honcho peer --user <name>` | Update user peer name |
-| `hermes honcho peer --ai <name>` | Update AI peer name |
-| `hermes honcho tokens --context <N>` | Set context token budget |
-| `hermes honcho tokens --dialectic <N>` | Set dialectic max chars |
-| `hermes honcho map <name>` | Map current directory to a session name |
-| `hermes honcho sync` | Create host blocks for all Hermes profiles |
+## CLI 命令
 
-## Example Config
+| **命令**                               | **描述**                                                     |
+| -------------------------------------- | ------------------------------------------------------------ |
+| `hermes memory setup honcho`           | 直接配置 Honcho — 适用于全新安装                             |
+| `hermes honcho setup`                  | 交互式设置向导（仅在 Honcho 作为激活提供程序时注册；重定向至 `hermes memory setup`） |
+| `hermes honcho status`                 | 显示当前激活 Profile 的已解析配置                            |
+| `hermes honcho enable` / `disable`     | 切换激活 Profile 的 Honcho 开关状态                          |
+| `hermes honcho mode <mode>`            | 更改召回（recall）或观察（observation）模式                  |
+| `hermes honcho peer --user <name>`     | 更新用户 Peer 名称                                           |
+| `hermes honcho peer --ai <name>`       | 更新 AI Peer 名称                                            |
+| `hermes honcho tokens --context <N>`   | 设置上下文 Token 预算                                        |
+| `hermes honcho tokens --dialectic <N>` | 设置辩证最大字符数                                           |
+| `hermes honcho map <name>`             | 将当前目录映射至某个会话名称                                 |
+| `hermes honcho sync`                   | 为所有 Hermes Profile 创建主机块                             |
 
-```json
+## 配置示例
+
+JSON
+
+```
 {
   "apiKey": "***",
   "workspace": "hermes",

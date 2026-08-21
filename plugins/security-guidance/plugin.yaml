@@ -1,7 +1,14 @@
 name: security-guidance
 version: "0.1.0"
-description: "Append security warnings to file-write tool results when the new content contains known-dangerous patterns (pickle.load, yaml.load, eval(, os.system, dangerouslySetInnerHTML, verify=False, ECB, XXE, GitHub Actions injection, ...). 25 regex/substring rules forked from Anthropic's claude-plugins-official under Apache-2.0. Non-blocking — the file is written and the warning rides back to the model in the next turn so it can self-correct."
-author: "Anthropic (patterns, Apache-2.0) / NousResearch (Hermes plugin port)"
+description: >
+  当新写入的内容包含已知危险模式
+  （如 pickle.load、yaml.load、eval(、os.system、dangerouslySetInnerHTML、verify=False、ECB、XXE、GitHub Actions 注入等）时，
+  向文件写入工具的返回结果中追加安全警告。
+
+  基于 Apache-2.0 协议 Fork 自 Anthropic 的 claude-plugins-official，包含 25 条正则表达式/子字符串规则。
+
+  非阻塞机制 — 文件将被正常写入，警告信息将在下一轮对话中返回给模型，以便其能够进行自我纠正。
+author: "Anthropic（安全模式，Apache-2.0） / NousResearch（Hermes 插件移植）"
 hooks:
   - transform_tool_result
   - pre_tool_call

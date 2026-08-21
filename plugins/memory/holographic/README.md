@@ -1,36 +1,38 @@
-# Holographic Memory Provider
+```markdown
+# 全息记忆提供程序（Holographic Memory Provider）
 
-Local SQLite fact store with FTS5 search, trust scoring, entity resolution, and HRR-based compositional retrieval.
+基于本地 SQLite 的事实存储，具备 FTS5 全文搜索、信任度评分、实体解析以及基于 HRR（全息简化表示）的组合检索功能。
 
-## Requirements
+## 环境要求
 
-None — uses SQLite (always available). NumPy optional for HRR algebra.
+无 —— 使用 SQLite（始终可用）。NumPy 为可选依赖，用于 HRR 代数运算。
 
-## Setup
+## 安装与设置
 
 ```bash
-hermes memory setup    # select "holographic"
+hermes memory setup    # 选择 "holographic"
+或手动配置：
+
+Bash
+
 ```
-
-Or manually:
-```bash
 hermes config set memory.provider holographic
 ```
 
-## Config
+## 配置说明
 
-Config in `config.yaml` under `plugins.hermes-memory-store`:
+在 `config.yaml` 中的 `plugins.hermes-memory-store` 项下进行配置：
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `db_path` | `$HERMES_HOME/memory_store.db` | SQLite database path |
-| `auto_extract` | `false` | Auto-extract facts at session end |
-| `default_trust` | `0.5` | Default trust score for new facts |
-| `hrr_dim` | `1024` | HRR vector dimensions |
+| **配置项**      | **默认值**                     | **描述**                 |
+| --------------- | ------------------------------ | ------------------------ |
+| `db_path`       | `$HERMES_HOME/memory_store.db` | SQLite 数据库路径        |
+| `auto_extract`  | `false`                        | 在会话结束时自动提取事实 |
+| `default_trust` | `0.5`                          | 新事实的默认信任度评分   |
+| `hrr_dim`       | `1024`                         | HRR 向量维度             |
 
-## Tools
+## 工具列表
 
-| Tool | Description |
-|------|-------------|
-| `fact_store` | 9 actions: add, search, probe, related, reason, contradict, update, remove, list |
-| `fact_feedback` | Rate facts as helpful/unhelpful (trains trust scores) |
+| **工具**        | **描述**                                                     |
+| --------------- | ------------------------------------------------------------ |
+| `fact_store`    | 包含 9 种操作：add（添加）、search（搜索）、probe（探测）、related（相关）、reason（推理）、contradict（矛盾检查）、update（更新）、remove（删除）、list（列表） |
+| `fact_feedback` | 将事实评价为“有帮助/无帮助”（用于训练和更新信任度评分）      |

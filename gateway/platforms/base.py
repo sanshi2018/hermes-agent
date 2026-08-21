@@ -2889,31 +2889,29 @@ def _strip_media_directives(text: str) -> str:
 
 class BasePlatformAdapter(ABC):
     """
-    Base class for platform adapters.
-    
-    Subclasses implement platform-specific logic for:
-    - Connecting and authenticating
-    - Receiving messages
-    - Sending messages/responses
-    - Handling media
+    平台适配器的基类。
+
+    子类需实现针对特定平台的逻辑，包括：
+    - 连接与身份验证
+    - 接收消息
+    - 发送消息/响应
+    - 处理媒体内容
     """
 
-    # Whether this platform renders triple-backtick fenced code blocks (i.e.
-    # ``format_message`` translates/preserves markdown fences into a real code
-    # block).  Capability flag for markdown-aware presentation choices.
-    # Default False (plain-text platforms); markdown-rendering adapters set True.
-    # Tool-progress uses this to render a terminal command as a bare fenced code
-    # block (no language tag — Slack mrkdwn would print the tag as a literal
-    # first code line).  Plain-text platforms fall back to the short truncated
-    # preview (see gateway/run.py progress_callback).
+    # 该平台是否能渲染三反引号的代码块（即
+    # ``format_message`` 是否能将 Markdown 围栏转换/保留为真正的代码块）。
+    # 用于控制 Markdown 展现形式的能力标志。
+    # 默认为 False（纯文本平台）；支持 Markdown 渲染的适配器应设置为 True。
+    # 工具进度更新会利用此选项，将终端命令渲染为不含语言标签的纯代码块
+    # （不带语言标签 —— 因为 Slack mrkdwn 会把标签作为代码的第一行字面量打印出来）。
+    # 纯文本平台则会退回到简短的截断预览（参见 gateway/run.py 中的 progress_callback）。
     supports_code_blocks: bool = False
 
-    # Whether this adapter's typing indicator renders TEXT (a status line
-    # next to the bot name) rather than a native textless bubble. When True,
-    # the gateway feeds live per-tool status phrases via set_status_text()
-    # ("is running pytest…") and send_typing() renders them. Textless
-    # platforms (Telegram, Discord, Matrix, …) keep the default False and
-    # never see these calls.
+    # 该适配器的“正在输入”指示器是否会渲染文本（即在机器人名称旁显示一行状态文本），
+    # 而非原生的无文本气泡。当为 True 时，
+    # 网关会通过 set_status_text() 传入每个工具的实时状态短语（例如“正在运行 pytest…”），
+    # 并由 send_typing() 负责渲染。无文本平台（如 Telegram、Discord、Matrix 等）
+    # 保持默认值 False，不会收到此类调用。
     supports_status_text: bool = False
 
     def set_status_text(self, chat_id: str, text: Optional[str]) -> None:
@@ -2934,80 +2932,60 @@ class BasePlatformAdapter(ABC):
         else:
             store.pop(str(chat_id), None)
 
-    # Whether this adapter can deliver an ASYNC notification back to the agent
-    # AFTER a turn ends — i.e. wake a fresh turn to surface a background
-    # process completion (terminal notify_on_complete / watch_patterns) or a
-    # detached subagent result (delegate_task background=True).
+    # 该适配器是否可以在一轮对话（turn）结束后，向 Agent 异步推送通知
+    # ——即唤醒新的一轮对话以呈递后台进程的完成状态（如终端 notify_on_complete / watch_patterns）
+    # 或后台子 Agent 的执行结果（delegate_task background=True）。
     #
-    # True for adapters that hold a persistent outbound channel (Telegram,
-    # Discord, Slack, ... — they have a real ``send()`` and the gateway runs
-    # the watcher/drain loops). False for stateless request/response adapters
-    # (the API server): every route closes its channel when the turn ends, so
-    # there is nowhere to push a later completion. The gateway propagates this
-    # into the ``HERMES_SESSION_ASYNC_DELIVERY`` contextvar at session-bind
-    # time; tools read it via ``async_delivery_supported()`` and refuse to make
-    # a delivery promise they can't keep. A new stateless adapter only needs to
-    # set this to False to stay correct-by-default.
+    # 对于持有持久出站通道的适配器（Telegram、Discord、Slack 等 —— 它们有真正的 ``send()``，
+    # 且网关会运行监听/刷新循环），此项为 True。
+    # 对于无状态的请求/响应式适配器（如 API 服务器）则为 False：每个路由在对话轮次结束时都会关闭通道，
+    # 因此无法在后续推送完成通知。网关会在会话绑定时将其传递给 ``HERMES_SESSION_ASYNC_DELIVERY``
+    # 上下文变量；工具通过 ``async_delivery_supported()`` 读取该值，并拒绝做出无法保证履行的推送承诺。
+    # 新增的无状态适配器只需将其设为 False 即可保持默认的正确行为。
     supports_async_delivery: bool = True
 
-    # Whether this adapter's ``send()`` splits long content into multiple
-    # messages via ``truncate_message()``.  When True, the delivery router
-    # (gateway/delivery.py) skips gateway-level truncation and lets the
-    # adapter chunk natively — preserving full output on platforms that
-    # support multi-message delivery (Discord, Telegram, …).  Default False
-    # (conservative); adapters verified to chunk in ``send()`` set True.
+    # 该适配器的 ``send()`` 方法是否会通过 ``truncate_message()`` 将长内容拆分为多条消息。
+    # 当设为 True 时，消息分发路由（gateway/delivery.py）将跳过网关层面的截断，
+    # 交由适配器原生拆分分块 —— 在支持多消息分发的平台（如 Discord、Telegram 等）上可保留完整输出。
+    # 默认为 False（保守策略）；经验证已在 ``send()`` 中实现分块功能的适配器应设为 True。
     splits_long_messages: bool = False
 
-    # The command prefix users can always TYPE on this platform to reach
-    # Hermes commands.  Default "/" (most platforms deliver "/approve" etc.
-    # as plain message text).  Platforms where typing a leading "/" is
-    # intercepted or restricted by the client (Slack blocks native slash
-    # commands inside threads; Matrix clients reserve "/" for client-local
-    # commands) ship a "!" alias rewrite in their adapter and set this to
-    # "!" so user-facing instruction text ("Reply `!approve` ...") tells
-    # users the form that actually works everywhere.  Capability flag —
-    # shared prompt builders read it via getattr(adapter,
-    # "typed_command_prefix", "/"); no per-platform branching at call sites.
+    # 用户在此平台上为了触发 Hermes 命令而可始终输入的命令前缀。
+    # 默认为 "/"（大多数平台会将 "/approve" 等作为纯文本消息传递）。
+    # 在某些平台上，客户端会拦截或限制以 "/" 开头的输入（例如 Slack 会阻止在子回复/Thread 中使用原生斜杠命令；
+    # Matrix 客户端则将 "/" 保留为客户端本地命令），这些平台的适配器会在其内部提供 "!" 别名重写，
+    # 并将此项设为 "!"，以便面向用户的提示文本（如“回复 `!approve` ...”）能够告知用户在各处都切实可行的命令格式。
+    # 这是一个能力标志 —— 共享的 Prompt 构建器会通过 getattr(adapter, "typed_command_prefix", "/") 读取它；
+    # 在调用处无需编写针对具体平台的条件分支。
     typed_command_prefix: str = "/"
 
-    # Whether this adapter supports the ``in_channel`` continuable-cron surface
-    # (``platforms.<p>.extra.cron_continuable_surface: in_channel``): a
-    # continuable cron job delivered FLAT into a channel (no dedicated thread),
-    # with the user's plain channel reply continuing the job in-context via the
-    # shared-channel session.  Only coherent on a platform that has BOTH a
-    # flat-reply outbound gate AND a whole-channel inbound session bucket keyed
-    # ``(platform, chat_id, None)`` — today that is Slack (``reply_in_thread:
-    # false``).  Default False: an unsupported platform fails SAFE, treating
-    # ``in_channel`` as ``thread`` (a threaded continuation ≈ today's
-    # behaviour), never a dropped continuation.  Read generically by the cron
-    # scheduler via ``getattr(adapter, "supports_inchannel_continuable",
-    # False)`` — no per-platform branching at the call site (the key stays a
-    # generic seam; Slack is merely the first consumer).
+    # 该适配器是否支持 ``in_channel`` 可延续定时任务（continuable-cron）交互界面
+    # （``platforms.<p>.extra.cron_continuable_surface: in_channel``）：
+    # 即直接平铺（FLAT）发送到频道中（无需单独创建 Thread/子回复）的可延续定时任务，
+    # 用户直接在频道中回复，即可通过共享频道会话在当前上下文继续执行该任务。
+    # 此功能仅适用于同时具备“平铺回复出站网关”和以 ``(platform, chat_id, None)`` 为键的“全频道入站会话桶”的平台
+    # —— 目前仅 Slack（``reply_in_thread: false``）符合要求。
+    # 默认为 False：不支持的平台会采取安全退避策略（fail SAFE），将 ``in_channel`` 当作 ``thread``
+    # （即线程/子回复式的延续，等同于目前的默认行为），绝对不会丢弃任务延续。
+    # 定时任务调度器会通过 ``getattr(adapter, "supports_inchannel_continuable", False)`` 通用读取此属性
+    # —— 在调用处无需编写针对具体平台的条件分支（该配置项保留为通用衔接接口；Slack 仅是首个使用者）。
     supports_inchannel_continuable: bool = False
 
-    # Whether a human is interactively present on this platform to answer a
-    # "session restored — what next?" prompt.  The startup auto-resume turn
-    # (``_schedule_resume_pending_sessions`` → the ``_is_resume_pending``
-    # branch in ``_handle_message_with_agent``) reads this to pick its
-    # guidance: interactive platforms (Telegram, Slack, Discord DMs, …) get
-    # "report the restore and ask what the user wants next"; non-interactive
-    # event platforms (webhook) get "finish the interrupted work" because
-    # nobody is there to answer, and an acknowledgement would silently
-    # abandon the task (#57056).  Read generically via ``getattr(adapter,
-    # "interactive_resume", True)`` — no per-platform branching at the call
-    # site.
+    # 该平台上是否有真人进行交互，以回答“会话已恢复 —— 接下来做什么？”的提示。
+    # 启动时的自动恢复轮次（``_schedule_resume_pending_sessions`` → ``_handle_message_with_agent`` 中的 ``_is_resume_pending`` 分支）
+    # 会读取此值来选择其引导策略：
+    # 交互式平台（Telegram、Slack、Discord 私信等）会“报告恢复情况并询问用户下一步的需求”；
+    # 非交互式事件平台（如 Webhook）则会选择“直接完成先前中断的工作”，因为没有人在终端回答，
+    # 且单纯发送确认提示会导致任务被无声抛弃（#57056）。
+    # 通用读取方式为 ``getattr(adapter, "interactive_resume", True)`` —— 调用处无需针对特定平台进行分支判断。
     interactive_resume: bool = True
 
-    # Back-reference to the running ``GatewayRunner``, injected by
-    # ``gateway/run.py`` after the adapter is created. Adapters consume it via
-    # ``getattr(self, "gateway_runner", None)`` for cross-platform delivery and
-    # — critically — for inbound profile routing: ``build_source`` resolves the
-    # target profile through ``runner._profile_name_for_source(...)``. Declaring
-    # it on the base (rather than only on adapters that happen to pre-declare
-    # it) means EVERY platform adapter receives the injection, so profile
-    # routing is platform-generic instead of Discord-only.
-    gateway_runner = None  # type: ignore[assignment]  # set by gateway/run.py
-
+    # 对运行中的 ``GatewayRunner`` 的反向引用，由 ``gateway/run.py`` 在适配器创建后注入。
+    # 适配器通过 ``getattr(self, "gateway_runner", None)`` 来使用它进行跨平台消息推送，
+    # 并且——至关重要的是——用于入站配置集（Profile）路由：``build_source`` 通过 ``runner._profile_name_for_source(...)`` 来解析目标配置集。
+    # 在基类中声明此属性（而不是仅在恰好预先声明了它的适配器上声明），意味着所有平台适配器都会接收到此注入，
+    # 从而使配置集路由成为通用平台特性，而非仅限 Discord 使用。
+    gateway_runner = None  # type: ignore[assignment]  # 由 gateway/run.py 设置
     def __init__(self, config: PlatformConfig, platform: Platform):
         self.config = config
         self.platform = platform

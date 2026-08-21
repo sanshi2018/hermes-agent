@@ -1,54 +1,54 @@
+```yaml
 name: irc-platform
 label: IRC
 kind: platform
 version: 1.0.0
 description: >
-  IRC gateway adapter for Hermes Agent.
-  Connects to an IRC server and relays messages between an IRC channel
-  (or DMs) and the Hermes agent.  No external dependencies — uses
-  Python's stdlib asyncio for the IRC protocol.
+  Hermes Agent 的 IRC 网关适配器。
+  连接到 IRC 服务器，并在 IRC 频道（或私信）与 Hermes 代理之间中继消息。
+  无外部依赖 —— 使用 Python 标准库中的 asyncio 来实现 IRC 协议。
 author: Nous Research
-# ``requires_env`` entries are surfaced in ``hermes config`` UI via the
-# platform-plugin env var injector in ``hermes_cli/config.py``.
+# ``requires_env`` 条目通过 ``hermes_cli/config.py`` 中的
+# 平台插件环境变量注入器，显示在 ``hermes config`` UI（用户界面）中。
 requires_env:
   - name: IRC_SERVER
-    description: "IRC server hostname (e.g. irc.libera.chat)"
-    prompt: "IRC server"
+    description: "IRC 服务器主机名（例如：irc.libera.chat）"
+    prompt: "IRC 服务器"
     password: false
   - name: IRC_CHANNEL
-    description: "Channel to join (e.g. #hermes — comma-separate for multiple)"
-    prompt: "IRC channel"
+    description: "要加入的频道（例如：#hermes —— 多个频道用逗号分隔）"
+    prompt: "IRC 频道"
     password: false
   - name: IRC_NICKNAME
-    description: "Bot nickname on IRC (default: hermes-bot)"
-    prompt: "Bot nickname"
+    description: "IRC 上的机器人昵称（默认值：hermes-bot）"
+    prompt: "机器人昵称"
     password: false
 optional_env:
   - name: IRC_PORT
-    description: "IRC server port (default: 6697 with TLS, 6667 without)"
-    prompt: "IRC port"
+    description: "IRC 服务器端口（默认值：启用 TLS 时为 6697，未启用时为 6667）"
+    prompt: "IRC 端口"
     password: false
   - name: IRC_USE_TLS
-    description: "Use TLS for the IRC connection (1/true/yes to enable, default: true on port 6697)"
-    prompt: "Use TLS? (true/false)"
+    description: "IRC 连接是否使用 TLS（填入 1/true/yes 启用，默认值：在 6697 端口上为 true）"
+    prompt: "是否使用 TLS？(true/false)"
     password: false
   - name: IRC_SERVER_PASSWORD
-    description: "Server password for the IRC PASS command (optional)"
-    prompt: "Server password (optional)"
+    description: "用于 IRC PASS 命令的服务器密码（可选）"
+    prompt: "服务器密码（可选）"
     password: true
   - name: IRC_NICKSERV_PASSWORD
-    description: "NickServ password for automatic IDENTIFY on connect (optional)"
-    prompt: "NickServ password (optional)"
+    description: "连接时自动执行 IDENTIFY 的 NickServ 密码（可选）"
+    prompt: "NickServ 密码（可选）"
     password: true
   - name: IRC_ALLOWED_USERS
-    description: "Comma-separated IRC nicks allowed to talk to the bot"
-    prompt: "Allowed nicks (comma-separated)"
+    description: "允许与机器人对话的 IRC 昵称，多个昵称用逗号分隔"
+    prompt: "允许的昵称（逗号分隔）"
     password: false
   - name: IRC_ALLOW_ALL_USERS
-    description: "Allow anyone in the channel to talk to the bot (dev only)"
-    prompt: "Allow all users? (true/false)"
+    description: "允许频道中的任何人与机器人对话（仅限开发使用）"
+    prompt: "允许所有用户？(true/false)"
     password: false
   - name: IRC_HOME_CHANNEL
-    description: "Channel for cron / notification delivery (defaults to IRC_CHANNEL)"
-    prompt: "Home channel (or empty)"
+    description: "用于定时任务 / 消息通知投递的频道（默认与 IRC_CHANNEL 相同）"
+    prompt: "主频道（或留空）"
     password: false

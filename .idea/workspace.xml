@@ -6,8 +6,19 @@
   <component name="ChangeListManager">
     <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="插件系统 加载过程1">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/gateway/platforms/base.py" beforeDir="false" afterPath="$PROJECT_DIR$/gateway/platforms/base.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hermes_cli/plugins.py" beforeDir="false" afterPath="$PROJECT_DIR$/hermes_cli/plugins.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hermes_constants.py" beforeDir="false" afterPath="$PROJECT_DIR$/hermes_constants.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/memory/holographic/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/memory/holographic/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/memory/holographic/plugin.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/memory/holographic/plugin.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/memory/honcho/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/memory/honcho/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/memory/honcho/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/memory/honcho/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/memory/honcho/plugin.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/memory/honcho/plugin.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/memory/mem0/plugin.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/memory/mem0/plugin.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/platforms/irc/adapter.py" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/platforms/irc/adapter.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/platforms/irc/plugin.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/platforms/irc/plugin.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/security-guidance/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/security-guidance/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/security-guidance/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/security-guidance/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/security-guidance/plugin.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/security-guidance/plugin.yaml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -52,23 +63,23 @@
 }</component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.5481068186734386" />
-      <entry key="MS500" value="2.8093648090269268" />
-      <entry key="S2" value="4.267907512589577" />
-      <entry key="S5" value="5.568360968108573" />
-      <entry key="S10" value="6.487692666176026" />
-      <entry key="S30" value="7.404963216747433" />
-      <entry key="S60" value="7.689019196610422" />
-      <entry key="M2" value="7.840961162928126" />
-      <entry key="M5" value="7.935508210284144" />
-      <entry key="M10" value="7.96760595662539" />
-      <entry key="M15" value="7.978370891237532" />
-      <entry key="M30" value="7.98916886601775" />
-      <entry key="H1" value="7.9945812596918495" />
-      <entry key="H2" value="8.001369179558349" />
-      <entry key="H4" value="8.27961026973024" />
-      <entry key="D1" value="40.92648584010076" />
-      <entry key="W1" value="239.80626398200658" />
+      <entry key="MS100" value="1.2207530108788944" />
+      <entry key="MS500" value="2.902958338828594" />
+      <entry key="S2" value="4.87186570184163" />
+      <entry key="S5" value="6.3556167951062" />
+      <entry key="S10" value="7.362551717552645" />
+      <entry key="S30" value="8.357042382420127" />
+      <entry key="S60" value="8.664099270255669" />
+      <entry key="M2" value="8.828244667795222" />
+      <entry key="M5" value="8.930357770704408" />
+      <entry key="M10" value="8.965019900841053" />
+      <entry key="M15" value="8.976644431320858" />
+      <entry key="M30" value="8.988304420991444" />
+      <entry key="H1" value="8.994148732662053" />
+      <entry key="H2" value="9.001152729493986" />
+      <entry key="H4" value="9.279498280503416" />
+      <entry key="D1" value="41.92639357828353" />
+      <entry key="W1" value="240.80618675299942" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -79,34 +90,34 @@
       <entry key="S30" value="0.0" />
       <entry key="S60" value="0.0" />
       <entry key="M2" value="0.0" />
-      <entry key="M5" value="1.606327914606183E-182" />
-      <entry key="M10" value="1.7920771110999907E-91" />
-      <entry key="M15" value="4.0049470646977094E-61" />
-      <entry key="M30" value="9.058924796328802E-31" />
-      <entry key="H1" value="1.5472548268098131E-15" />
-      <entry key="H2" value="8.066858796669443E-8" />
-      <entry key="H4" value="6.618865924642918E-4" />
-      <entry key="D1" value="1.331588931051946" />
-      <entry key="W1" value="5.419269127052674" />
+      <entry key="M5" value="1.605285348125223E-182" />
+      <entry key="M10" value="1.7914954544010566E-91" />
+      <entry key="M15" value="4.004080424042636E-61" />
+      <entry key="M30" value="9.057944601440546E-31" />
+      <entry key="H1" value="1.5471711164173811E-15" />
+      <entry key="H2" value="8.066640575004306E-8" />
+      <entry key="H4" value="6.618776398487314E-4" />
+      <entry key="D1" value="1.3315859292106673" />
+      <entry key="W1" value="5.419267381790615" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.4886529371086157" />
-      <entry key="MS500" value="2.7876540708528275" />
-      <entry key="S2" value="4.25932191412778" />
-      <entry key="S5" value="5.56362333032472" />
-      <entry key="S10" value="6.484805026944557" />
-      <entry key="S30" value="7.403816592819889" />
-      <entry key="S60" value="7.688416458029173" />
-      <entry key="M2" value="7.840651845276182" />
-      <entry key="M5" value="7.935382494387638" />
-      <entry key="M10" value="7.96754276019306" />
-      <entry key="M15" value="7.9783286845357" />
-      <entry key="M30" value="7.989147724660427" />
-      <entry key="H1" value="7.994570679455845" />
-      <entry key="H2" value="8.001363898640728" />
-      <entry key="H4" value="8.280266948860445" />
-      <entry key="D1" value="42.25798977569303" />
-      <entry key="W1" value="245.225455115268" />
+      <entry key="MS100" value="0.35487062150536136" />
+      <entry key="MS500" value="2.565614787929229" />
+      <entry key="S2" value="4.771281494312378" />
+      <entry key="S5" value="6.31285427542573" />
+      <entry key="S10" value="7.340430801849677" />
+      <entry key="S30" value="8.34943173081939" />
+      <entry key="S60" value="8.660257509177939" />
+      <entry key="M2" value="8.826314048694089" />
+      <entry key="M5" value="8.92958309925885" />
+      <entry key="M10" value="8.964632153675552" />
+      <entry key="M15" value="8.976385841215444" />
+      <entry key="M30" value="8.98817507979941" />
+      <entry key="H1" value="8.994084050473798" />
+      <entry key="H2" value="9.001120397090995" />
+      <entry key="H4" value="9.280141424845853" />
+      <entry key="D1" value="43.25789225789582" />
+      <entry key="W1" value="246.2253758189764" />
     </decayedShown>
   </component>
   <component name="ProblemsViewState">
@@ -249,7 +260,7 @@
       <workItem from="1786947923710" duration="12250000" />
       <workItem from="1787018265901" duration="22421000" />
       <workItem from="1787106417625" duration="26989000" />
-      <workItem from="1787296771548" duration="2692000" />
+      <workItem from="1787296771548" duration="12396000" />
     </task>
     <task id="LOCAL-00001" summary="ai doc">
       <option name="closed" value="true" />
@@ -619,7 +630,15 @@
       <option name="project" value="LOCAL" />
       <updated>1787214499141</updated>
     </task>
-    <option name="localTasksCounter" value="47" />
+    <task id="LOCAL-00047" summary="插件系统 加载过程1">
+      <option name="closed" value="true" />
+      <created>1787299771586</created>
+      <option name="number" value="00047" />
+      <option name="presentableId" value="LOCAL-00047" />
+      <option name="project" value="LOCAL" />
+      <updated>1787299771586</updated>
+    </task>
+    <option name="localTasksCounter" value="48" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

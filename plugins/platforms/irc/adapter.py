@@ -1,11 +1,11 @@
 """
-IRC Platform Adapter for Hermes Agent.
+Hermes Agent 的 IRC 平台适配器。
 
-A plugin-based gateway adapter that connects to an IRC server and relays
-messages to/from the Hermes agent.  Zero external dependencies — uses
-Python's stdlib asyncio for the IRC protocol.
+一个基于插件的网关适配器，用于连接到 IRC 服务器，
+并在 IRC 与 Hermes Agent 之间中继消息。
+零外部依赖 —— 使用 Python 标准库中的 asyncio 来实现 IRC 协议。
 
-Configuration in config.yaml::
+在 config.yaml 中的配置示例：
 
     gateway:
       platforms:
@@ -17,12 +17,12 @@ Configuration in config.yaml::
             nickname: hermes-bot
             channel: "#hermes"
             use_tls: true
-            server_password: ""       # optional server password
-            nickserv_password: ""     # optional NickServ identification
-            allowed_users: []         # empty = allow all, or list of nicks
-            max_message_length: 450   # IRC line limit (safe default)
+            server_password: ""       # 可选的服务器密码
+            nickserv_password: ""     # 可选的 NickServ 认证密码
+            allowed_users: []         # 留空表示允许所有人，或填入允许的昵称列表
+            max_message_length: 450   # IRC 单行长度限制（安全默认值）
 
-Or via environment variables (overrides config.yaml):
+或通过环境变量配置（会覆盖 config.yaml）：
     IRC_SERVER, IRC_PORT, IRC_NICKNAME, IRC_CHANNEL, IRC_USE_TLS,
     IRC_SERVER_PASSWORD, IRC_NICKSERV_PASSWORD
 """
@@ -560,10 +560,10 @@ def validate_config(config) -> bool:
 
 
 def interactive_setup() -> None:
-    """Interactive `hermes gateway setup` flow for the IRC platform.
+    """IRC 平台的交互式 `hermes gateway setup` 流程。
 
-    Lazy-imports ``hermes_cli.setup`` helpers so the plugin stays importable
-    in non-CLI contexts (gateway runtime, tests).
+    延迟导入 ``hermes_cli.setup`` 辅助函数，
+    使该插件在非 CLI 上下文（如网关运行时、测试）中依然保持可导入状态。
     """
     from hermes_cli.setup import (
         prompt,

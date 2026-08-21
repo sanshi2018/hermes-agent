@@ -1,32 +1,28 @@
-"""security-guidance plugin — fast pattern-matched security warnings on file writes.
+"""security-guidance 插件 — 针对文件写入操作提供基于模式匹配的高速安全警告。
 
-Wires one behaviour:
+绑定并实现如下单一行为：
 
-* ``transform_tool_result`` hook — scans the *content being written* by
-  ``write_file`` / ``patch`` / ``skill_manage`` (write/patch modes) for known
-  dangerous code patterns (eval(, pickle.load, yaml.load, os.system,
-  subprocess(shell=True), dangerouslySetInnerHTML, verify=False, ECB,
-  XXE-prone XML parsers, GitHub Actions ``${{ github.event.* }}`` injection,
-  torch.load without ``weights_only=True``, ...). When any pattern matches,
-  the plugin appends a ``⚠️ Security warning`` block to the JSON tool-result
-  string. The file is still written; the model sees the warning in the next
-  turn's tool message and can self-correct.
+* ``transform_tool_result`` 钩子函数 — 扫描由 ``write_file`` / ``patch`` / ``skill_manage``
+  （write/patch模式）*正在写入的内容*，检查是否存在已知的危险代码模式
+  （例如：eval(、pickle.load、yaml.load、os.system、subprocess(shell=True)、
+  dangerouslySetInnerHTML、verify=False、ECB 模式、易受 XXE 攻击的 XML 解析器、
+  GitHub Actions ``${{ github.event.* }}`` 注入、未设置 ``weights_only=True`` 的 torch.load 等）。
+  当匹配到任何已知模式时，插件会在 JSON 格式的工具返回结果字符串末尾追加一个
+  ``⚠️ Security warning``（安全警告）区块。文件依然会被正常写入；
+  模型将在下一轮对话的工具消息中查看到该警告，并能够进行自我纠正。
 
-Why not block? Patterns have a non-trivial false-positive rate (``eval(`` in
-a tokenizer, ``yaml.load`` already wrapped in ``yaml.SafeLoader``, ECB inside
-a test fixture). Blocking would force every false positive into an approval
-prompt or an interrupted workflow. Warning is the right severity for layer
-1 — the agent reads the warning and either fixes the code or briefly
-documents why the construct is safe.
+为什么不直接拦截（阻止写入）？
+模式匹配具有不容忽视的误报率（例如：分词器中的 ``eval(``、已被包装在 ``yaml.SafeLoader``
+中的 ``yaml.load``，或者测试夹具内部使用的 ECB 模式）。
+如果直接拦截，每次误报都会强制触发确认提示或打断工作流。
+对于第 1 层防护机制来说，“警告”是恰当的严重程度 ——
+Agent 在读取警告后，既可以修复代码，也可以简要说明为什么该构造在此处是安全的。
 
-For block-mode (refuse the write entirely), set
-``SECURITY_GUIDANCE_BLOCK=1``. This trades convenience for strictness and
-is intended for shared dev environments where unsafe-by-default patterns
-are policy violations.
+如需启用拦截模式（完全拒绝写入），请设置环境变量 ``SECURITY_GUIDANCE_BLOCK=1``。
+这是牺牲便利性来换取严格性，适用于将“默认不安全模式”视为违反安全策略的共享开发环境。
 
-Pattern data lives in ``patterns.py``, forked verbatim from Anthropic's
-``claude-plugins-official`` under Apache-2.0. See ``LICENSE`` and ``NOTICE``
-in this directory.
+模式数据存储在 ``patterns.py`` 中，基于 Apache-2.0 协议逐字 Fork 自 Anthropic 的
+``claude-plugins-official`` 项目。详见本目录下的 ``LICENSE`` 和 ``NOTICE`` 文件。
 """
 
 from __future__ import annotations
@@ -230,13 +226,13 @@ def _on_transform_tool_result(
     result: Any = None,
     **_: Any,
 ) -> Optional[str]:
-    """Warn-mode hook: append a security-warning block to the tool result.
+    """警告模式钩子：向工具执行结果追加安全警告区块。
 
-    Returning a string replaces the result that the model sees in the next
-    turn. Returning None leaves the result unchanged.
+    返回字符串将替换模型在下一轮对话中看到的结果。
+    返回 None 则保持结果不变。
     """
-    # Block mode handles findings via pre_tool_call; nothing for this hook
-    # to do in that case (the tool didn't run, so there's no result to wrap).
+    # 拦截模式会通过 pre_tool_call 处理发现的问题；
+    # 在那种情况下，该钩子无需执行任何操作（工具尚未运行，因此没有可供包装的结果）。
     if _block_mode_enabled():
         return None
     findings = _scan_args(tool_name, args)

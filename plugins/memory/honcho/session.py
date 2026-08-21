@@ -985,22 +985,22 @@ class HonchoSessionManager:
 
     def get_prefetch_context(self, session_key: str, user_message: str | None = None) -> dict[str, str]:
         """
-        Pre-fetch user and AI peer context from Honcho.
+        从 Honcho 预获取用户与 AI 对等节点（peer）的上下文。
 
-        Fetches peer_representation and peer_card for both peers, plus the
-        session summary when available. When user_message is provided, it is
-        passed as search_query to the peer context call so Honcho returns
-        conclusions relevant to the session topic rather than the full
-        observation dump.
+        获取双方节点的 peer_representation 和 peer_card，
+        并在可用时同时获取会话摘要（session summary）。
+        当传入 user_message 时，它将作为 search_query 传递给节点上下文调用，
+        以便 Honcho 返回与会话主题相关的结论，
+        而非直接倾倒完整的观察数据（observation dump）。
 
-        Args:
-            session_key: The session key to get context for.
-            user_message: Optional first user message used as search_query for
-                          topic-relevant context retrieval.
+        参数：
+            session_key：用于获取上下文的会话标识（session key）。
+            user_message：可选的首条用户消息，用作 search_query
+                          以检索与主题相关的上下文。
 
-        Returns:
-            Dictionary with 'representation', 'card', 'ai_representation',
-            'ai_card', and optionally 'summary' keys.
+        返回：
+            包含 'representation'、'card'、'ai_representation'、
+            'ai_card' 以及可选的 'summary' 键的字典。
         """
         session = self._cache.get(session_key)
         if not session:

@@ -1,0 +1,822 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="ALL" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="插件系统 加载过程1" />
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="CopilotPersistence">
+    <persistenceIdMap>
+      <entry key="_C:/Users/Administrator/PycharmProjects/example/hermes-agent" value="3GAxTw7nf3qLRqlIqNlrayo6f3i" />
+    </persistenceIdMap>
+  </component>
+  <component name="Git.Settings">
+    <option name="PREVIOUS_COMMIT_AUTHORS">
+      <list>
+        <option value="Teknium &lt;127238744+teknium1@users.noreply.github.com&gt;" />
+        <option value="doncazper &lt;caztronics@yahoo.com&gt;" />
+        <option value="kshitij &lt;82637225+kshitijk4poor@users.noreply.github.com&gt;" />
+        <option value="Peter &lt;212266166+shaorou459@users.noreply.github.com&gt;" />
+        <option value="teknium1 &lt;127238744+teknium1@users.noreply.github.com&gt;" />
+        <option value="Jan-Stefan Janetzky &lt;git@gottz.de&gt;" />
+      </list>
+    </option>
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="main" />
+      </map>
+    </option>
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+    <option name="RESET_MODE" value="HARD" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;sanshi2018&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/sanshi2018/hermes-agent.git&quot;,
+    &quot;accountId&quot;: &quot;52e627e4-78c6-4f0e-836e-f4897f41eda4&quot;
+  }
+}</component>
+  <component name="NextEditCompletionFeaturesState">
+    <decayedCancelled>
+      <entry key="MS100" value="1.5481068186734386" />
+      <entry key="MS500" value="2.8093648090269268" />
+      <entry key="S2" value="4.267907512589577" />
+      <entry key="S5" value="5.568360968108573" />
+      <entry key="S10" value="6.487692666176026" />
+      <entry key="S30" value="7.404963216747433" />
+      <entry key="S60" value="7.689019196610422" />
+      <entry key="M2" value="7.840961162928126" />
+      <entry key="M5" value="7.935508210284144" />
+      <entry key="M10" value="7.96760595662539" />
+      <entry key="M15" value="7.978370891237532" />
+      <entry key="M30" value="7.98916886601775" />
+      <entry key="H1" value="7.9945812596918495" />
+      <entry key="H2" value="8.001369179558349" />
+      <entry key="H4" value="8.27961026973024" />
+      <entry key="D1" value="40.92648584010076" />
+      <entry key="W1" value="239.80626398200658" />
+    </decayedCancelled>
+    <decayedSelected>
+      <entry key="MS100" value="0.0" />
+      <entry key="MS500" value="0.0" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="0.0" />
+      <entry key="S10" value="0.0" />
+      <entry key="S30" value="0.0" />
+      <entry key="S60" value="0.0" />
+      <entry key="M2" value="0.0" />
+      <entry key="M5" value="1.606327914606183E-182" />
+      <entry key="M10" value="1.7920771110999907E-91" />
+      <entry key="M15" value="4.0049470646977094E-61" />
+      <entry key="M30" value="9.058924796328802E-31" />
+      <entry key="H1" value="1.5472548268098131E-15" />
+      <entry key="H2" value="8.066858796669443E-8" />
+      <entry key="H4" value="6.618865924642918E-4" />
+      <entry key="D1" value="1.331588931051946" />
+      <entry key="W1" value="5.419269127052674" />
+    </decayedSelected>
+    <decayedShown>
+      <entry key="MS100" value="1.4886529371086157" />
+      <entry key="MS500" value="2.7876540708528275" />
+      <entry key="S2" value="4.25932191412778" />
+      <entry key="S5" value="5.56362333032472" />
+      <entry key="S10" value="6.484805026944557" />
+      <entry key="S30" value="7.403816592819889" />
+      <entry key="S60" value="7.688416458029173" />
+      <entry key="M2" value="7.840651845276182" />
+      <entry key="M5" value="7.935382494387638" />
+      <entry key="M10" value="7.96754276019306" />
+      <entry key="M15" value="7.9783286845357" />
+      <entry key="M30" value="7.989147724660427" />
+      <entry key="H1" value="7.994570679455845" />
+      <entry key="H2" value="8.001363898640728" />
+      <entry key="H4" value="8.280266948860445" />
+      <entry key="D1" value="42.25798977569303" />
+      <entry key="W1" value="245.225455115268" />
+    </decayedShown>
+  </component>
+  <component name="ProblemsViewState">
+    <option name="selectedTabId" value="CurrentFile" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 2,
+  &quot;fromUser&quot;: false
+}</component>
+  <component name="ProjectId" id="3GAxTw7nf3qLRqlIqNlrayo6f3i" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Git.Working.Tree.Tab.closed.by.user&quot;: &quot;closed&quot;,
+    &quot;Python.Hermes (CLI).executor&quot;: &quot;Debug&quot;,
+    &quot;Python.Hermes (TUI).executor&quot;: &quot;Debug&quot;,
+    &quot;Python.mcp_startup.executor&quot;: &quot;Debug&quot;,
+    &quot;Python.skills_tool.executor&quot;: &quot;Debug&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;copilot.chat.legacySessionMetadata.migrated&quot;: &quot;true&quot;,
+    &quot;git.auto.fetch.suggestion.counter&quot;: &quot;3&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;prettierjs.PrettierConfiguration.Package&quot;: &quot;C:\\Users\\Administrator\\PycharmProjects\\example\\hermes-agent\\node_modules\\prettier&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;http.proxy&quot;,
+    &quot;ts.external.directory.path&quot;: &quot;C:\\Users\\Administrator\\PycharmProjects\\example\\hermes-agent\\node_modules\\typescript\\lib&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  }
+}</component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\Administrator\PycharmProjects\example\hermes-agent\plugins\platforms\HerEmail" />
+    </key>
+  </component>
+  <component name="RunManager" selected="Python.mcp_startup">
+    <configuration name="mcp_startup" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="hermes-agent" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/hermes_cli" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="false" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="RUN_TOOL" value="" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/hermes_cli/mcp_startup.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="skills_tool" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="hermes-agent" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/tools" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="false" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="RUN_TOOL" value="" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/tools/skills_tool.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Python.mcp_startup" />
+        <item itemvalue="Python.skills_tool" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-PY-261.26222.68" />
+        <option value="bundled-python-sdk-50341a9f1f9c-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.26222.68" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="" />
+      <created>1783428188018</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1783428188018</updated>
+      <workItem from="1783428189938" duration="952000" />
+      <workItem from="1783514167169" duration="2342000" />
+      <workItem from="1783564288369" duration="34029000" />
+      <workItem from="1783938144217" duration="8477000" />
+      <workItem from="1783994287840" duration="23739000" />
+      <workItem from="1784088332166" duration="14884000" />
+      <workItem from="1784169826511" duration="3928000" />
+      <workItem from="1784270267289" duration="6575000" />
+      <workItem from="1784529337641" duration="19799000" />
+      <workItem from="1784600345511" duration="30017000" />
+      <workItem from="1784771088126" duration="6820000" />
+      <workItem from="1784799227706" duration="28023000" />
+      <workItem from="1785152006244" duration="49330000" />
+      <workItem from="1785379530457" duration="35876000" />
+      <workItem from="1785721355623" duration="61078000" />
+      <workItem from="1786068229096" duration="25723000" />
+      <workItem from="1786331963624" duration="27570000" />
+      <workItem from="1786446544506" duration="2863000" />
+      <workItem from="1786508372554" duration="18821000" />
+      <workItem from="1786591519982" duration="25190000" />
+      <workItem from="1786694436101" duration="7978000" />
+      <workItem from="1786947923710" duration="12250000" />
+      <workItem from="1787018265901" duration="22421000" />
+      <workItem from="1787106417625" duration="26989000" />
+    </task>
+    <task id="LOCAL-00001" summary="ai doc">
+      <option name="closed" value="true" />
+      <created>1783515262622</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1783515262622</updated>
+    </task>
+    <task id="LOCAL-00002" summary="一些流程梳理">
+      <option name="closed" value="true" />
+      <created>1783679421328</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1783679421328</updated>
+    </task>
+    <task id="LOCAL-00003" summary="run_conversation 压缩msg&#10;codex app server 使用stio调用">
+      <option name="closed" value="true" />
+      <created>1783942902067</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1783942902067</updated>
+    </task>
+    <task id="LOCAL-00004" summary="长上下文消息压缩">
+      <option name="closed" value="true" />
+      <created>1784030513988</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1784030513988</updated>
+    </task>
+    <task id="LOCAL-00005" summary="大系统提示词构建流程">
+      <option name="closed" value="true" />
+      <created>1784272261542</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1784272261542</updated>
+    </task>
+    <task id="LOCAL-00006" summary="大系统提示词构建流程">
+      <option name="closed" value="true" />
+      <created>1784284972737</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1784284972737</updated>
+    </task>
+    <task id="LOCAL-00007" summary="conversation流程done">
+      <option name="closed" value="true" />
+      <created>1784547500609</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1784547500609</updated>
+    </task>
+    <task id="LOCAL-00008" summary="项目运行环境">
+      <option name="closed" value="true" />
+      <created>1784549330246</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1784549330246</updated>
+    </task>
+    <task id="LOCAL-00009" summary="debug配置">
+      <option name="closed" value="true" />
+      <created>1784550691829</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1784550691829</updated>
+    </task>
+    <task id="LOCAL-00010" summary="api service启动">
+      <option name="closed" value="true" />
+      <created>1784600418126</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1784600418126</updated>
+    </task>
+    <task id="LOCAL-00011" summary="工具执行逻辑梳理">
+      <option name="closed" value="true" />
+      <created>1784723764807</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1784723764807</updated>
+    </task>
+    <task id="LOCAL-00012" summary="工具执行逻辑梳理">
+      <option name="closed" value="true" />
+      <created>1784898691477</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1784898691477</updated>
+    </task>
+    <task id="LOCAL-00013" summary="messageDB recall逻辑">
+      <option name="closed" value="true" />
+      <created>1785317950397</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1785317950397</updated>
+    </task>
+    <task id="LOCAL-00014" summary="USER.md 用户画像&#10;MEMORY.md 环境记忆">
+      <option name="closed" value="true" />
+      <created>1785323880355</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1785323880355</updated>
+    </task>
+    <task id="LOCAL-00015" summary="自我反思">
+      <option name="closed" value="true" />
+      <created>1785479640801</created>
+      <option name="number" value="00015" />
+      <option name="presentableId" value="LOCAL-00015" />
+      <option name="project" value="LOCAL" />
+      <updated>1785479640801</updated>
+    </task>
+    <task id="LOCAL-00016" summary="memoryProvider 适配器模式加载">
+      <option name="closed" value="true" />
+      <created>1785487129914</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1785487129914</updated>
+    </task>
+    <task id="LOCAL-00017" summary="skill 篇">
+      <option name="closed" value="true" />
+      <created>1785762764374</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1785762764374</updated>
+    </task>
+    <task id="LOCAL-00018" summary="skill 篇&#10;后台审查">
+      <option name="closed" value="true" />
+      <created>1785895750025</created>
+      <option name="number" value="00018" />
+      <option name="presentableId" value="LOCAL-00018" />
+      <option name="project" value="LOCAL" />
+      <updated>1785895750025</updated>
+    </task>
+    <task id="LOCAL-00019" summary="总结提示词">
+      <option name="closed" value="true" />
+      <created>1786011178545</created>
+      <option name="number" value="00019" />
+      <option name="presentableId" value="LOCAL-00019" />
+      <option name="project" value="LOCAL" />
+      <updated>1786011178545</updated>
+    </task>
+    <task id="LOCAL-00020" summary="undo rewind">
+      <option name="closed" value="true" />
+      <created>1786090807924</created>
+      <option name="number" value="00020" />
+      <option name="presentableId" value="LOCAL-00020" />
+      <option name="project" value="LOCAL" />
+      <updated>1786090807924</updated>
+    </task>
+    <task id="LOCAL-00021" summary="mcp 启动流程">
+      <option name="closed" value="true" />
+      <created>1786107659400</created>
+      <option name="number" value="00021" />
+      <option name="presentableId" value="LOCAL-00021" />
+      <option name="project" value="LOCAL" />
+      <updated>1786107659400</updated>
+    </task>
+    <task id="LOCAL-00022" summary="mcp 启动流程">
+      <option name="closed" value="true" />
+      <created>1786445437031</created>
+      <option name="number" value="00022" />
+      <option name="presentableId" value="LOCAL-00022" />
+      <option name="project" value="LOCAL" />
+      <updated>1786445437031</updated>
+    </task>
+    <task id="LOCAL-00023" summary="feat(tools): progressive tool disclosure for MCP and plugin tools&#10;&#10;Adds Tool Search, a structured-tools progressive-disclosure layer that&#10;replaces MCP and non-core plugin tools in the model-visible tools array&#10;with three bridge tools (tool_search / tool_describe / tool_call) when&#10;the deferrable surface would consume more than a configurable percentage&#10;of the active model's context window. Core Hermes tools are never deferred.&#10;&#10;Default mode is 'auto' with a 10% context threshold, so small toolsets&#10;pay no overhead. Set tools.tool_search.enabled to 'on' to force or 'off'&#10;to disable.&#10;&#10;Design carefully reflects the OpenClaw production failure modes&#10;documented in the openclaw-tool-search-report:&#10;&#10;  - Core tools never defer (toolsets._HERMES_CORE_TOOLS). Addresses the&#10;    'tools silently missing from isolated cron turns' regression class&#10;    (openclaw#84141) by construction: there is no code path that can&#10;    drop a core tool.&#10;  - Catalog is stateless across turns — rebuilt from the live tool-defs&#10;    list on every assembly. No session-keyed Map that can drift out of&#10;    sync with the registry.&#10;  - tool_call unwraps the bridge call before any hook fires, so plugin&#10;    pre/post hooks, guardrails, approval flows, and the activity feed&#10;    all see the underlying tool name, not the bridge (addresses&#10;    openclaw#85588 and the verbose-mode complaint on openclaw#79823).&#10;  - The unwrap happens in both the parallel and sequential paths of&#10;    agent/tool_executor.py and also in handle_function_call, so direct&#10;    callers (sandboxed code, eval harnesses) are covered too.&#10;  - Bridge tools cannot invoke each other (recursion guard) and cannot&#10;    invoke core tools (those must be called directly).&#10;  - Tools mode only — no JS-sandbox code-mode. Keeps the surface small.&#10;  - Token estimation via cheap char/4 heuristic; precision isn't needed&#10;    for the threshold decision.&#10;&#10;Files:&#10;  - tools/tool_search.py — new module (BM25 retrieval, classification,&#10;    threshold gate, bridge dispatch, unwrap helper).&#10;  - tests/tools/test_tool_search.py — 35 tests including the OpenClaw&#10;    #84141 regression guard.&#10;  - model_tools.py — wires assembly into _compute_tool_definitions as the&#10;    final step, adds skip_tool_search_assembly kwarg so the bridge can&#10;    see the real catalog, dispatches the three bridge tools.&#10;  - agent/tool_executor.py — unwraps tool_call in both parallel and&#10;    sequential parsing loops so checkpointing, guardrails, plugin hooks,&#10;    and tool-progress callbacks all observe the underlying tool name.&#10;  - hermes_cli/config.py — DEFAULT_CONFIG['tools']['tool_search'] block.&#10;  - website/docs/user-guide/features/tool-search.md — user docs.&#10;&#10;Validation:&#10;  - 35/35 new tests pass.&#10;  - Existing tool/registry/model_tools/config/coercion/executor tests&#10;    (82 + 74 + small adjacents) green.&#10;  - Live E2E: 20 fake MCP tools registered, get_tool_definitions returns&#10;    3 bridges, tool_search returns top 3 hits, tool_describe returns&#10;    full schema, tool_call dispatches to the real underlying handler&#10;    and the underlying result is what the model sees.&#10;  - Reserved-name recursion guard verified live.&#10;  - Core-tool refusal via tool_call verified live.&#10;&#10;(cherry picked from commit 369075dc95bb998fdf493ef0f97dfa2d19c43d82)">
+      <option name="closed" value="true" />
+      <created>1786447666694</created>
+      <option name="number" value="00023" />
+      <option name="presentableId" value="LOCAL-00023" />
+      <option name="project" value="LOCAL" />
+      <updated>1786447666694</updated>
+    </task>
+    <task id="LOCAL-00024" summary="fix(tool-search): scope bridge catalog + dispatch to the session's toolsets&#10;&#10;Tool Search read its catalog from the global registry (get_tool_definitions&#10;with no toolset scope = 'start with everything'), so a restricted-toolset&#10;session — subagent, kanban worker, curated gateway session — could:&#10;&#10;  1. tool_search the entire process registry, not just its granted tools, and&#10;  2. tool_call any registered plugin/MCP tool it was never given, because&#10;     registry.dispatch() has no enabled_tools gate for non-execute_code tools.&#10;&#10;A scoped session (enabled_toolsets=['mcp-github']) reported total_available=26&#10;and successfully invoked an out-of-scope plugin tool via tool_call.&#10;&#10;Fix:&#10;- handle_function_call gains enabled_toolsets/disabled_toolsets; the bridge&#10;  dispatch scopes get_tool_definitions to them (also stops polluting the&#10;  process-global _last_resolved_tool_names with out-of-scope tools, which&#10;  leaked into execute_code's sandbox-tool fallback).&#10;- A defense-in-depth gate rejects any tool_call'd name not in the scoped&#10;  deferrable catalog.&#10;- tool_executor's unwrap (both concurrent + sequential paths) enforces the&#10;  same scope before dispatch, since it unwraps tool_call -&gt; underlying name&#10;  and bypasses the bridge branch. New _tool_search_scoped_names() helper,&#10;  cached per-agent on registry generation + toolset scope.&#10;- New scoped_deferrable_names() helper in tool_search.py shared by both sites.&#10;&#10;Tests: 4 new regression tests in TestRegression_ToolsetScoping (scoped&#10;catalog, out-of-scope tool_call rejection, no global pollution, helper).&#10;&#10;(cherry picked from commit 7427b9d5812f3bd4deb47340ab64ef86e605c27e)">
+      <option name="closed" value="true" />
+      <created>1786448233733</created>
+      <option name="number" value="00024" />
+      <option name="presentableId" value="LOCAL-00024" />
+      <option name="project" value="LOCAL" />
+      <updated>1786448233733</updated>
+    </task>
+    <task id="LOCAL-00025" summary="feat(tools): skills-style catalog listing for tool_search progressive disclosure&#10;&#10;Deferred MCP/plugin tools become invisible once the tool_search bridge&#10;activates — live benchmarking (48 runs, Claude Haiku 4.5) showed models&#10;substituting visible core tools (terminal/web_search/browser) for deferred&#10;capabilities or declaring them nonexistent instead of searching: 16/24&#10;task success vs 24/24 with eager loading.&#10;&#10;Skills never had this failure mode because every skill keeps a ~21-token&#10;name+description listing line in the system prompt. This ports that exact&#10;pattern to the tool bridge: when tool_search activates, a grouped manifest&#10;of every deferred tool (name + first sentence of description, clipped to&#10;60 chars, grouped per MCP server / toolset) is embedded in the tool_search&#10;bridge description.&#10;&#10;- tools/tool_search.py: build_catalog_listing() with deterministic&#10;  ordering (byte-stable across assemblies -&gt; prompt prefix stays&#10;  cacheable); token-budget fallbacks full -&gt; names-only -&gt; legacy bare&#10;  count; bridge_tool_schemas(listing=...) embeds it and instructs the&#10;  model to skip tool_search when the exact name is visible (one fewer&#10;  round-trip per use)&#10;- config: tools.tool_search.listing auto|on|off (default auto),&#10;  listing_max_tokens (default 4000, clamped 200..20000); legacy bool&#10;  shapes keep working&#10;- tests: 8 new tests (config parsing/clamps, short-desc clipping,&#10;  deterministic rendering, budget fallbacks, bridge embedding, assembly&#10;  on/off paths); full file green (47 passed)&#10;- docs: tool-search.md config table + rationale&#10;- scripts/tool_search_livetest2.py: benchmark harness v2 with real&#10;  per-call token accounting (normalize_usage spy) and a third 'listing'&#10;  mode for A/B/C comparison&#10;&#10;(cherry picked from commit e869accc1a1269b096716d606376d24df2bb6643)">
+      <option name="closed" value="true" />
+      <created>1786448338602</created>
+      <option name="number" value="00025" />
+      <option name="presentableId" value="LOCAL-00025" />
+      <option name="project" value="LOCAL" />
+      <updated>1786448338602</updated>
+    </task>
+    <task id="LOCAL-00026" summary="feat(tools): tiered tool disclosure — always defer MCP/plugin tools, scale the listing with catalog size&#10;&#10;Tier 0: no MCP/plugin tools -&gt; everything eager (pass-through).&#10;Tier 1: deferred tools whose catalog listing fits min(threshold_pct%&#10;        of context, listing_max_tokens) -&gt; bridge + skills-style&#10;        listing, degrading to names-only over budget.&#10;Tier 2: listing over budget even names-only (Cloudflare's flat API&#10;        surface: 3,320 tools, names alone ~32K tokens) -&gt; bare bridge,&#10;        discovery through tool_search only.&#10;&#10;The old activation threshold (defer only when schemas &gt; threshold_pct&#10;of context) let mid-size catalogs ride eager and pay full schema cost;&#10;with servers like Cloudflare (~597K tokens of schema, would not even&#10;fit a 200K window) the binary gate is the wrong shape. Activation is&#10;now driven purely by deferrable-tool presence; threshold_pct is&#10;repurposed as the listing budget's context-relative leg.&#10;&#10;- AssemblyResult gains tier + listing_form for observability&#10;- listing_max_tokens default 4000 -&gt; 20000 (cap 60000) so an 830-tool&#10;  catalog keeps a names-only listing while Cloudflare-scale drops to&#10;  bare bridge&#10;- E2E verified against real captures: Linear 24 tools -&gt; tier 1 full,&#10;  Epic UE 5.8 830 tools -&gt; tier 1 names-only, Cloudflare 3,320 tools&#10;  -&gt; tier 2 (both 200K and 1M context)&#10;&#10;(cherry picked from commit 0986ac393f9dd96ae2a3196543214a542af4e7f5)">
+      <option name="closed" value="true" />
+      <created>1786448473360</created>
+      <option name="number" value="00026" />
+      <option name="presentableId" value="LOCAL-00026" />
+      <option name="project" value="LOCAL" />
+      <updated>1786448473360</updated>
+    </task>
+    <task id="LOCAL-00027" summary="tool 工具相关">
+      <option name="closed" value="true" />
+      <created>1786448786865</created>
+      <option name="number" value="00027" />
+      <option name="presentableId" value="LOCAL-00027" />
+      <option name="project" value="LOCAL" />
+      <updated>1786448786865</updated>
+    </task>
+    <task id="LOCAL-00028" summary="tool search 分层式渐进式披露">
+      <option name="closed" value="true" />
+      <created>1786451152323</created>
+      <option name="number" value="00028" />
+      <option name="presentableId" value="LOCAL-00028" />
+      <option name="project" value="LOCAL" />
+      <updated>1786451152323</updated>
+    </task>
+    <task id="LOCAL-00029" summary="mcp server部分">
+      <option name="closed" value="true" />
+      <created>1786534740850</created>
+      <option name="number" value="00029" />
+      <option name="presentableId" value="LOCAL-00029" />
+      <option name="project" value="LOCAL" />
+      <updated>1786534740850</updated>
+    </task>
+    <task id="LOCAL-00030" summary="sandbox">
+      <option name="closed" value="true" />
+      <created>1786697989783</created>
+      <option name="number" value="00030" />
+      <option name="presentableId" value="LOCAL-00030" />
+      <option name="project" value="LOCAL" />
+      <updated>1786697989783</updated>
+    </task>
+    <task id="LOCAL-00031" summary="调用sandbox也是通过tool工具来实现">
+      <option name="closed" value="true" />
+      <created>1786708391978</created>
+      <option name="number" value="00031" />
+      <option name="presentableId" value="LOCAL-00031" />
+      <option name="project" value="LOCAL" />
+      <updated>1786708391978</updated>
+    </task>
+    <task id="LOCAL-00032" summary="sandbox 执行命令">
+      <option name="closed" value="true" />
+      <created>1787054433680</created>
+      <option name="number" value="00032" />
+      <option name="presentableId" value="LOCAL-00032" />
+      <option name="project" value="LOCAL" />
+      <updated>1787054433680</updated>
+    </task>
+    <task id="LOCAL-00033" summary="fix(compression): harden provider context handoff&#10;&#10;(cherry picked from commit 34bab1c6acc3cc3c668d4afdfeb480ef696ec422)">
+      <option name="closed" value="true" />
+      <created>1787059746738</created>
+      <option name="number" value="00033" />
+      <option name="presentableId" value="LOCAL-00033" />
+      <option name="project" value="LOCAL" />
+      <updated>1787059746738</updated>
+    </task>
+    <task id="LOCAL-00034" summary="fix(compression): harden provider context handoff&#10;&#10;(cherry picked from commit 34bab1c6acc3cc3c668d4afdfeb480ef696ec422)">
+      <option name="closed" value="true" />
+      <created>1787059870527</created>
+      <option name="number" value="00034" />
+      <option name="presentableId" value="LOCAL-00034" />
+      <option name="project" value="LOCAL" />
+      <updated>1787059870527</updated>
+    </task>
+    <task id="LOCAL-00035" summary="fix(compression): harden provider context handoff&#10;&#10;(cherry picked from commit 34bab1c6acc3cc3c668d4afdfeb480ef696ec422)">
+      <option name="closed" value="true" />
+      <created>1787060010893</created>
+      <option name="number" value="00035" />
+      <option name="presentableId" value="LOCAL-00035" />
+      <option name="project" value="LOCAL" />
+      <updated>1787060010893</updated>
+    </task>
+    <task id="LOCAL-00036" summary="fix(security): extend secret redaction to GitLab token families&#10;&#10;Port from openclaw/openclaw#112954. The redactor knew GitHub, Slack,&#10;Google, Stripe, AWS access-key-ID and ~25 other vendor prefixes but had&#10;zero GitLab coverage — glpat-/gloas-/gldt-/glrt-/glrtr-/glcbt-/glptt-/&#10;glft-/glimt-/glagent-/glsoat-/glffct-/glwt- tokens and legacy GR1348941&#10;runner registration tokens passed through display and log surfaces&#10;verbatim. Follow-up explicitly invited when #4541 was closed.&#10;&#10;Each pattern keeps a full literal prefix so the _PREFIX_SUBSTRINGS&#10;pre-screen (derived at module load) stays false-negative-free; routable&#10;runner tokens allow dotted segments. Sibling site: skills_guard's&#10;credential-exposure scan gains a gitlab_token_leaked pattern.&#10;&#10;(cherry picked from commit 950fe236d0e08d0739d6a2bd90290c30ebcf5272)">
+      <option name="closed" value="true" />
+      <created>1787060089978</created>
+      <option name="number" value="00036" />
+      <option name="presentableId" value="LOCAL-00036" />
+      <option name="project" value="LOCAL" />
+      <updated>1787060089978</updated>
+    </task>
+    <task id="LOCAL-00037" summary="fix: redact .env terminal output via detection instead of known-env-var list&#10;&#10;Terminal output from file-read commands (cat, head, tail, ...) uses&#10;code_file=True, which skips the generic ENV-assignment redaction pass.&#10;Reading a .env file through the terminal therefore leaked any key whose&#10;value has no recognized vendor prefix (Mistral, Gemini AQ.*, tvly-dev-,&#10;bu_, Spotify client secrets).&#10;&#10;Detect file-read commands targeting .env-style basenames (mirroring&#10;agent/file_safety's blocked list) and route them to code_file=False so&#10;the existing ENV pass masks opaque values. Templates (.env.example,&#10;.env.sample, ...) are excluded.&#10;&#10;Salvaged from #61352 (145 commits of drift; conflict with the test-prune&#10;wave resolved by NOT resurrecting pruned tests). Authored by @ShaoRou459.&#10;&#10;Closes #61352&#10;&#10;(cherry picked from commit cf755f5c4232ddf5841c33ae3f2a0f07b49e45fa)">
+      <option name="closed" value="true" />
+      <created>1787060230847</created>
+      <option name="number" value="00037" />
+      <option name="presentableId" value="LOCAL-00037" />
+      <option name="project" value="LOCAL" />
+      <updated>1787060230847</updated>
+    </task>
+    <task id="LOCAL-00038" summary="fix: harden .env-read detection — review follow-ups for #61352&#10;&#10;- Import file_safety._BLOCKED_PROJECT_ENV_BASENAMES instead of copying&#10;  it (comment-enforced parallel lists drift); lookup is now&#10;  case-insensitive to match file_safety's .lower() semantics (cat .ENV&#10;  on macOS/Windows case-insensitive filesystems reads the same secrets).&#10;- Strip shell quotes plain split() leaves attached (cat &quot;.env&quot;).&#10;- Drop the dead _ENV_FILE_EXCLUDE_SUFFIXES logic (exact-basename&#10;  membership already excludes templates) and the stray blank-line noise.&#10;- Document the defense-in-depth limits (sudo/full-path/substitution&#10;  readers) mirroring is_env_dump_command's precedent, and correct the&#10;  docstring overclaim about name-independence.&#10;- Annotate command as str | None (tests pass None).&#10;&#10;(cherry picked from commit 15d7103aa79183c0104a801310f9d88ce5f6c302)">
+      <option name="closed" value="true" />
+      <created>1787060312332</created>
+      <option name="number" value="00038" />
+      <option name="presentableId" value="LOCAL-00038" />
+      <option name="project" value="LOCAL" />
+      <updated>1787060312332</updated>
+    </task>
+    <task id="LOCAL-00039" summary="fix: reuse redact_sensitive_text, fix leaky abstraction, fix test data&#10;&#10;Follow-up fixes from /hermes-pr-review + /simplify-code on PR #83437:&#10;&#10;1. Replace _redact_secrets with agent.redact.redact_sensitive_text(force=True)&#10;   — the plugin's 11-pattern list was a strict subset of the 50+ patterns in&#10;   agent/redact.py. Secrets like Stripe keys, Google API keys, GitLab tokens,&#10;   HuggingFace tokens, DB connection strings, and Telegram bot tokens would&#10;   all leak through the plugin's list but are caught by the existing redactor.&#10;   Added pk-lf- (Langfuse public key) to _PREFIX_PATTERNS in agent/redact.py.&#10;&#10;2. Remove dead 'not isinstance(client, object)' check in on_session_finalize —&#10;   always False for any Python value.&#10;&#10;3. Fix MoAClient.last_reference_metrics() to call the public&#10;   self.chat.completions.last_reference_metrics() instead of reaching into&#10;   the private _last_reference_metrics attribute via getattr.&#10;&#10;4. Deduplicate _coerce_request_messages call in on_pre_llm_request — pass&#10;   pre_coerced=input_messages to _messages_for_langfuse_input to avoid&#10;   double-coercion + double _capture_content serialization per API request.&#10;&#10;5. Add HERMES_LANGFUSE_CAPTURE to OPTIONAL_ENV_VARS in hermes_cli/config.py&#10;   for consistency with the other HERMES_LANGFUSE_* env vars.&#10;&#10;6. Fix test_sanitized_mode_redacts_secrets test data — the old samples&#10;   ('sk-abc...1234', 'sk-ant...1234', 'Authorization: Bearer ***') were too&#10;   short to match the regex thresholds and never actually tested redaction.&#10;   Updated to realistic-length secrets and changed assertions to check that&#10;   the output differs from input (redact_sensitive_text masks rather than&#10;   inserting the literal string 'REDACTED').&#10;&#10;(cherry picked from commit ace830134ea393f17cbfff5018b6c375830a1977)">
+      <option name="closed" value="true" />
+      <created>1787060927043</created>
+      <option name="number" value="00039" />
+      <option name="presentableId" value="LOCAL-00039" />
+      <option name="project" value="LOCAL" />
+      <updated>1787060927043</updated>
+    </task>
+    <task id="LOCAL-00040" summary="fix(terminal): make bounded capture opt-in for the foreground terminal path only&#10;&#10;Review finding on the salvaged collector: _wait_for_process is the shared&#10;drain for EVERY env.execute() consumer, not just the terminal tool. Applying&#10;tool_output.max_bytes there silently truncated file-operation cat reads&#10;(read_file_raw feeds the patch engine — read-modify-write on any file &gt;50KB&#10;would corrupt it), paginated read_file, code-execution RPC reads, and log&#10;reads.&#10;&#10;bounded_capture is now an explicit opt-in on execute()/_wait_for_process,&#10;set only by the foreground terminal tool. Default preserves the historical&#10;full-fidelity capture via an effectively-unbounded collector (single code&#10;path). Modal transports accept the kwarg for signature parity.&#10;&#10;New regression test: default execute() returns a 200KB payload complete and&#10;untruncated. E2E: 20MB internal read intact; ShellFileOperations&#10;read_file_raw round-trips byte-exact; terminal path still bounded at 50KB.&#10;&#10;(cherry picked from commit cab457d722a28d60cd90d3cd6c7e5b55a12b659a)">
+      <option name="closed" value="true" />
+      <created>1787129537124</created>
+      <option name="number" value="00040" />
+      <option name="presentableId" value="LOCAL-00040" />
+      <option name="project" value="LOCAL" />
+      <updated>1787129537124</updated>
+    </task>
+    <task id="LOCAL-00041" summary="test(terminal): expect bounded_capture=True in foreground execute kwargs&#10;&#10;The terminal tool's foreground path now opts into bounded capture; the&#10;task-cwd tests assert the exact execute() kwargs and needed the new key.&#10;&#10;(cherry picked from commit 51580e192b548eb4af8ede85a5233800a8a269d9)">
+      <option name="closed" value="true" />
+      <created>1787129558880</created>
+      <option name="number" value="00041" />
+      <option name="presentableId" value="LOCAL-00041" />
+      <option name="project" value="LOCAL" />
+      <updated>1787129558880</updated>
+    </task>
+    <task id="LOCAL-00042" summary="sandbox done">
+      <option name="closed" value="true" />
+      <created>1787130529265</created>
+      <option name="number" value="00042" />
+      <option name="presentableId" value="LOCAL-00042" />
+      <option name="project" value="LOCAL" />
+      <updated>1787130529265</updated>
+    </task>
+    <task id="LOCAL-00043" summary="插件系统 加载过程1">
+      <option name="closed" value="true" />
+      <created>1787210196392</created>
+      <option name="number" value="00043" />
+      <option name="presentableId" value="LOCAL-00043" />
+      <option name="project" value="LOCAL" />
+      <updated>1787210196392</updated>
+    </task>
+    <task id="LOCAL-00044" summary="fix(plugins): isolate ownership by profile&#10;&#10;(cherry picked from commit 85020f2238d254456bb428de6ea5503a19dc9633)">
+      <option name="closed" value="true" />
+      <created>1787212034907</created>
+      <option name="number" value="00044" />
+      <option name="presentableId" value="LOCAL-00044" />
+      <option name="project" value="LOCAL" />
+      <updated>1787212034907</updated>
+    </task>
+    <task id="LOCAL-00045" summary="feat(plugins): capability declarations + install/update consent flow (#64228)&#10;&#10;Unify the scattered per-plugin trust gates into one declared, diffable&#10;capability model with an install/update-time consent flow. Consent +&#10;audit over host API surfaces — explicitly NOT a sandbox.&#10;&#10;New module hermes_cli/plugin_capabilities.py:&#10;- Canonical CAPABILITY_REGISTRY mapping each capability id 1:1 to an&#10;  EXISTING enforcing gate (no capability minted without a surface):&#10;    tools.override          -&gt; allow_tool_override&#10;    llm.provider_override   -&gt; llm.allow_provider_override&#10;    llm.model_override      -&gt; llm.allow_model_override&#10;    llm.agent_id_override   -&gt; llm.allow_agent_id_override&#10;    llm.profile_override    -&gt; llm.allow_profile_override&#10;    llm.task_override       -&gt; llm.allow_task_override&#10;- plugin_capability_granted(plugin_id, capability): canonical check —&#10;  granted set OR deprecated legacy allow_* key; fail closed on unknown&#10;  ids and any unreadable/corrupt consent state; emits checked_by audit&#10;  log lines on every decision.&#10;- record_consent() persists plugins.entries.&lt;id&gt;.granted_capabilities +&#10;  capabilities_consent {hash, granted_at} and mirrors grants into the&#10;  legacy keys so existing enforcement sites keep working unchanged.&#10;- capability_set_hash / pending_capabilities / declared_set_changed&#10;  power the update-time re-consent diff.&#10;&#10;Wiring:&#10;- plugin.yaml manifest field `capabilities:` parsed into&#10;  PluginManifest.capabilities (unknown ids dropped with a warning).&#10;- hermes plugins install: consent screen (one Y/n) when the manifest&#10;  declares capabilities; non-interactive installs proceed with&#10;  capabilities ungranted (fail closed).&#10;- hermes plugins update: when the new version declares capabilities the&#10;  granted set lacks (hash diff), the additions are surfaced and require&#10;  re-consent — an update can never silently widen access.&#10;- hermes plugins enable: consent screen replaces the standalone&#10;  tool-override prompt for capability-declaring plugins.&#10;- hermes plugins capabilities [&lt;id&gt;]: declared vs granted per plugin,&#10;  flags grants held via deprecated legacy keys.&#10;- PluginContext.has_capability() probing API so plugins degrade&#10;  gracefully; _tool_override_allowed migrated to the canonical&#10;  plugin_capability_granted path (reference migration; legacy&#10;  allow_tool_override still honored).&#10;&#10;Tests: tests/hermes_cli/test_plugin_capabilities.py (38 tests) —&#10;declaration parsing, consent grant/persist, update re-consent on added&#10;capability, fail-closed on missing/corrupt state, legacy-gate backward&#10;compat, consent CLI flow (grant / decline / non-interactive).&#10;&#10;Docs: user-guide plugins.md consent section (with explicit not-a-sandbox&#10;warning) + developer-guide plugin authoring capability note.&#10;&#10;Salvages the intent of PR #37976 (@coygeek — require renewed review&#10;before plugin updates), scoped to capability diffs.&#10;&#10;Part of #64182.&#10;&#10;(cherry picked from commit b088535c7811fb4a5a0ba68c924c04df30e52620)">
+      <option name="closed" value="true" />
+      <created>1787212814456</created>
+      <option name="number" value="00045" />
+      <option name="presentableId" value="LOCAL-00045" />
+      <option name="project" value="LOCAL" />
+      <updated>1787212814456</updated>
+    </task>
+    <task id="LOCAL-00046" summary="插件系统 加载过程1">
+      <option name="closed" value="true" />
+      <created>1787214499141</created>
+      <option name="number" value="00046" />
+      <option name="presentableId" value="LOCAL-00046" />
+      <option name="project" value="LOCAL" />
+      <updated>1787214499141</updated>
+    </task>
+    <option name="localTasksCounter" value="47" />
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.History.Properties">
+    <option name="RECENT_FILTERS">
+      <map>
+        <entry key="Branch">
+          <value>
+            <list>
+              <RecentGroup>
+                <option name="FILTER_VALUES">
+                  <option value="upstream/main" />
+                </option>
+              </RecentGroup>
+            </list>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="OPEN_GENERIC_TABS">
+      <map>
+        <entry key="066c1a02-8178-48d2-b212-15437b03b847" value="TOOL_WINDOW" />
+      </map>
+    </option>
+    <option name="RECENT_FILTERS">
+      <map>
+        <entry key="Branch">
+          <value>
+            <list>
+              <RecentGroup>
+                <option name="FILTER_VALUES">
+                  <option value="upstream/add-morph-snapshot" />
+                </option>
+              </RecentGroup>
+              <RecentGroup>
+                <option name="FILTER_VALUES">
+                  <option value="main" />
+                </option>
+              </RecentGroup>
+            </list>
+          </value>
+        </entry>
+      </map>
+    </option>
+    <option name="TAB_STATES">
+      <map>
+        <entry key="066c1a02-8178-48d2-b212-15437b03b847">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="总结提示词" />
+    <MESSAGE value="undo rewind" />
+    <MESSAGE value="mcp线程模型" />
+    <MESSAGE value="mcp线程模型" />
+    <MESSAGE value="feat(tools): progressive tool disclosure for MCP and plugin tools&#10;&#10;Adds Tool Search, a structured-tools progressive-disclosure layer that&#10;replaces MCP and non-core plugin tools in the model-visible tools array&#10;with three bridge tools (tool_search / tool_describe / tool_call) when&#10;the deferrable surface would consume more than a configurable percentage&#10;of the active model's context window. Core Hermes tools are never deferred.&#10;&#10;Default mode is 'auto' with a 10% context threshold, so small toolsets&#10;pay no overhead. Set tools.tool_search.enabled to 'on' to force or 'off'&#10;to disable.&#10;&#10;Design carefully reflects the OpenClaw production failure modes&#10;documented in the openclaw-tool-search-report:&#10;&#10;  - Core tools never defer (toolsets._HERMES_CORE_TOOLS). Addresses the&#10;    'tools silently missing from isolated cron turns' regression class&#10;    (openclaw#84141) by construction: there is no code path that can&#10;    drop a core tool.&#10;  - Catalog is stateless across turns — rebuilt from the live tool-defs&#10;    list on every assembly. No session-keyed Map that can drift out of&#10;    sync with the registry.&#10;  - tool_call unwraps the bridge call before any hook fires, so plugin&#10;    pre/post hooks, guardrails, approval flows, and the activity feed&#10;    all see the underlying tool name, not the bridge (addresses&#10;    openclaw#85588 and the verbose-mode complaint on openclaw#79823).&#10;  - The unwrap happens in both the parallel and sequential paths of&#10;    agent/tool_executor.py and also in handle_function_call, so direct&#10;    callers (sandboxed code, eval harnesses) are covered too.&#10;  - Bridge tools cannot invoke each other (recursion guard) and cannot&#10;    invoke core tools (those must be called directly).&#10;  - Tools mode only — no JS-sandbox code-mode. Keeps the surface small.&#10;  - Token estimation via cheap char/4 heuristic; precision isn't needed&#10;    for the threshold decision.&#10;&#10;Files:&#10;  - tools/tool_search.py — new module (BM25 retrieval, classification,&#10;    threshold gate, bridge dispatch, unwrap helper).&#10;  - tests/tools/test_tool_search.py — 35 tests including the OpenClaw&#10;    #84141 regression guard.&#10;  - model_tools.py — wires assembly into _compute_tool_definitions as the&#10;    final step, adds skip_tool_search_assembly kwarg so the bridge can&#10;    see the real catalog, dispatches the three bridge tools.&#10;  - agent/tool_executor.py — unwraps tool_call in both parallel and&#10;    sequential parsing loops so checkpointing, guardrails, plugin hooks,&#10;    and tool-progress callbacks all observe the underlying tool name.&#10;  - hermes_cli/config.py — DEFAULT_CONFIG['tools']['tool_search'] block.&#10;  - website/docs/user-guide/features/tool-search.md — user docs.&#10;&#10;Validation:&#10;  - 35/35 new tests pass.&#10;  - Existing tool/registry/model_tools/config/coercion/executor tests&#10;    (82 + 74 + small adjacents) green.&#10;  - Live E2E: 20 fake MCP tools registered, get_tool_definitions returns&#10;    3 bridges, tool_search returns top 3 hits, tool_describe returns&#10;    full schema, tool_call dispatches to the real underlying handler&#10;    and the underlying result is what the model sees.&#10;  - Reserved-name recursion guard verified live.&#10;  - Core-tool refusal via tool_call verified live.&#10;&#10;(cherry picked from commit 369075dc95bb998fdf493ef0f97dfa2d19c43d82)" />
+    <MESSAGE value="fix(tool-search): scope bridge catalog + dispatch to the session's toolsets&#10;&#10;Tool Search read its catalog from the global registry (get_tool_definitions&#10;with no toolset scope = 'start with everything'), so a restricted-toolset&#10;session — subagent, kanban worker, curated gateway session — could:&#10;&#10;  1. tool_search the entire process registry, not just its granted tools, and&#10;  2. tool_call any registered plugin/MCP tool it was never given, because&#10;     registry.dispatch() has no enabled_tools gate for non-execute_code tools.&#10;&#10;A scoped session (enabled_toolsets=['mcp-github']) reported total_available=26&#10;and successfully invoked an out-of-scope plugin tool via tool_call.&#10;&#10;Fix:&#10;- handle_function_call gains enabled_toolsets/disabled_toolsets; the bridge&#10;  dispatch scopes get_tool_definitions to them (also stops polluting the&#10;  process-global _last_resolved_tool_names with out-of-scope tools, which&#10;  leaked into execute_code's sandbox-tool fallback).&#10;- A defense-in-depth gate rejects any tool_call'd name not in the scoped&#10;  deferrable catalog.&#10;- tool_executor's unwrap (both concurrent + sequential paths) enforces the&#10;  same scope before dispatch, since it unwraps tool_call -&gt; underlying name&#10;  and bypasses the bridge branch. New _tool_search_scoped_names() helper,&#10;  cached per-agent on registry generation + toolset scope.&#10;- New scoped_deferrable_names() helper in tool_search.py shared by both sites.&#10;&#10;Tests: 4 new regression tests in TestRegression_ToolsetScoping (scoped&#10;catalog, out-of-scope tool_call rejection, no global pollution, helper).&#10;&#10;(cherry picked from commit 7427b9d5812f3bd4deb47340ab64ef86e605c27e)" />
+    <MESSAGE value="feat(tools): skills-style catalog listing for tool_search progressive disclosure&#10;&#10;Deferred MCP/plugin tools become invisible once the tool_search bridge&#10;activates — live benchmarking (48 runs, Claude Haiku 4.5) showed models&#10;substituting visible core tools (terminal/web_search/browser) for deferred&#10;capabilities or declaring them nonexistent instead of searching: 16/24&#10;task success vs 24/24 with eager loading.&#10;&#10;Skills never had this failure mode because every skill keeps a ~21-token&#10;name+description listing line in the system prompt. This ports that exact&#10;pattern to the tool bridge: when tool_search activates, a grouped manifest&#10;of every deferred tool (name + first sentence of description, clipped to&#10;60 chars, grouped per MCP server / toolset) is embedded in the tool_search&#10;bridge description.&#10;&#10;- tools/tool_search.py: build_catalog_listing() with deterministic&#10;  ordering (byte-stable across assemblies -&gt; prompt prefix stays&#10;  cacheable); token-budget fallbacks full -&gt; names-only -&gt; legacy bare&#10;  count; bridge_tool_schemas(listing=...) embeds it and instructs the&#10;  model to skip tool_search when the exact name is visible (one fewer&#10;  round-trip per use)&#10;- config: tools.tool_search.listing auto|on|off (default auto),&#10;  listing_max_tokens (default 4000, clamped 200..20000); legacy bool&#10;  shapes keep working&#10;- tests: 8 new tests (config parsing/clamps, short-desc clipping,&#10;  deterministic rendering, budget fallbacks, bridge embedding, assembly&#10;  on/off paths); full file green (47 passed)&#10;- docs: tool-search.md config table + rationale&#10;- scripts/tool_search_livetest2.py: benchmark harness v2 with real&#10;  per-call token accounting (normalize_usage spy) and a third 'listing'&#10;  mode for A/B/C comparison&#10;&#10;(cherry picked from commit e869accc1a1269b096716d606376d24df2bb6643)" />
+    <MESSAGE value="feat(tools): tiered tool disclosure — always defer MCP/plugin tools, scale the listing with catalog size&#10;&#10;Tier 0: no MCP/plugin tools -&gt; everything eager (pass-through).&#10;Tier 1: deferred tools whose catalog listing fits min(threshold_pct%&#10;        of context, listing_max_tokens) -&gt; bridge + skills-style&#10;        listing, degrading to names-only over budget.&#10;Tier 2: listing over budget even names-only (Cloudflare's flat API&#10;        surface: 3,320 tools, names alone ~32K tokens) -&gt; bare bridge,&#10;        discovery through tool_search only.&#10;&#10;The old activation threshold (defer only when schemas &gt; threshold_pct&#10;of context) let mid-size catalogs ride eager and pay full schema cost;&#10;with servers like Cloudflare (~597K tokens of schema, would not even&#10;fit a 200K window) the binary gate is the wrong shape. Activation is&#10;now driven purely by deferrable-tool presence; threshold_pct is&#10;repurposed as the listing budget's context-relative leg.&#10;&#10;- AssemblyResult gains tier + listing_form for observability&#10;- listing_max_tokens default 4000 -&gt; 20000 (cap 60000) so an 830-tool&#10;  catalog keeps a names-only listing while Cloudflare-scale drops to&#10;  bare bridge&#10;- E2E verified against real captures: Linear 24 tools -&gt; tier 1 full,&#10;  Epic UE 5.8 830 tools -&gt; tier 1 names-only, Cloudflare 3,320 tools&#10;  -&gt; tier 2 (both 200K and 1M context)&#10;&#10;(cherry picked from commit 0986ac393f9dd96ae2a3196543214a542af4e7f5)" />
+    <MESSAGE value="tool 工具相关" />
+    <MESSAGE value="tool search 分层式渐进式披露" />
+    <MESSAGE value="mcp server部分" />
+    <MESSAGE value="sandbox" />
+    <MESSAGE value="调用sandbox也是通过tool工具来实现" />
+    <MESSAGE value="sandbox 执行命令" />
+    <MESSAGE value="fix(compression): harden provider context handoff&#10;&#10;(cherry picked from commit 34bab1c6acc3cc3c668d4afdfeb480ef696ec422)" />
+    <MESSAGE value="fix(security): extend secret redaction to GitLab token families&#10;&#10;Port from openclaw/openclaw#112954. The redactor knew GitHub, Slack,&#10;Google, Stripe, AWS access-key-ID and ~25 other vendor prefixes but had&#10;zero GitLab coverage — glpat-/gloas-/gldt-/glrt-/glrtr-/glcbt-/glptt-/&#10;glft-/glimt-/glagent-/glsoat-/glffct-/glwt- tokens and legacy GR1348941&#10;runner registration tokens passed through display and log surfaces&#10;verbatim. Follow-up explicitly invited when #4541 was closed.&#10;&#10;Each pattern keeps a full literal prefix so the _PREFIX_SUBSTRINGS&#10;pre-screen (derived at module load) stays false-negative-free; routable&#10;runner tokens allow dotted segments. Sibling site: skills_guard's&#10;credential-exposure scan gains a gitlab_token_leaked pattern.&#10;&#10;(cherry picked from commit 950fe236d0e08d0739d6a2bd90290c30ebcf5272)" />
+    <MESSAGE value="fix: redact .env terminal output via detection instead of known-env-var list&#10;&#10;Terminal output from file-read commands (cat, head, tail, ...) uses&#10;code_file=True, which skips the generic ENV-assignment redaction pass.&#10;Reading a .env file through the terminal therefore leaked any key whose&#10;value has no recognized vendor prefix (Mistral, Gemini AQ.*, tvly-dev-,&#10;bu_, Spotify client secrets).&#10;&#10;Detect file-read commands targeting .env-style basenames (mirroring&#10;agent/file_safety's blocked list) and route them to code_file=False so&#10;the existing ENV pass masks opaque values. Templates (.env.example,&#10;.env.sample, ...) are excluded.&#10;&#10;Salvaged from #61352 (145 commits of drift; conflict with the test-prune&#10;wave resolved by NOT resurrecting pruned tests). Authored by @ShaoRou459.&#10;&#10;Closes #61352&#10;&#10;(cherry picked from commit cf755f5c4232ddf5841c33ae3f2a0f07b49e45fa)" />
+    <MESSAGE value="fix: harden .env-read detection — review follow-ups for #61352&#10;&#10;- Import file_safety._BLOCKED_PROJECT_ENV_BASENAMES instead of copying&#10;  it (comment-enforced parallel lists drift); lookup is now&#10;  case-insensitive to match file_safety's .lower() semantics (cat .ENV&#10;  on macOS/Windows case-insensitive filesystems reads the same secrets).&#10;- Strip shell quotes plain split() leaves attached (cat &quot;.env&quot;).&#10;- Drop the dead _ENV_FILE_EXCLUDE_SUFFIXES logic (exact-basename&#10;  membership already excludes templates) and the stray blank-line noise.&#10;- Document the defense-in-depth limits (sudo/full-path/substitution&#10;  readers) mirroring is_env_dump_command's precedent, and correct the&#10;  docstring overclaim about name-independence.&#10;- Annotate command as str | None (tests pass None).&#10;&#10;(cherry picked from commit 15d7103aa79183c0104a801310f9d88ce5f6c302)" />
+    <MESSAGE value="fix: reuse redact_sensitive_text, fix leaky abstraction, fix test data&#10;&#10;Follow-up fixes from /hermes-pr-review + /simplify-code on PR #83437:&#10;&#10;1. Replace _redact_secrets with agent.redact.redact_sensitive_text(force=True)&#10;   — the plugin's 11-pattern list was a strict subset of the 50+ patterns in&#10;   agent/redact.py. Secrets like Stripe keys, Google API keys, GitLab tokens,&#10;   HuggingFace tokens, DB connection strings, and Telegram bot tokens would&#10;   all leak through the plugin's list but are caught by the existing redactor.&#10;   Added pk-lf- (Langfuse public key) to _PREFIX_PATTERNS in agent/redact.py.&#10;&#10;2. Remove dead 'not isinstance(client, object)' check in on_session_finalize —&#10;   always False for any Python value.&#10;&#10;3. Fix MoAClient.last_reference_metrics() to call the public&#10;   self.chat.completions.last_reference_metrics() instead of reaching into&#10;   the private _last_reference_metrics attribute via getattr.&#10;&#10;4. Deduplicate _coerce_request_messages call in on_pre_llm_request — pass&#10;   pre_coerced=input_messages to _messages_for_langfuse_input to avoid&#10;   double-coercion + double _capture_content serialization per API request.&#10;&#10;5. Add HERMES_LANGFUSE_CAPTURE to OPTIONAL_ENV_VARS in hermes_cli/config.py&#10;   for consistency with the other HERMES_LANGFUSE_* env vars.&#10;&#10;6. Fix test_sanitized_mode_redacts_secrets test data — the old samples&#10;   ('sk-abc...1234', 'sk-ant...1234', 'Authorization: Bearer ***') were too&#10;   short to match the regex thresholds and never actually tested redaction.&#10;   Updated to realistic-length secrets and changed assertions to check that&#10;   the output differs from input (redact_sensitive_text masks rather than&#10;   inserting the literal string 'REDACTED').&#10;&#10;(cherry picked from commit ace830134ea393f17cbfff5018b6c375830a1977)" />
+    <MESSAGE value="fix(terminal): make bounded capture opt-in for the foreground terminal path only&#10;&#10;Review finding on the salvaged collector: _wait_for_process is the shared&#10;drain for EVERY env.execute() consumer, not just the terminal tool. Applying&#10;tool_output.max_bytes there silently truncated file-operation cat reads&#10;(read_file_raw feeds the patch engine — read-modify-write on any file &gt;50KB&#10;would corrupt it), paginated read_file, code-execution RPC reads, and log&#10;reads.&#10;&#10;bounded_capture is now an explicit opt-in on execute()/_wait_for_process,&#10;set only by the foreground terminal tool. Default preserves the historical&#10;full-fidelity capture via an effectively-unbounded collector (single code&#10;path). Modal transports accept the kwarg for signature parity.&#10;&#10;New regression test: default execute() returns a 200KB payload complete and&#10;untruncated. E2E: 20MB internal read intact; ShellFileOperations&#10;read_file_raw round-trips byte-exact; terminal path still bounded at 50KB.&#10;&#10;(cherry picked from commit cab457d722a28d60cd90d3cd6c7e5b55a12b659a)" />
+    <MESSAGE value="test(terminal): expect bounded_capture=True in foreground execute kwargs&#10;&#10;The terminal tool's foreground path now opts into bounded capture; the&#10;task-cwd tests assert the exact execute() kwargs and needed the new key.&#10;&#10;(cherry picked from commit 51580e192b548eb4af8ede85a5233800a8a269d9)" />
+    <MESSAGE value="sandbox done" />
+    <MESSAGE value="fix(plugins): isolate ownership by profile&#10;&#10;(cherry picked from commit 85020f2238d254456bb428de6ea5503a19dc9633)" />
+    <MESSAGE value="feat(plugins): capability declarations + install/update consent flow (#64228)&#10;&#10;Unify the scattered per-plugin trust gates into one declared, diffable&#10;capability model with an install/update-time consent flow. Consent +&#10;audit over host API surfaces — explicitly NOT a sandbox.&#10;&#10;New module hermes_cli/plugin_capabilities.py:&#10;- Canonical CAPABILITY_REGISTRY mapping each capability id 1:1 to an&#10;  EXISTING enforcing gate (no capability minted without a surface):&#10;    tools.override          -&gt; allow_tool_override&#10;    llm.provider_override   -&gt; llm.allow_provider_override&#10;    llm.model_override      -&gt; llm.allow_model_override&#10;    llm.agent_id_override   -&gt; llm.allow_agent_id_override&#10;    llm.profile_override    -&gt; llm.allow_profile_override&#10;    llm.task_override       -&gt; llm.allow_task_override&#10;- plugin_capability_granted(plugin_id, capability): canonical check —&#10;  granted set OR deprecated legacy allow_* key; fail closed on unknown&#10;  ids and any unreadable/corrupt consent state; emits checked_by audit&#10;  log lines on every decision.&#10;- record_consent() persists plugins.entries.&lt;id&gt;.granted_capabilities +&#10;  capabilities_consent {hash, granted_at} and mirrors grants into the&#10;  legacy keys so existing enforcement sites keep working unchanged.&#10;- capability_set_hash / pending_capabilities / declared_set_changed&#10;  power the update-time re-consent diff.&#10;&#10;Wiring:&#10;- plugin.yaml manifest field `capabilities:` parsed into&#10;  PluginManifest.capabilities (unknown ids dropped with a warning).&#10;- hermes plugins install: consent screen (one Y/n) when the manifest&#10;  declares capabilities; non-interactive installs proceed with&#10;  capabilities ungranted (fail closed).&#10;- hermes plugins update: when the new version declares capabilities the&#10;  granted set lacks (hash diff), the additions are surfaced and require&#10;  re-consent — an update can never silently widen access.&#10;- hermes plugins enable: consent screen replaces the standalone&#10;  tool-override prompt for capability-declaring plugins.&#10;- hermes plugins capabilities [&lt;id&gt;]: declared vs granted per plugin,&#10;  flags grants held via deprecated legacy keys.&#10;- PluginContext.has_capability() probing API so plugins degrade&#10;  gracefully; _tool_override_allowed migrated to the canonical&#10;  plugin_capability_granted path (reference migration; legacy&#10;  allow_tool_override still honored).&#10;&#10;Tests: tests/hermes_cli/test_plugin_capabilities.py (38 tests) —&#10;declaration parsing, consent grant/persist, update re-consent on added&#10;capability, fail-closed on missing/corrupt state, legacy-gate backward&#10;compat, consent CLI flow (grant / decline / non-interactive).&#10;&#10;Docs: user-guide plugins.md consent section (with explicit not-a-sandbox&#10;warning) + developer-guide plugin authoring capability note.&#10;&#10;Salvages the intent of PR #37976 (@coygeek — require renewed review&#10;before plugin updates), scoped to capability diffs.&#10;&#10;Part of #64182.&#10;&#10;(cherry picked from commit b088535c7811fb4a5a0ba68c924c04df30e52620)" />
+    <MESSAGE value="插件系统 加载过程1" />
+    <option name="LAST_COMMIT_MESSAGE" value="插件系统 加载过程1" />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
+          <line>1885</line>
+          <option name="timeStamp" value="2" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
+          <line>1991</line>
+          <option name="timeStamp" value="3" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
+          <line>2335</line>
+          <option name="timeStamp" value="4" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
+          <line>2623</line>
+          <option name="timeStamp" value="5" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
+          <line>2887</line>
+          <option name="timeStamp" value="11" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
+          <line>3203</line>
+          <option name="timeStamp" value="13" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/agent/tool_executor.py</url>
+          <line>1931</line>
+          <option name="timeStamp" value="17" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/model_tools.py</url>
+          <line>509</line>
+          <option name="timeStamp" value="19" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/agent/tool_executor.py</url>
+          <line>2045</line>
+          <option name="timeStamp" value="20" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/agent/tool_executor.py</url>
+          <line>2047</line>
+          <option name="timeStamp" value="21" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tools/skills_tool.py</url>
+          <line>1944</line>
+          <option name="timeStamp" value="25" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
+          <line>7449</line>
+          <option name="timeStamp" value="32" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
+          <line>7454</line>
+          <option name="timeStamp" value="35" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
+          <line>7352</line>
+          <option name="timeStamp" value="36" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
+          <line>3726</line>
+          <option name="timeStamp" value="38" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
+          <line>6769</line>
+          <option name="timeStamp" value="39" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/.venv/Lib/site-packages/mcp/client/session.py</url>
+          <line>518</line>
+          <option name="timeStamp" value="40" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
+          <line>3099</line>
+          <option name="timeStamp" value="44" />
+        </line-breakpoint>
+        <line-breakpoint suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/.venv/Lib/site-packages/mcp/client/stdio/__init__.py</url>
+          <line>110</line>
+          <option name="timeStamp" value="45" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tools/terminal_hints.py</url>
+          <line>27</line>
+          <option name="timeStamp" value="47" />
+        </line-breakpoint>
+      </breakpoints>
+      <default-breakpoints>
+        <breakpoint type="python-exception">
+          <properties notifyOnTerminate="true" exception="BaseException">
+            <option name="notifyOnTerminate" value="true" />
+          </properties>
+        </breakpoint>
+      </default-breakpoints>
+    </breakpoint-manager>
+  </component>
+  <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/hermes_agent$skills_tool.coverage" NAME="skills_tool Coverage Results" MODIFIED="1785496463670" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tools" />
+    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__TUI_.coverage" NAME="Hermes (TUI) Coverage Results" MODIFIED="1784550044047" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__CLI_.coverage" NAME="Hermes (CLI) Coverage Results" MODIFIED="1785495698435" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/hermes_agent$mcp_startup.coverage" NAME="mcp_startup Coverage Results" MODIFIED="1786107021952" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/hermes_cli" />
+  </component>
+</project>

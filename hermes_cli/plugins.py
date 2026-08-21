@@ -1820,43 +1820,47 @@ class PluginContext:
         arguments: Optional[Dict[str, Any]] = None,
         timeout: float = 30,
     ) -> Dict[str, Any]:
-        """Call a tool on a configured MCP server (#64204, capability-gated).
+        """
+        在已配置的 MCP 服务器上调用工具（#64204，受能力限制）。
+        
+        同步调用；
+        在插件钩子（hooks）和工具中调用是安全的。
+        通过 `:mod:`tools.mcp_tool`` 中现有的原生 MCP 客户端机制进行路由
+        （包括后台循环、信任层级门控、断路器、重连以及结果渲染）——
+        绝不会创建并行的客户端或连接。
 
-        Synchronous; safe to call from plugin hooks and tools. Routes through
-        the EXISTING native MCP client machinery in :mod:`tools.mcp_tool`
-        (background loop, trust-tier gates, circuit breaker, reconnect and
-        result rendering) — never a parallel client or connection.
-
-        Default-off: a plugin has NO MCP access until the operator lists the
-        servers it may reach under ``plugins.entries.<plugin_id>.mcp_allowlist``
-        in config.yaml::
+        默认关闭：
+        插件没有任何 MCP 访问权限，
+        除非操作员在 `config.yaml` 中的 ``plugins.entries.<plugin_id>.mcp_allowlist``
+        下列出其可以访问的服务器：
 
             plugins:
               entries:
                 my-plugin:
                   mcp_allowlist: ["knowledge_rag", "github"]
 
-        Calls to unlisted servers raise :class:`PermissionError`. This is a
-        per-server grant, deliberately not ambient authority over every
-        configured server.
-        # TODO(#64228): swap the per-server allowlist for the declared
-        # capability model once it lands (per-tool grants, expiry, ro/rw).
+        调用未列出的服务器会引发 `:class:`PermissionError``。
+        这是一个基于单台服务器的授权，
+        特意避免赋予对所有已配置服务器的全局环境权限。
 
-        Args:
-            server: MCP server name as configured in ``mcp.servers``.
-            tool: Tool name on that server (unprefixed).
-            arguments: JSON-serializable arguments dict for the tool.
-            timeout: Seconds to wait for the call (default 30) so a hung
-                MCP server can never stall the hook/tool pipeline.
+        # TODO(#64228): 一旦声明的能力模型落地，
+        # 就将基于单台服务器的允许列表替换为该模型
+        # （包括基于每个工具的授权、过期时间、只读/读写）。
 
-        Returns:
-            Envelope dict: ``{"ok": True, "result": <parsed result>}`` on
-            success or ``{"ok": False, "error": <message>}`` when the MCP
-            call itself failed. Results larger than ~64KB are truncated
-            with a marker.
+        **参数 (Args):**
+        *   **server:** 在 ``mcp.servers`` 中配置的 MCP 服务器名称。
+        *   **tool:** 该服务器上的工具名称（不含前缀）。
+        *   **arguments:** 供该工具使用的可 JSON 序列化的参数字典。
+        *   **timeout:** 等待调用的秒数（默认为 30），以确保挂起的 MCP 服务器永远不会阻塞钩子/工具流水线。
 
-        Raises:
-            PermissionError: server not in this plugin's ``mcp_allowlist``.
+        **返回值 (Returns):**
+        *   信封字典（Envelope dict）：
+            成功时返回 ``{"ok": True, "result": <解析后的结果>}``，
+            或者当 MCP 调用本身失败时返回 ``{"ok": False, "error": <错误信息>}``。
+            大于约 64KB 的结果将被截断并带有标记。
+
+        **引发异常 (Raises):**
+        *   **PermissionError:** 服务器不在该插件的 ``mcp_allowlist`` 中。
         """
         plugin_id = self.manifest.key or self.manifest.name
         allowlist = self._mcp_allowlist(plugin_id)
@@ -3144,12 +3148,12 @@ class PluginContext:
         position: str = "after_memory",
         max_chars: int = DEFAULT_SYSTEM_PROMPT_SECTION_MAX_CHARS,
     ) -> PluginRegistration:
-        """Register bounded context that is frozen into each new session prompt.
-
-        Callables receive a read-only session-info mapping. The rendered full
-        system prompt is already persisted by core and restored verbatim, so no
-        parallel plugin-section state is needed for process restarts.
-        """
+        # 注册受限上下文，
+        # 该上下文会被固定在每个新会话的提示词中。
+        #
+        # 可调用对象（Callables）将接收到一个只读的会话信息映射。
+        # 渲染完成的完整系统提示词已由核心模块持久化，并会原样恢复；
+        # 因此，在进程重启时，不需要额外维护并行的插件区域状态。
         if not is_valid_system_prompt_section_id(id):
             raise ValueError(
                 "system prompt section id must be 1-128 lowercase characters "

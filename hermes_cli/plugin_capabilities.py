@@ -1,55 +1,56 @@
-"""Plugin capability declarations + consent state (#64228).
-
-Unifies the scattered per-plugin trust gates (``plugins.entries.<id>.allow_*``)
-into one declared, diffable **capability model** with install/update-time
-consent.
-
-**This is NOT a sandbox.** In-process Python plugins remain trusted code — a
-malicious plugin can import anything, monkey-patch core, and ignore all of
-this. Capabilities govern the *host API surfaces* Hermes hands out (which
-registrations succeed, which ``ctx`` methods are live) and give the user an
-honest consent + audit trail. Actual isolation is a separate research track.
-
-Canonical registry
-------------------
-Every capability id maps 1:1 to a trust gate that **already exists** on the
-enforcing surface. We deliberately do not mint capability ids without an
-enforcing gate:
-
-===========================  ==================================================
-Capability id                Legacy config gate (``plugins.entries.<id>.…``)
-===========================  ==================================================
-``tools.override``           ``allow_tool_override``
-``llm.provider_override``    ``llm.allow_provider_override``
-``llm.model_override``       ``llm.allow_model_override``
-``llm.agent_id_override``    ``llm.allow_agent_id_override``
-``llm.profile_override``     ``llm.allow_profile_override``
-``llm.task_override``        ``llm.allow_task_override``
-``gateway.platform_actions`` ``allow_platform_actions``
-===========================  ==================================================
-
-The legacy ``allow_*`` keys keep working verbatim (deprecated but honored):
-a gate is open when the legacy key is true **or** the capability is granted.
-
-Consent state
--------------
-Stored under the plugin's config entry::
-
-    plugins:
-      entries:
-        <plugin_id>:
-          granted_capabilities: [tools.override]
-          capabilities_consent:
-            hash: "<sha256 of the declared capability set at consent time>"
-            granted_at: "2026-08-12T00:00:00+00:00"
-
-The hash records *what the user saw* when they consented. When an update
-declares capabilities whose set hash differs, the additions stay ungranted
-until the user re-consents (``hermes plugins update`` surfaces the diff).
-
-Ground rule: everything defaults OFF. Any failure to read consent state
-(missing config, corrupt YAML, wrong types) means **not granted**.
-"""
+# 插件能力声明 + 授权同意状态（#64228）。
+#
+# 将分散的、按插件划分的信任门控（`plugins.entries.<id>.allow_*`）
+# 统一为一个声明式的、可进行差异对比的**能力模型**，
+# 并在安装或更新时要求用户授权同意。
+#
+# **这不是一个沙箱。**
+# 进程内的 Python 插件仍然是受信任的代码——
+# 恶意插件可以导入任何内容、对核心代码进行猴子补丁（monkey-patch），
+# 并无视上述所有限制。
+# 能力（Capabilities）管控的是 Hermes 提供给插件的 *宿主 API 接口面*
+# （即决定哪些注册会成功，哪些 `ctx` 方法处于激活状态），
+# 从而为用户提供真实的授权同意流程与审计跟踪记录。
+# 实际的代码隔离机制属于另一个独立的研究方向。
+#
+# ## 规范注册表
+#
+# 每个能力 ID 都与执行面上**已存在**的信任门控进行 1:1 映射。
+# 我们刻意避免创建没有对应执行门控的能力 ID：
+#
+# | 能力 ID (Capability id) | 旧版配置门控 (`plugins.entries.<id>.…`) |
+# | :--- | :--- |
+# | `tools.override` | `allow_tool_override` |
+# | `llm.provider_override` | `llm.allow_provider_override` |
+# | `llm.model_override` | `llm.allow_model_override` |
+# | `llm.agent_id_override` | `llm.allow_agent_id_override` |
+# | `llm.profile_override` | `llm.allow_profile_override` |
+# | `llm.task_override` | `llm.allow_task_override` |
+# | `gateway.platform_actions` | `allow_platform_actions` |
+#
+# 旧版的 `allow_*` 键会按原样继续生效（已被废弃但仍受支持）：
+# 当旧版键为 true **或者** 相应能力被授予时，门控即为开启状态。
+#
+# ## 授权同意状态
+#
+# 存储在插件的配置项下：
+#
+#     plugins:
+#       entries:
+#         <plugin_id>:
+#           granted_capabilities: [tools.override]
+#           capabilities_consent:
+#             hash: "<用户授权同意时声明的能力集合的 sha256 哈希值>"
+#             granted_at: "2026-08-12T00:00:00+00:00"
+#
+# 该哈希值记录了用户在授权同意时*所看到的内容*。
+# 当插件更新后，其声明的能力集合的哈希值若发生变化，
+# 新增的能力将保持未授权状态，
+# 直到用户重新授权同意（`hermes plugins update` 命令会展示这些差异）。
+#
+# 基本原则：所有功能默认**关闭 (OFF)**。
+# 任何读取授权同意状态的失败（如配置缺失、YAML 损坏、类型错误），
+# 均被视为**未授权 (not granted)**。
 
 from __future__ import annotations
 

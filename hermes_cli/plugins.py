@@ -3220,27 +3220,26 @@ class PluginContext:
     # -- inter-plugin event bus --------------------------------------------
 
     def emit(self, event: str, payload: Optional[dict] = None) -> int:
-        """Publish *event* to all subscribers; return the number invoked.
+        """将 *event* 发布给所有订阅者；返回已调用的订阅者数量。
 
-        The event is delivered as ``<plugin_key>:<event>`` where
-        ``plugin_key`` is FORCED to this plugin's own registry key
-        (``manifest.key or manifest.name``). Pass only the bare event name —
-        a plugin may only publish under its own namespace.
+        事件将以 ``<plugin_key>:<event>`` 的形式进行分发，其中
+        ``plugin_key`` 被强制设置为该插件自身的注册键
+        （``manifest.key or manifest.name``）。只需传入不带命名空间的事件名称 ——
+        插件只能在其自身的命名空间下进行发布。
 
-        Passing an already-namespaced name (anything containing ``':'``,
-        including ``hermes:x`` or a foreign ``other:x``) is rejected with a
-        ``ValueError`` and a logged warning — fail-closed. The ``hermes:``
-        prefix is reserved for core.
+        如果传入已包含命名空间的名称（任何包含 ``':'`` 的名称，
+        包括 ``hermes:x`` 或其他插件的 ``other:x``），系统将抛出
+        ``ValueError`` 并记录警告日志 —— 采用安全失败（fail-closed）机制。
+        ``hermes:`` 前缀为核心系统保留。
 
-        Delivery is fire-and-forget through a host-owned, single-worker queue:
-        registration order is preserved, while a blocking subscriber cannot
-        stall the emitter. The queue has a bounded pending budget; a full
-        budget drops the new event with a warning. Each subscriber receives a
-        deep-copied payload and is isolated in its own ``try/except``. Awaitable
-        results are resolved through the existing loop-safe plugin path.
+        分发采用“发后即忘”（fire-and-forget）机制，通过宿主拥有的单 worker 队列处理：
+        这既保留了注册顺序，又避免了阻塞的订阅者拖慢发送者。
+        队列设有待处理任务的容量上限；当容量满载时，新事件将被丢弃并记录警告。
+        每个订阅者都会收到一份深拷贝的 payload，且运行在独立的 ``try/except`` 隔离环境中。
+        可等待（Awaitable）的结果将通过现有的事件循环安全（loop-safe）插件路径进行解析。
 
-        Returns the count of subscriber callbacks scheduled (0 when there are
-        no subscribers, or when the pending/recursion budget drops the emit).
+        返回已排期的订阅者回调函数数量（当没有订阅者，
+        或者因容量上限/递归预算超限导致 emit 被丢弃时，返回 0）。
         """
         plugin_key = self.manifest.key or self.manifest.name
         if not event or not isinstance(event, str):
@@ -3272,15 +3271,16 @@ class PluginContext:
         return self._manager._dispatch_event(full_event, payload or {})
 
     def subscribe(self, event: str, callback: Callable) -> None:
-        """Subscribe *callback* to a fully-qualified event name.
+        """将 *callback* 订阅到一个全限定（fully-qualified）事件名称上。
 
-        *event* is the full ``<plugin_key>:<event>`` name (or ``hermes:<event>``
-        if core ever emits). Subscribing is unrestricted — any plugin may
-        listen to any published event; only *emitting* is namespace-gated.
+        *event* 为完整的 ``<plugin_key>:<event>`` 名称
+        （或者是核心系统发出的 ``hermes:<event>``）。
+        订阅操作是不受限制的 —— 任何插件都可以监听任何已发布的事件；
+        只有 *发送（emitting）* 操作才会受命名空间门控限制。
 
-        Callbacks are stored in registration order as host-owned ledger
-        entries. The owner key lets plugin unload/reload remove subscriptions
-        before any later event can invoke a zombie callback.
+        回调函数会按注册顺序存储为宿主拥有的账本条目（ledger entries）。
+        所有者键（owner key）允许插件在卸载/重新加载时移除订阅，
+        从而避免后续任何事件触发僵尸回调（zombie callback）。
         """
         if not event or not isinstance(event, str):
             raise ValueError(
@@ -3398,9 +3398,9 @@ class PluginManager:
     """Central manager that discovers, loads, and invokes plugins."""
 
     def __init__(self, scope_key: Optional[str] = None) -> None:
-        # Capture the home immutably. Unload can run from a different ambient
-        # profile context, but every inverse must target the registration's
-        # original scope.
+        # 永久捕获 home 作用域。
+        # 卸载过程可能会在不同的环境配置上下文中运行，
+        # 但每一次逆向（恢复）操作都必须针对该注册信息的原始作用域。
         self.scope_key = scope_key or hermes_home_key()
         self.home_path = Path(self.scope_key)
         self._discovery_lock = threading.RLock()
@@ -3419,14 +3419,16 @@ class PluginManager:
         # Plugin skill registry: qualified name → metadata dict.
         self._plugin_skills: Dict[str, Dict[str, Any]] = {}
         self._portable_mcp_servers: Dict[str, Dict[str, Any]] = {}
-        # Plugin-registered auxiliary tasks: key → {key, display_name,
-        # description, defaults, plugin}. See PluginContext.register_auxiliary_task.
+        # 插件注册的辅助任务：key → {key, display_name,
+        # description, defaults, plugin}。详见 PluginContext.register_auxiliary_task。
         self._aux_tasks: Dict[str, Dict[str, Any]] = {}
-        # Explicitly-selected, profile-scoped human approval transports.
+        # 显式选择的、作用域限定于配置文件（profile-scoped）的人工审批传输介质（transports）。
         self._approval_transports: Dict[str, Any] = {}
-        # Inter-plugin event bus. Subscriptions are owner-tagged ledger entries
-        # so unload/reload can remove zombie callbacks. A single daemon worker
-        # preserves registration order while keeping emitters non-blocking.
+        # 插件间事件总线（Inter-plugin event bus）。
+        # 订阅记录是带有所有者标记的账本条目（ledger entries），
+        # 这样在卸载/重新加载时便能清理僵尸回调（zombie callbacks）。
+        # 单个守护进程工作线程（daemon worker）在保持发送者非阻塞的同时，
+        # 还能保证注册顺序不被打乱。
         self._subscriptions: Dict[str, List[_EventSubscription]] = {}
         self._event_lock = threading.RLock()
         self._event_idle = threading.Condition(self._event_lock)
@@ -3436,31 +3438,29 @@ class PluginManager:
             maxsize=_EVENT_PENDING_CAP
         )
         self._event_worker: Optional[threading.Thread] = None
-        # Per-worker chain depth caps mutually-emitting plugins even though each
-        # re-entrant emit is queued rather than invoked recursively.
+        # 即使每个重入的 emit 操作都是排队处理而非递归调用，
+        # 单 worker 的链式深度上限仍然能对相互触发 emit 的插件进行限制。
         self._emit_depth = threading.local()
-        # Slack Block Kit action handlers registered by plugins. Each entry
-        # is (matcher, callback, plugin_name); the Slack adapter wires them
-        # into its slack_bolt App at connect() time. ``matcher`` is whatever
-        # ``app.action()`` accepts (a literal action_id string, a compiled
-        # ``re.Pattern``, or a constraint dict); ``callback`` is an async
-        # function with the slack_bolt signature ``(ack, body, action)``.
+
+        # 由插件注册的 Slack Block Kit 动作处理程序。
+        # 每个条目形式为 (matcher, callback, plugin_name)；
+        # Slack 适配器会在 connect() 阶段将它们接入其 slack_bolt App 中。
+        # 其中 ``matcher`` 可以是 ``app.action()`` 接受的任意类型（如 action_id 字符串字面量、已编译的 ``re.Pattern``，或约束条件字典）；
+        # ``callback`` 是一个符合 slack_bolt 签名 ``(ack, body, action)`` 的异步函数。
         self._slack_action_handlers: List[tuple] = []
-        # Registration handles are kept both per plugin (ownership lookup) and
-        # globally (reverse-order teardown for overrides spanning plugins).
+
+        # 注册句柄既按插件独立保存（用于所有权查找），
+        # 也进行全局保存（用于跨插件覆盖时的逆序拆卸）。
         #
-        # Multi-profile constraint (#65593): several process-global registries
-        # (tools, platforms, providers) are shared across profiles while
-        # multiple PluginManager instances may coexist in one process (keyed
-        # by resolved hermes home). The ledger is therefore keyed per manager
-        # — i.e. per (hermes_home, plugin_id) — and every release/restore
-        # closure is identity-conditional, so one profile's unload can never
-        # clear another profile's registrations. Registry overlays keyed by
-        # scope_key (see tools/registry.py and gateway/platform_registry.py)
-        # carry the profile dimension; anything still process-global is
-        # guarded by the identity checks. TODO(#64178): extend explicit
-        # profile keying to any remaining process-global slots when the
-        # symmetric force-reload lands.
+        # 多 Profile 约束 (#65593)：
+        # 尽管一个进程中可能同时存在多个 PluginManager 实例（以解析后的 hermes home 作为 key），
+        # 但若干进程全局的注册表（tools、platforms、providers）是由多个 profile 共享的。
+        # 因此，账本（ledger）以每个 manager 为单位进行索引 — 即以 (hermes_home, plugin_id) 为 key —
+        # 并且每个 release/restore 闭包都会进行身份校验（identity-conditional），
+        # 从而确保某个 profile 的卸载绝不会清理掉另一个 profile 的注册项。
+        # 按照 scope_key 索引的注册表覆盖层（参见 tools/registry.py 和 gateway/platform_registry.py）承载了 profile 维度；
+        # 任何仍属于进程全局的内容均受到身份检查的保护。
+        # TODO(#64178): 当对称式强制重载（force-reload）落地时，将显式的 profile 索引扩展到所有剩余的进程全局槽位中。
         self._ownership_ledger: Dict[str, List[PluginRegistration]] = {}
         self._registration_order: List[PluginRegistration] = []
         # Deferred platform plugins whose client tools were registered at
@@ -5297,11 +5297,12 @@ class PluginManager:
             )
 
     def _dispatch_event(self, event: str, payload: Dict[str, Any]) -> int:
-        """Queue *event* without blocking; return subscriber count scheduled.
+        """以非阻塞方式将 *event* 入队；返回已排期的订阅者数量。
 
-        A single daemon worker preserves registration order. Pending work is
-        bounded per manager generation so a blocking subscriber can consume at
-        most one worker while later emits are dropped once the budget is full.
+        单个守护进程工作线程（daemon worker）可以保持注册顺序。
+        每个 manager 代次（generation）的待处理任务量是有上限的，
+        因此一个阻塞的订阅者最多只能占用一个 worker，
+        而当任务预算满载后，后续的 emit 将会被丢弃。
         """
         depth = getattr(self._emit_depth, "value", 0)
         if depth >= _EVENT_EMIT_DEPTH_CAP:

@@ -4,7 +4,11 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="插件系统 加载过程1" />
+    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="插件系统 加载过程1">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hermes_cli/plugins.py" beforeDir="false" afterPath="$PROJECT_DIR$/hermes_cli/plugins.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hermes_constants.py" beforeDir="false" afterPath="$PROJECT_DIR$/hermes_constants.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -117,31 +121,32 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;Git.Working.Tree.Tab.closed.by.user&quot;: &quot;closed&quot;,
-    &quot;Python.Hermes (CLI).executor&quot;: &quot;Debug&quot;,
-    &quot;Python.Hermes (TUI).executor&quot;: &quot;Debug&quot;,
-    &quot;Python.mcp_startup.executor&quot;: &quot;Debug&quot;,
-    &quot;Python.skills_tool.executor&quot;: &quot;Debug&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
-    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
-    &quot;copilot.chat.legacySessionMetadata.migrated&quot;: &quot;true&quot;,
-    &quot;git.auto.fetch.suggestion.counter&quot;: &quot;3&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;prettierjs.PrettierConfiguration.Package&quot;: &quot;C:\\Users\\Administrator\\PycharmProjects\\example\\hermes-agent\\node_modules\\prettier&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;http.proxy&quot;,
-    &quot;ts.external.directory.path&quot;: &quot;C:\\Users\\Administrator\\PycharmProjects\\example\\hermes-agent\\node_modules\\typescript\\lib&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Git.Working.Tree.Tab.closed.by.user": "closed",
+    "Python.Hermes (CLI).executor": "Debug",
+    "Python.Hermes (TUI).executor": "Debug",
+    "Python.mcp_startup.executor": "Debug",
+    "Python.skills_tool.executor": "Debug",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "copilot.chat.legacySessionMetadata.migrated": "true",
+    "git-widget-placeholder": "upstream-branch",
+    "git.auto.fetch.suggestion.counter": "3",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "prettierjs.PrettierConfiguration.Package": "C:\\Users\\Administrator\\PycharmProjects\\example\\hermes-agent\\node_modules\\prettier",
+    "settings.editor.selected.configurable": "http.proxy",
+    "ts.external.directory.path": "C:\\Users\\Administrator\\PycharmProjects\\example\\hermes-agent\\node_modules\\typescript\\lib",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="C:\Users\Administrator\PycharmProjects\example\hermes-agent\plugins\platforms\HerEmail" />
@@ -244,6 +249,7 @@
       <workItem from="1786947923710" duration="12250000" />
       <workItem from="1787018265901" duration="22421000" />
       <workItem from="1787106417625" duration="26989000" />
+      <workItem from="1787296771548" duration="2692000" />
     </task>
     <task id="LOCAL-00001" summary="ai doc">
       <option name="closed" value="true" />
@@ -665,6 +671,11 @@
     <option name="TAB_STATES">
       <map>
         <entry key="066c1a02-8178-48d2-b212-15437b03b847">
+          <value>
+            <State />
+          </value>
+        </entry>
+        <entry key="MAIN">
           <value>
             <State />
           </value>

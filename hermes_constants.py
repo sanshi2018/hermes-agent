@@ -140,11 +140,11 @@ def get_hermes_home() -> Path:
 
 
 def hermes_home_key(path: str | Path | None = None) -> str:
-    """Return a stable key for a Hermes home/profile directory.
+    """返回一个针对 Hermes home/profile 目录的稳定键（key）。
 
-    Runtime registries use this key to isolate plugin-owned entries while
-    keeping built-in registrations process-global.  ``strict=False`` preserves
-    useful behavior for profiles whose directories have not been created yet.
+    运行时注册表利用该键来隔离插件专属的条目，
+    同时保持内置注册条目的进程全局性。
+    设置 ``strict=False`` 可以保留对尚未创建对应目录的 profile 的有效行为。
     """
     candidate = Path(path) if path is not None else get_hermes_home()
     resolved = candidate.expanduser().resolve(strict=False)

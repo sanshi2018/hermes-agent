@@ -98,6 +98,33 @@ Hermes 文档里的 "[API Server](https://hermes-agent.nousresearch.com/docs/use
 | Hermes (CLI) | `hermes --cli`（或直接 `hermes`，默认走经典 REPL） |
 | Hermes (TUI) | `hermes --tui` |
 | Hermes (API Server) | `API_SERVER_ENABLED=true API_SERVER_KEY=change-me-local-dev hermes gateway run` |
+| Hermes (Desktop) | `hermes desktop` |
+
+## Hermes Desktop 配置说明
+
+我已经按同一套 Run/Debug 方式补了一份共享配置：`.idea/runConfigurations/Hermes_Desktop.xml`。
+
+这份配置的关键点是：
+
+1. 使用项目根目录下的 `hermes` 启动脚本作为 Script path。
+2. 参数固定为 `desktop`，也就是等价于终端里的 `hermes desktop`。
+3. 工作目录是项目根目录，确保桌面客户端能找到 `apps/desktop` 和仓库内的资源。
+4. 没有勾选模拟终端，因为这是完整的 Electron 桌面 UI，不是 TUI/CLI。
+
+如果你在 PyCharm 里没有立刻看到它，执行一次 **File → Reload All from Disk**；还不行的话，手工新建一个 Python Run Configuration，填法如下：
+
+1. **Name**：`Hermes Desktop`
+2. **Script path**：选项目根目录下的 `hermes`
+3. **Parameters**：`desktop`
+4. **Working directory**：项目根目录
+5. **Python interpreter**：选择项目的虚拟环境（`.venv`）
+6. **Emulate terminal in output console**：不要勾选
+
+等价命令就是：
+
+```bash
+hermes desktop
+```
 
 其他常用命令（也可以照同样方式复制一份 Run Configuration，把 Parameters 换掉）：
 

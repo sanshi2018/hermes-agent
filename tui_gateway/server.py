@@ -1860,17 +1860,18 @@ def _default_session_cwd() -> str:
 
 
 def write_json(obj: dict) -> bool:
-    """Emit one JSON frame. Routes via the most-specific transport available.
-
-    Precedence:
-
-    1. Event frames with a session id → the transport stored on that session,
-       so async events land with the client that owns the session even if
-       the emitting thread has no contextvar binding.
-    2. Otherwise the transport bound on the current context (set by
-       :func:`dispatch` for the lifetime of a request).
-    3. Otherwise the module-level stdio transport, matching the historical
-       behaviour and keeping tests that monkey-patch ``_real_stdout`` green.
+    """
+    发送一个 JSON 帧。根据可用的最具体传输方式进行路由。
+    优先级顺序：
+    1. 包含 Session ID 的事件帧
+       → 路由至该 Session 绑定的传输方式。
+       即使发射线程未绑定上下文变量（contextvar），异步事件也能准确送达持有该 Session 的客户端。
+    2. 否则
+       → 使用当前上下文绑定的传输方式
+       （由 `:func:\`dispatch\`` 在请求生命周期内设置）。
+    3. 否则
+       → 使用模块级的 stdio 传输方式，
+       保持与历史行为一致，并确保对 ``_real_stdout`` 进行 Monkey Patch 修改的测试能够顺利通过。
     """
     if obj.get("method") == "event":
         sid = ((obj.get("params") or {}).get("session_id")) or ""
@@ -6525,17 +6526,19 @@ def _mirror_subagent_to_child(event_type: str, payload: dict) -> None:
     child_key = str(payload.get("child_session_id") or "")
     if not child_key:
         return
-    # Liveness registry first — it must be accurate even when no window is
-    # open, so a window opened mid-run can immediately know the child is busy.
+    # 首先更新活跃状态注册表（Liveness registry）——
+    # 即使当前没有打开任何窗口，它也必须保持准确，
+    # 以便在运行过程中（mid-run）新打开的窗口能够立即感知到子进程处于忙碌状态。
     if event_type == "subagent.complete":
         _active_child_runs.pop(child_key, None)
     else:
         _active_child_runs[child_key] = time.time()
-    # Mirror only into a live watch session (keyed by session_key; its live sid
-    # differs from the stored id) that has NOT been upgraded to a full agent.
-    # No window / closed → nothing to mirror; an upgraded session owns a real
-    # native stream and mirroring on top would interleave two turns on one sid.
-    # Either way drop state so a reopened window starts a fresh synthetic turn.
+    # 仅镜像输出（Mirror）至活跃的监控 Session（以 session_key 为标识；其活跃 sid 与保存的 id 不同），
+    # 且该 Session 尚未升级为完整的 Agent。
+    # 若无窗口或窗口已关闭 → 无需进行镜像；
+    # 若 Session 已升级，则它自身拥有一个真实的原生流（native stream），
+    # 此时若叠加镜像输出，会导致同一 sid 上交错出现两轮对话。
+    # 无论哪种情况，都需清除状态，以便重新打开的窗口能开启一轮全新的合成对话（synthetic turn）。
     live = _find_live_session_by_key(child_key)
     if live is None or live[1].get("agent") is not None:
         with _child_mirrors_lock:
@@ -6689,11 +6692,10 @@ def _agent_cbs(sid: str) -> dict:
         "tour_callback": lambda payload: _tour_request(sid, payload),
     }
 
-    # Interim assistant commentary (text alongside tool calls, or the attempted
-    # final answer before a verify-on-stop nudge). Gated on
-    # display.interim_assistant_messages (default true). Also set per-turn in
-    # _run_prompt_submit as defense-in-depth — the per-turn set overwrites
-    # this, and the finally block clears it so a stale closure can't fire.
+    # 助手中间过程说明（与工具调用同行的文本，或在触发“停止前校验/verify-on-stop”提示前的尝试性最终回答）。
+    # 受 display.interim_assistant_messages 开关控制（默认为 true）。
+    # 此外，为了纵深防御（defense-in-depth），在 _run_prompt_submit 中也会按轮次（per-turn）进行设置 —
+    # 按轮次设置的值会覆盖此处，且 finally 代码块会清除该值，从而防止失效的闭包再次被触发。
     if _load_interim_assistant_messages():
         callbacks["interim_assistant_callback"] = (
             lambda text, *, already_streamed=False: _emit(
@@ -11965,22 +11967,21 @@ def _run_prompt_submit(
                 with session["history_lock"]:
                     session["running"] = False
 
-        # Drain completion notifications that arrived during this turn.
-        # The background poller handles between-turn delivery; this is
-        # the safety net for events that arrived mid-turn.
+        # 清空（Drain）在本轮对话（turn）期间到达的完成通知。
+        # 后台轮询器负责轮询间隔（between-turn）的事件推送；
+        # 此处是针对在对话进行中（mid-turn）到达事件的防漏安全网（safety net）。
         #
-        # Ownership filter (#42674, #35652): a turn finishing in session B
-        # must not consume an event that belongs to session A. The registry
-        # requeues every addressed event this session cannot positively claim;
-        # the poller then delivers it to a live owner or drops an orphan.
+        # 所有权过滤器 (#42674, #35652)：在 Session B 中结束的一轮对话，
+        # 绝不能消耗属于 Session A 的事件。注册表（registry）会将本 Session
+        # 无法确切声明所有权（positively claim）的寻址事件重新入队；
+        # 随后轮询器会将该事件投递给活跃的所有者，或将其作为孤儿事件丢弃。
         try:
             from tools.process_registry import process_registry
 
-            # Positive-proof ownership (compression-chain aware) — the same
-            # fail-closed gate the poller uses, so the post-turn drain can't
-            # adopt another session's addressed notification while a
-            # post-compression session still claims its own pre-compression
-            # dispatches (#55578).
+            # 确定性归属证明（感知压缩链/compression-chain aware）——
+            # 与轮询器使用的“失败封闭（fail-closed）”关卡相同。
+            # 这样可以确保：在压缩后的 Session 仍能提取其压缩前发出的派发事件时，
+            # 对话结束后的清空操作（post-turn drain）不会误接收属于其他 Session 的寻址通知 (#55578)。
             drained = process_registry.drain_notifications(
                 session_key=session.get("session_key", ""),
                 owns_event=lambda e: _session_owns_notification_event(sid, session, e),

@@ -1787,34 +1787,32 @@ class ProcessRegistry:
         *,
         skip_poll_observed: bool = True,
     ) -> "list[tuple[dict, str]]":
-        """Pop all pending notification events and return formatted pairs.
+        """
+        弹出（Pop）所有挂起的通知事件并返回格式化后的数据对。
 
-        Returns a list of (raw_event, formatted_text) tuples.
-        Skips completion events the agent already consumed via wait/log or
-        observed inline via poll() (see ``_drain_should_skip``). Gateway/TUI
-        callers pass ``skip_poll_observed=False`` because read-only polling must
-        not suppress autonomous delivery there.
+        返回一个包含 (raw_event, formatted_text) 元组的列表。
+        跳过 Agent 已经通过 wait/log 消耗，或通过 poll()
+        轮询时已内联观察到的完成事件（参见 ``_drain_should_skip``）。
+        Gateway/TUI 调用方会传入 ``skip_poll_observed=False``，
+        因为在这些场景中，只读轮询绝不能抑制自主推送 delivery。
 
-        When a routing filter is supplied, addressed notifications must not be
-        drained into the wrong session. Async-delegation events always require
-        conversation payload; ordinary notifications require routing when they
-        carry ``session_key`` or ``origin_ui_session_id`` metadata. Two filter
-        modes are supported, strongest first:
+        当提供路由过滤器时，带有特定寻址信息的通知绝不能被误提取到错误的
+         Session 中。异步委托事件（Async-delegation events）始终需要会话载荷；
+         而普通通知在携带 ``session_key`` 或 ``origin_ui_session_id`` 元数据时同样需要路由。
+         支持两种过滤模式，优先级由高到低依次为：
 
-        - ``owns_event(evt) -> bool``: positive-proof ownership callback.
-          When provided, a routed event is consumed ONLY if the callback
-          returns True; everything else is re-queued for its owner.
-          The TUI passes its compression-chain-aware ownership check here so
-          a post-compression session still claims its own pre-compression
-          dispatches.
-        - ``session_key``: plain key equality (CLI and other single-session
-          callers). Non-matching addressed events are re-queued.
+        - ``owns_event(evt) -> bool``：正向判定归属权的回调函数。
+          当提供该回调时，受路由约束的事件仅在回调返回 True 时才会被消耗；
+          其余事件将重新入队，留给其真正的所有者。
+          TUI 会在此处传入感知“压缩链（compression-chain）”的归属检查，
+          以便压缩后的 Session 仍能提取其压缩前发出的派发事件。
+        - ``session_key``：纯 Key 相等性比较（适用于 CLI 及其他单 Session 调用方）。
+        不匹配的寻址事件将被重新入队。
 
-        With neither set, all events are consumed (legacy single-session
-        behavior, backward compatible). Ownerless ordinary notifications also
-        retain that legacy behavior even when a filter is provided. When a
-        filter is provided, ownerless async-delegation events remain
-        fail-closed and require positive proof.
+        若两者均未设置，则消耗所有事件（保持兼容旧版的单 Session 行为）。
+        对于不带所有者元数据的普通通知，即使提供了过滤器，也会保留这一旧版行为
+        。而当提供过滤器时，无所有者的异步委托事件仍保持“失败封闭（fail-closed）”策略，
+        必须显式提供归属证明才会被消耗。
         """
         results: "list[tuple[dict, str]]" = []
         requeue: "list[dict]" = []

@@ -4,8 +4,10 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="添加desktop启动入口">
+    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="前后端分离配置&#10;run server&#10;&#10;$env:HERMES_DESKTOP_REMOTE_URL = &quot;http://127.0.0.1:9119&quot;&#10;$env:HERMES_DESKTOP_REMOTE_TOKEN = &quot;hermes-desktop-pycharm-debug-9119&quot;&#10;npm run dev --workspace apps/desktop">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/process_registry.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/process_registry.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tui_gateway/server.py" beforeDir="false" afterPath="$PROJECT_DIR$/tui_gateway/server.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -50,23 +52,23 @@
 }</component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.001018053609311" />
-      <entry key="MS500" value="1.2811739792493197" />
-      <entry key="S2" value="2.230705813784942" />
-      <entry key="S5" value="3.1748413215316567" />
-      <entry key="S10" value="3.8606164483961516" />
-      <entry key="S30" value="4.550828875358535" />
-      <entry key="S60" value="4.7660693494060045" />
-      <entry key="M2" value="4.974931289646548" />
-      <entry key="M5" value="6.504212432012145" />
-      <entry key="M10" value="8.916208269600785" />
-      <entry key="M15" value="10.358676173235958" />
-      <entry key="M30" value="12.323258889817815" />
-      <entry key="H1" value="13.558287584189875" />
-      <entry key="H2" value="14.255041277656758" />
-      <entry key="H4" value="14.888697627568819" />
-      <entry key="D1" value="47.65053829816886" />
-      <entry key="W1" value="246.583696762676" />
+      <entry key="MS100" value="1.0067087224771256" />
+      <entry key="MS500" value="1.6051239716172945" />
+      <entry key="S2" value="2.485668062578787" />
+      <entry key="S5" value="3.033361088932356" />
+      <entry key="S10" value="3.7668740620417855" />
+      <entry key="S30" value="4.956119745519118" />
+      <entry key="S60" value="5.426928626410308" />
+      <entry key="M2" value="5.699345860121443" />
+      <entry key="M5" value="5.876163729149475" />
+      <entry key="M10" value="5.940881181912216" />
+      <entry key="M15" value="6.012775621480886" />
+      <entry key="M30" value="6.873704237445112" />
+      <entry key="H1" value="9.642724024778056" />
+      <entry key="H2" value="13.394281013966278" />
+      <entry key="H4" value="16.724284072991825" />
+      <entry key="D1" value="51.11627897015017" />
+      <entry key="W1" value="250.66632728662816" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -77,34 +79,34 @@
       <entry key="S30" value="0.0" />
       <entry key="S60" value="0.0" />
       <entry key="M2" value="0.0" />
-      <entry key="M5" value="2.509977668629305E-183" />
-      <entry key="M10" value="7.083934198493103E-92" />
-      <entry key="M15" value="2.157125091424085E-61" />
-      <entry key="M30" value="6.648381456409008E-31" />
-      <entry key="H1" value="1.3255053463499421E-15" />
-      <entry key="H2" value="7.466451937879907E-8" />
-      <entry key="H4" value="6.367786490872708E-4" />
-      <entry key="D1" value="1.3230339682282688" />
-      <entry key="W1" value="5.414281550871385" />
+      <entry key="M5" value="3.675688543133989E-190" />
+      <entry key="M10" value="2.7108715638258448E-95" />
+      <entry key="M15" value="1.1370117328591567E-63" />
+      <entry key="M30" value="4.8268159296965066E-32" />
+      <entry key="H1" value="3.5715265892132433E-16" />
+      <entry key="H2" value="3.875702881272126E-8" />
+      <entry key="H4" value="4.5878223656014037E-4" />
+      <entry key="D1" value="1.2526815416722963" />
+      <entry key="W1" value="5.372182908042519" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.9147682487128684" />
-      <entry key="MS500" value="1.2580870859124287" />
-      <entry key="S2" value="2.2189447610963047" />
-      <entry key="S5" value="3.1678743088176566" />
-      <entry key="S10" value="3.8563676341332123" />
-      <entry key="S30" value="4.549163348873662" />
-      <entry key="S60" value="4.765197284431678" />
-      <entry key="M2" value="4.974429295629459" />
-      <entry key="M5" value="6.5036671851711905" />
-      <entry key="M10" value="8.915656564602557" />
-      <entry key="M15" value="10.358196904643513" />
-      <entry key="M30" value="12.32294333852196" />
-      <entry key="H1" value="13.558105948411473" />
-      <entry key="H2" value="14.254943777235285" />
-      <entry key="H4" value="14.889281414315759" />
-      <entry key="D1" value="48.97347957888385" />
-      <entry key="W1" value="251.99789920864592" />
+      <entry key="MS100" value="0.9524867896078056" />
+      <entry key="MS500" value="1.5887409178048386" />
+      <entry key="S2" value="2.4795607196983283" />
+      <entry key="S5" value="3.0302975135658468" />
+      <entry key="S10" value="3.7648500936220084" />
+      <entry key="S30" value="4.95516692383529" />
+      <entry key="S60" value="5.426396319323049" />
+      <entry key="M2" value="5.699063467315772" />
+      <entry key="M5" value="5.876046546699033" />
+      <entry key="M10" value="5.940821646334845" />
+      <entry key="M15" value="6.012733380475935" />
+      <entry key="M30" value="6.873661387445564" />
+      <entry key="H1" value="9.642665092505922" />
+      <entry key="H2" value="13.394225402407466" />
+      <entry key="H4" value="16.72470217423964" />
+      <entry key="D1" value="52.36887233583893" />
+      <entry key="W1" value="256.0384316452526" />
     </decayedShown>
   </component>
   <component name="ProblemsViewState">
@@ -143,7 +145,7 @@
     "nodejs_package_manager_path": "npm",
     "prettierjs.PrettierConfiguration.Package": "C:\\Users\\Administrator\\PycharmProjects\\example\\hermes-agent\\node_modules\\prettier",
     "settings.editor.selected.configurable": "http.proxy",
-    "ts.external.directory.path": "C:\\Users\\Administrator\\PycharmProjects\\example\\hermes-agent\\node_modules\\typescript\\lib",
+    "ts.external.directory.path": "C:\\Users\\Administrator\\AppData\\Local\\Programs\\PyCharm Professional\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
@@ -252,6 +254,8 @@
       <workItem from="1787018265901" duration="22421000" />
       <workItem from="1787106417625" duration="26989000" />
       <workItem from="1787296771548" duration="12396000" />
+      <workItem from="1787552592650" duration="1881000" />
+      <workItem from="1787556416962" duration="9966000" />
     </task>
     <task id="LOCAL-00001" summary="ai doc">
       <option name="closed" value="true" />
@@ -637,7 +641,15 @@
       <option name="project" value="LOCAL" />
       <updated>1787542326632</updated>
     </task>
-    <option name="localTasksCounter" value="49" />
+    <task id="LOCAL-00049" summary="前后端分离配置&#10;run server&#10;&#10;$env:HERMES_DESKTOP_REMOTE_URL = &quot;http://127.0.0.1:9119&quot;&#10;$env:HERMES_DESKTOP_REMOTE_TOKEN = &quot;hermes-desktop-pycharm-debug-9119&quot;&#10;npm run dev --workspace apps/desktop">
+      <option name="closed" value="true" />
+      <created>1787548995825</created>
+      <option name="number" value="00049" />
+      <option name="presentableId" value="LOCAL-00049" />
+      <option name="project" value="LOCAL" />
+      <updated>1787548995825</updated>
+    </task>
+    <option name="localTasksCounter" value="50" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -702,7 +714,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="undo rewind" />
     <MESSAGE value="mcp线程模型" />
     <MESSAGE value="mcp线程模型" />
     <MESSAGE value="feat(tools): progressive tool disclosure for MCP and plugin tools&#10;&#10;Adds Tool Search, a structured-tools progressive-disclosure layer that&#10;replaces MCP and non-core plugin tools in the model-visible tools array&#10;with three bridge tools (tool_search / tool_describe / tool_call) when&#10;the deferrable surface would consume more than a configurable percentage&#10;of the active model's context window. Core Hermes tools are never deferred.&#10;&#10;Default mode is 'auto' with a 10% context threshold, so small toolsets&#10;pay no overhead. Set tools.tool_search.enabled to 'on' to force or 'off'&#10;to disable.&#10;&#10;Design carefully reflects the OpenClaw production failure modes&#10;documented in the openclaw-tool-search-report:&#10;&#10;  - Core tools never defer (toolsets._HERMES_CORE_TOOLS). Addresses the&#10;    'tools silently missing from isolated cron turns' regression class&#10;    (openclaw#84141) by construction: there is no code path that can&#10;    drop a core tool.&#10;  - Catalog is stateless across turns — rebuilt from the live tool-defs&#10;    list on every assembly. No session-keyed Map that can drift out of&#10;    sync with the registry.&#10;  - tool_call unwraps the bridge call before any hook fires, so plugin&#10;    pre/post hooks, guardrails, approval flows, and the activity feed&#10;    all see the underlying tool name, not the bridge (addresses&#10;    openclaw#85588 and the verbose-mode complaint on openclaw#79823).&#10;  - The unwrap happens in both the parallel and sequential paths of&#10;    agent/tool_executor.py and also in handle_function_call, so direct&#10;    callers (sandboxed code, eval harnesses) are covered too.&#10;  - Bridge tools cannot invoke each other (recursion guard) and cannot&#10;    invoke core tools (those must be called directly).&#10;  - Tools mode only — no JS-sandbox code-mode. Keeps the surface small.&#10;  - Token estimation via cheap char/4 heuristic; precision isn't needed&#10;    for the threshold decision.&#10;&#10;Files:&#10;  - tools/tool_search.py — new module (BM25 retrieval, classification,&#10;    threshold gate, bridge dispatch, unwrap helper).&#10;  - tests/tools/test_tool_search.py — 35 tests including the OpenClaw&#10;    #84141 regression guard.&#10;  - model_tools.py — wires assembly into _compute_tool_definitions as the&#10;    final step, adds skip_tool_search_assembly kwarg so the bridge can&#10;    see the real catalog, dispatches the three bridge tools.&#10;  - agent/tool_executor.py — unwraps tool_call in both parallel and&#10;    sequential parsing loops so checkpointing, guardrails, plugin hooks,&#10;    and tool-progress callbacks all observe the underlying tool name.&#10;  - hermes_cli/config.py — DEFAULT_CONFIG['tools']['tool_search'] block.&#10;  - website/docs/user-guide/features/tool-search.md — user docs.&#10;&#10;Validation:&#10;  - 35/35 new tests pass.&#10;  - Existing tool/registry/model_tools/config/coercion/executor tests&#10;    (82 + 74 + small adjacents) green.&#10;  - Live E2E: 20 fake MCP tools registered, get_tool_definitions returns&#10;    3 bridges, tool_search returns top 3 hits, tool_describe returns&#10;    full schema, tool_call dispatches to the real underlying handler&#10;    and the underlying result is what the model sees.&#10;  - Reserved-name recursion guard verified live.&#10;  - Core-tool refusal via tool_call verified live.&#10;&#10;(cherry picked from commit 369075dc95bb998fdf493ef0f97dfa2d19c43d82)" />
@@ -727,7 +738,8 @@
     <MESSAGE value="feat(plugins): capability declarations + install/update consent flow (#64228)&#10;&#10;Unify the scattered per-plugin trust gates into one declared, diffable&#10;capability model with an install/update-time consent flow. Consent +&#10;audit over host API surfaces — explicitly NOT a sandbox.&#10;&#10;New module hermes_cli/plugin_capabilities.py:&#10;- Canonical CAPABILITY_REGISTRY mapping each capability id 1:1 to an&#10;  EXISTING enforcing gate (no capability minted without a surface):&#10;    tools.override          -&gt; allow_tool_override&#10;    llm.provider_override   -&gt; llm.allow_provider_override&#10;    llm.model_override      -&gt; llm.allow_model_override&#10;    llm.agent_id_override   -&gt; llm.allow_agent_id_override&#10;    llm.profile_override    -&gt; llm.allow_profile_override&#10;    llm.task_override       -&gt; llm.allow_task_override&#10;- plugin_capability_granted(plugin_id, capability): canonical check —&#10;  granted set OR deprecated legacy allow_* key; fail closed on unknown&#10;  ids and any unreadable/corrupt consent state; emits checked_by audit&#10;  log lines on every decision.&#10;- record_consent() persists plugins.entries.&lt;id&gt;.granted_capabilities +&#10;  capabilities_consent {hash, granted_at} and mirrors grants into the&#10;  legacy keys so existing enforcement sites keep working unchanged.&#10;- capability_set_hash / pending_capabilities / declared_set_changed&#10;  power the update-time re-consent diff.&#10;&#10;Wiring:&#10;- plugin.yaml manifest field `capabilities:` parsed into&#10;  PluginManifest.capabilities (unknown ids dropped with a warning).&#10;- hermes plugins install: consent screen (one Y/n) when the manifest&#10;  declares capabilities; non-interactive installs proceed with&#10;  capabilities ungranted (fail closed).&#10;- hermes plugins update: when the new version declares capabilities the&#10;  granted set lacks (hash diff), the additions are surfaced and require&#10;  re-consent — an update can never silently widen access.&#10;- hermes plugins enable: consent screen replaces the standalone&#10;  tool-override prompt for capability-declaring plugins.&#10;- hermes plugins capabilities [&lt;id&gt;]: declared vs granted per plugin,&#10;  flags grants held via deprecated legacy keys.&#10;- PluginContext.has_capability() probing API so plugins degrade&#10;  gracefully; _tool_override_allowed migrated to the canonical&#10;  plugin_capability_granted path (reference migration; legacy&#10;  allow_tool_override still honored).&#10;&#10;Tests: tests/hermes_cli/test_plugin_capabilities.py (38 tests) —&#10;declaration parsing, consent grant/persist, update re-consent on added&#10;capability, fail-closed on missing/corrupt state, legacy-gate backward&#10;compat, consent CLI flow (grant / decline / non-interactive).&#10;&#10;Docs: user-guide plugins.md consent section (with explicit not-a-sandbox&#10;warning) + developer-guide plugin authoring capability note.&#10;&#10;Salvages the intent of PR #37976 (@coygeek — require renewed review&#10;before plugin updates), scoped to capability diffs.&#10;&#10;Part of #64182.&#10;&#10;(cherry picked from commit b088535c7811fb4a5a0ba68c924c04df30e52620)" />
     <MESSAGE value="插件系统 加载过程1" />
     <MESSAGE value="添加desktop启动入口" />
-    <option name="LAST_COMMIT_MESSAGE" value="添加desktop启动入口" />
+    <MESSAGE value="前后端分离配置&#10;run server&#10;&#10;$env:HERMES_DESKTOP_REMOTE_URL = &quot;http://127.0.0.1:9119&quot;&#10;$env:HERMES_DESKTOP_REMOTE_TOKEN = &quot;hermes-desktop-pycharm-debug-9119&quot;&#10;npm run dev --workspace apps/desktop" />
+    <option name="LAST_COMMIT_MESSAGE" value="前后端分离配置&#10;run server&#10;&#10;$env:HERMES_DESKTOP_REMOTE_URL = &quot;http://127.0.0.1:9119&quot;&#10;$env:HERMES_DESKTOP_REMOTE_TOKEN = &quot;hermes-desktop-pycharm-debug-9119&quot;&#10;npm run dev --workspace apps/desktop" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -845,7 +857,7 @@
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/hermes_agent$skills_tool.coverage" NAME="skills_tool Coverage Results" MODIFIED="1785496463670" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tools" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes__TUI_.coverage" NAME="Hermes (TUI) Coverage Results" MODIFIED="1784550044047" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__Desktop_Backend_Debug_.coverage" NAME="Hermes (Desktop Backend Debug) Coverage Results" MODIFIED="1787545447715" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__Desktop_Backend_Debug_.coverage" NAME="Hermes (Desktop Backend Debug) Coverage Results" MODIFIED="1787556459612" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes__CLI_.coverage" NAME="Hermes (CLI) Coverage Results" MODIFIED="1785495698435" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes__Desktop_.coverage" NAME="Hermes (Desktop) Coverage Results" MODIFIED="1787541997671" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$mcp_startup.coverage" NAME="mcp_startup Coverage Results" MODIFIED="1787540412959" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/hermes_cli" />

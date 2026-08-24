@@ -4,10 +4,8 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="前后端分离配置&#10;run server&#10;&#10;$env:HERMES_DESKTOP_REMOTE_URL = &quot;http://127.0.0.1:9119&quot;&#10;$env:HERMES_DESKTOP_REMOTE_TOKEN = &quot;hermes-desktop-pycharm-debug-9119&quot;&#10;npm run dev --workspace apps/desktop">
+    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="tui-gateWay">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/process_registry.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/process_registry.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tui_gateway/server.py" beforeDir="false" afterPath="$PROJECT_DIR$/tui_gateway/server.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -52,23 +50,23 @@
 }</component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0067087224771256" />
-      <entry key="MS500" value="1.6051239716172945" />
-      <entry key="S2" value="2.485668062578787" />
-      <entry key="S5" value="3.033361088932356" />
-      <entry key="S10" value="3.7668740620417855" />
-      <entry key="S30" value="4.956119745519118" />
-      <entry key="S60" value="5.426928626410308" />
-      <entry key="M2" value="5.699345860121443" />
-      <entry key="M5" value="5.876163729149475" />
-      <entry key="M10" value="5.940881181912216" />
-      <entry key="M15" value="6.012775621480886" />
-      <entry key="M30" value="6.873704237445112" />
-      <entry key="H1" value="9.642724024778056" />
-      <entry key="H2" value="13.394281013966278" />
-      <entry key="H4" value="16.724284072991825" />
-      <entry key="D1" value="51.11627897015017" />
-      <entry key="W1" value="250.66632728662816" />
+      <entry key="MS100" value="1.0000000016614843" />
+      <entry key="MS500" value="1.0388288453675807" />
+      <entry key="S2" value="2.213541242574651" />
+      <entry key="S5" value="3.643256923921905" />
+      <entry key="S10" value="4.8579691920795005" />
+      <entry key="S30" value="6.55006593509338" />
+      <entry key="S60" value="7.203902116924346" />
+      <entry key="M2" value="7.582056600882067" />
+      <entry key="M5" value="7.8277486743532965" />
+      <entry key="M10" value="7.916401617844804" />
+      <entry key="M15" value="7.996276405946147" />
+      <entry key="M30" value="8.864431919514669" />
+      <entry key="H1" value="11.636449148910094" />
+      <entry key="H2" value="15.390033781494468" />
+      <entry key="H4" value="18.721667924268097" />
+      <entry key="D1" value="53.1149953302571" />
+      <entry key="W1" value="252.6654413434511" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -79,34 +77,34 @@
       <entry key="S30" value="0.0" />
       <entry key="S60" value="0.0" />
       <entry key="M2" value="0.0" />
-      <entry key="M5" value="3.675688543133989E-190" />
-      <entry key="M10" value="2.7108715638258448E-95" />
-      <entry key="M15" value="1.1370117328591567E-63" />
-      <entry key="M30" value="4.8268159296965066E-32" />
-      <entry key="H1" value="3.5715265892132433E-16" />
-      <entry key="H2" value="3.875702881272126E-8" />
-      <entry key="H4" value="4.5878223656014037E-4" />
-      <entry key="D1" value="1.2526815416722963" />
-      <entry key="W1" value="5.372182908042519" />
+      <entry key="M5" value="3.649691511635015E-190" />
+      <entry key="M10" value="2.701267966209983E-95" />
+      <entry key="M15" value="1.134324808425591E-63" />
+      <entry key="M30" value="4.821109321563142E-32" />
+      <entry key="H1" value="3.5694147073222865E-16" />
+      <entry key="H2" value="3.874556839536674E-8" />
+      <entry key="H4" value="4.5871440080481185E-4" />
+      <entry key="D1" value="1.2526506694241466" />
+      <entry key="W1" value="5.372163993975822" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.9524867896078056" />
-      <entry key="MS500" value="1.5887409178048386" />
-      <entry key="S2" value="2.4795607196983283" />
-      <entry key="S5" value="3.0302975135658468" />
-      <entry key="S10" value="3.7648500936220084" />
-      <entry key="S30" value="4.95516692383529" />
-      <entry key="S60" value="5.426396319323049" />
-      <entry key="M2" value="5.699063467315772" />
-      <entry key="M5" value="5.876046546699033" />
-      <entry key="M10" value="5.940821646334845" />
-      <entry key="M15" value="6.012733380475935" />
-      <entry key="M30" value="6.873661387445564" />
-      <entry key="H1" value="9.642665092505922" />
-      <entry key="H2" value="13.394225402407466" />
-      <entry key="H4" value="16.72470217423964" />
-      <entry key="D1" value="52.36887233583893" />
-      <entry key="W1" value="256.0384316452526" />
+      <entry key="MS100" value="0.9075191564211039" />
+      <entry key="MS500" value="1.0173856799470327" />
+      <entry key="S2" value="2.195052242289162" />
+      <entry key="S5" value="3.6306574349467486" />
+      <entry key="S10" value="4.8500239339290205" />
+      <entry key="S30" value="6.546808165145008" />
+      <entry key="S60" value="7.202166849622265" />
+      <entry key="M2" value="7.581159072759805" />
+      <entry key="M5" value="7.827382006258628" />
+      <entry key="M10" value="7.916216754368265" />
+      <entry key="M15" value="7.996150487226261" />
+      <entry key="M30" value="8.864347188859803" />
+      <entry key="H1" value="11.636369275181279" />
+      <entry key="H2" value="15.389967695565263" />
+      <entry key="H4" value="18.722080717622106" />
+      <entry key="D1" value="54.36755695143278" />
+      <entry key="W1" value="258.0375266633634" />
     </decayedShown>
   </component>
   <component name="ProblemsViewState">
@@ -255,15 +253,7 @@
       <workItem from="1787106417625" duration="26989000" />
       <workItem from="1787296771548" duration="12396000" />
       <workItem from="1787552592650" duration="1881000" />
-      <workItem from="1787556416962" duration="9966000" />
-    </task>
-    <task id="LOCAL-00001" summary="ai doc">
-      <option name="closed" value="true" />
-      <created>1783515262622</created>
-      <option name="number" value="00001" />
-      <option name="presentableId" value="LOCAL-00001" />
-      <option name="project" value="LOCAL" />
-      <updated>1783515262622</updated>
+      <workItem from="1787556416962" duration="11922000" />
     </task>
     <task id="LOCAL-00002" summary="一些流程梳理">
       <option name="closed" value="true" />
@@ -649,7 +639,15 @@
       <option name="project" value="LOCAL" />
       <updated>1787548995825</updated>
     </task>
-    <option name="localTasksCounter" value="50" />
+    <task id="LOCAL-00050" summary="tui-gateWay">
+      <option name="closed" value="true" />
+      <created>1787567033209</created>
+      <option name="number" value="00050" />
+      <option name="presentableId" value="LOCAL-00050" />
+      <option name="project" value="LOCAL" />
+      <updated>1787567033209</updated>
+    </task>
+    <option name="localTasksCounter" value="51" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -715,7 +713,6 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="mcp线程模型" />
-    <MESSAGE value="mcp线程模型" />
     <MESSAGE value="feat(tools): progressive tool disclosure for MCP and plugin tools&#10;&#10;Adds Tool Search, a structured-tools progressive-disclosure layer that&#10;replaces MCP and non-core plugin tools in the model-visible tools array&#10;with three bridge tools (tool_search / tool_describe / tool_call) when&#10;the deferrable surface would consume more than a configurable percentage&#10;of the active model's context window. Core Hermes tools are never deferred.&#10;&#10;Default mode is 'auto' with a 10% context threshold, so small toolsets&#10;pay no overhead. Set tools.tool_search.enabled to 'on' to force or 'off'&#10;to disable.&#10;&#10;Design carefully reflects the OpenClaw production failure modes&#10;documented in the openclaw-tool-search-report:&#10;&#10;  - Core tools never defer (toolsets._HERMES_CORE_TOOLS). Addresses the&#10;    'tools silently missing from isolated cron turns' regression class&#10;    (openclaw#84141) by construction: there is no code path that can&#10;    drop a core tool.&#10;  - Catalog is stateless across turns — rebuilt from the live tool-defs&#10;    list on every assembly. No session-keyed Map that can drift out of&#10;    sync with the registry.&#10;  - tool_call unwraps the bridge call before any hook fires, so plugin&#10;    pre/post hooks, guardrails, approval flows, and the activity feed&#10;    all see the underlying tool name, not the bridge (addresses&#10;    openclaw#85588 and the verbose-mode complaint on openclaw#79823).&#10;  - The unwrap happens in both the parallel and sequential paths of&#10;    agent/tool_executor.py and also in handle_function_call, so direct&#10;    callers (sandboxed code, eval harnesses) are covered too.&#10;  - Bridge tools cannot invoke each other (recursion guard) and cannot&#10;    invoke core tools (those must be called directly).&#10;  - Tools mode only — no JS-sandbox code-mode. Keeps the surface small.&#10;  - Token estimation via cheap char/4 heuristic; precision isn't needed&#10;    for the threshold decision.&#10;&#10;Files:&#10;  - tools/tool_search.py — new module (BM25 retrieval, classification,&#10;    threshold gate, bridge dispatch, unwrap helper).&#10;  - tests/tools/test_tool_search.py — 35 tests including the OpenClaw&#10;    #84141 regression guard.&#10;  - model_tools.py — wires assembly into _compute_tool_definitions as the&#10;    final step, adds skip_tool_search_assembly kwarg so the bridge can&#10;    see the real catalog, dispatches the three bridge tools.&#10;  - agent/tool_executor.py — unwraps tool_call in both parallel and&#10;    sequential parsing loops so checkpointing, guardrails, plugin hooks,&#10;    and tool-progress callbacks all observe the underlying tool name.&#10;  - hermes_cli/config.py — DEFAULT_CONFIG['tools']['tool_search'] block.&#10;  - website/docs/user-guide/features/tool-search.md — user docs.&#10;&#10;Validation:&#10;  - 35/35 new tests pass.&#10;  - Existing tool/registry/model_tools/config/coercion/executor tests&#10;    (82 + 74 + small adjacents) green.&#10;  - Live E2E: 20 fake MCP tools registered, get_tool_definitions returns&#10;    3 bridges, tool_search returns top 3 hits, tool_describe returns&#10;    full schema, tool_call dispatches to the real underlying handler&#10;    and the underlying result is what the model sees.&#10;  - Reserved-name recursion guard verified live.&#10;  - Core-tool refusal via tool_call verified live.&#10;&#10;(cherry picked from commit 369075dc95bb998fdf493ef0f97dfa2d19c43d82)" />
     <MESSAGE value="fix(tool-search): scope bridge catalog + dispatch to the session's toolsets&#10;&#10;Tool Search read its catalog from the global registry (get_tool_definitions&#10;with no toolset scope = 'start with everything'), so a restricted-toolset&#10;session — subagent, kanban worker, curated gateway session — could:&#10;&#10;  1. tool_search the entire process registry, not just its granted tools, and&#10;  2. tool_call any registered plugin/MCP tool it was never given, because&#10;     registry.dispatch() has no enabled_tools gate for non-execute_code tools.&#10;&#10;A scoped session (enabled_toolsets=['mcp-github']) reported total_available=26&#10;and successfully invoked an out-of-scope plugin tool via tool_call.&#10;&#10;Fix:&#10;- handle_function_call gains enabled_toolsets/disabled_toolsets; the bridge&#10;  dispatch scopes get_tool_definitions to them (also stops polluting the&#10;  process-global _last_resolved_tool_names with out-of-scope tools, which&#10;  leaked into execute_code's sandbox-tool fallback).&#10;- A defense-in-depth gate rejects any tool_call'd name not in the scoped&#10;  deferrable catalog.&#10;- tool_executor's unwrap (both concurrent + sequential paths) enforces the&#10;  same scope before dispatch, since it unwraps tool_call -&gt; underlying name&#10;  and bypasses the bridge branch. New _tool_search_scoped_names() helper,&#10;  cached per-agent on registry generation + toolset scope.&#10;- New scoped_deferrable_names() helper in tool_search.py shared by both sites.&#10;&#10;Tests: 4 new regression tests in TestRegression_ToolsetScoping (scoped&#10;catalog, out-of-scope tool_call rejection, no global pollution, helper).&#10;&#10;(cherry picked from commit 7427b9d5812f3bd4deb47340ab64ef86e605c27e)" />
     <MESSAGE value="feat(tools): skills-style catalog listing for tool_search progressive disclosure&#10;&#10;Deferred MCP/plugin tools become invisible once the tool_search bridge&#10;activates — live benchmarking (48 runs, Claude Haiku 4.5) showed models&#10;substituting visible core tools (terminal/web_search/browser) for deferred&#10;capabilities or declaring them nonexistent instead of searching: 16/24&#10;task success vs 24/24 with eager loading.&#10;&#10;Skills never had this failure mode because every skill keeps a ~21-token&#10;name+description listing line in the system prompt. This ports that exact&#10;pattern to the tool bridge: when tool_search activates, a grouped manifest&#10;of every deferred tool (name + first sentence of description, clipped to&#10;60 chars, grouped per MCP server / toolset) is embedded in the tool_search&#10;bridge description.&#10;&#10;- tools/tool_search.py: build_catalog_listing() with deterministic&#10;  ordering (byte-stable across assemblies -&gt; prompt prefix stays&#10;  cacheable); token-budget fallbacks full -&gt; names-only -&gt; legacy bare&#10;  count; bridge_tool_schemas(listing=...) embeds it and instructs the&#10;  model to skip tool_search when the exact name is visible (one fewer&#10;  round-trip per use)&#10;- config: tools.tool_search.listing auto|on|off (default auto),&#10;  listing_max_tokens (default 4000, clamped 200..20000); legacy bool&#10;  shapes keep working&#10;- tests: 8 new tests (config parsing/clamps, short-desc clipping,&#10;  deterministic rendering, budget fallbacks, bridge embedding, assembly&#10;  on/off paths); full file green (47 passed)&#10;- docs: tool-search.md config table + rationale&#10;- scripts/tool_search_livetest2.py: benchmark harness v2 with real&#10;  per-call token accounting (normalize_usage spy) and a third 'listing'&#10;  mode for A/B/C comparison&#10;&#10;(cherry picked from commit e869accc1a1269b096716d606376d24df2bb6643)" />
@@ -739,7 +736,8 @@
     <MESSAGE value="插件系统 加载过程1" />
     <MESSAGE value="添加desktop启动入口" />
     <MESSAGE value="前后端分离配置&#10;run server&#10;&#10;$env:HERMES_DESKTOP_REMOTE_URL = &quot;http://127.0.0.1:9119&quot;&#10;$env:HERMES_DESKTOP_REMOTE_TOKEN = &quot;hermes-desktop-pycharm-debug-9119&quot;&#10;npm run dev --workspace apps/desktop" />
-    <option name="LAST_COMMIT_MESSAGE" value="前后端分离配置&#10;run server&#10;&#10;$env:HERMES_DESKTOP_REMOTE_URL = &quot;http://127.0.0.1:9119&quot;&#10;$env:HERMES_DESKTOP_REMOTE_TOKEN = &quot;hermes-desktop-pycharm-debug-9119&quot;&#10;npm run dev --workspace apps/desktop" />
+    <MESSAGE value="tui-gateWay" />
+    <option name="LAST_COMMIT_MESSAGE" value="tui-gateWay" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

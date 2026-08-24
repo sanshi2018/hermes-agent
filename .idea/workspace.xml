@@ -4,21 +4,8 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="插件系统 加载过程1">
+    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/gateway/platforms/base.py" beforeDir="false" afterPath="$PROJECT_DIR$/gateway/platforms/base.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hermes_cli/plugins.py" beforeDir="false" afterPath="$PROJECT_DIR$/hermes_cli/plugins.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/memory/holographic/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/memory/holographic/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/memory/holographic/plugin.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/memory/holographic/plugin.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/memory/honcho/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/memory/honcho/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/memory/honcho/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/memory/honcho/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/memory/honcho/plugin.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/memory/honcho/plugin.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/memory/mem0/plugin.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/memory/mem0/plugin.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/platforms/irc/adapter.py" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/platforms/irc/adapter.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/platforms/irc/plugin.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/platforms/irc/plugin.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/security-guidance/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/security-guidance/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/security-guidance/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/security-guidance/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/security-guidance/plugin.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/security-guidance/plugin.yaml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -63,23 +50,23 @@
 }</component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.2207530108788944" />
-      <entry key="MS500" value="2.902958338828594" />
-      <entry key="S2" value="4.87186570184163" />
-      <entry key="S5" value="6.3556167951062" />
-      <entry key="S10" value="7.362551717552645" />
-      <entry key="S30" value="8.357042382420127" />
-      <entry key="S60" value="8.664099270255669" />
-      <entry key="M2" value="8.828244667795222" />
-      <entry key="M5" value="8.930357770704408" />
-      <entry key="M10" value="8.965019900841053" />
-      <entry key="M15" value="8.976644431320858" />
-      <entry key="M30" value="8.988304420991444" />
-      <entry key="H1" value="8.994148732662053" />
-      <entry key="H2" value="9.001152729493986" />
-      <entry key="H4" value="9.279498280503416" />
-      <entry key="D1" value="41.92639357828353" />
-      <entry key="W1" value="240.80618675299942" />
+      <entry key="MS100" value="1.0114999495015222" />
+      <entry key="MS500" value="2.141969300708155" />
+      <entry key="S2" value="4.858324178142756" />
+      <entry key="S5" value="6.7894734495481055" />
+      <entry key="S10" value="8.02698521483271" />
+      <entry key="S30" value="9.22809881025495" />
+      <entry key="S60" value="9.596998808036382" />
+      <entry key="M2" value="9.793992364953287" />
+      <entry key="M5" value="9.916482210789308" />
+      <entry key="M10" value="9.958052485248269" />
+      <entry key="M15" value="9.971992862060375" />
+      <entry key="M30" value="9.985975313574265" />
+      <entry key="H1" value="9.992983346245092" />
+      <entry key="H2" value="10.000569563634853" />
+      <entry key="H4" value="10.279197675991846" />
+      <entry key="D1" value="42.92616721128248" />
+      <entry key="W1" value="241.80600101694492" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -90,34 +77,34 @@
       <entry key="S30" value="0.0" />
       <entry key="S60" value="0.0" />
       <entry key="M2" value="0.0" />
-      <entry key="M5" value="1.605285348125223E-182" />
-      <entry key="M10" value="1.7914954544010566E-91" />
-      <entry key="M15" value="4.004080424042636E-61" />
-      <entry key="M30" value="9.057944601440546E-31" />
-      <entry key="H1" value="1.5471711164173811E-15" />
-      <entry key="H2" value="8.066640575004306E-8" />
-      <entry key="H4" value="6.618776398487314E-4" />
-      <entry key="D1" value="1.3315859292106673" />
-      <entry key="W1" value="5.419267381790615" />
+      <entry key="M5" value="1.6027911330444104E-182" />
+      <entry key="M10" value="1.7901031436754298E-91" />
+      <entry key="M15" value="4.0020055666101644E-61" />
+      <entry key="M30" value="9.055597448410624E-31" />
+      <entry key="H1" value="1.5469706469502443E-15" />
+      <entry key="H2" value="8.066117954233099E-8" />
+      <entry key="H4" value="6.6185619866747E-4" />
+      <entry key="D1" value="1.3315787397749037" />
+      <entry key="W1" value="5.419263201859213" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.35487062150536136" />
-      <entry key="MS500" value="2.565614787929229" />
-      <entry key="S2" value="4.771281494312378" />
-      <entry key="S5" value="6.31285427542573" />
-      <entry key="S10" value="7.340430801849677" />
-      <entry key="S30" value="8.34943173081939" />
-      <entry key="S60" value="8.660257509177939" />
-      <entry key="M2" value="8.826314048694089" />
-      <entry key="M5" value="8.92958309925885" />
-      <entry key="M10" value="8.964632153675552" />
-      <entry key="M15" value="8.976385841215444" />
-      <entry key="M30" value="8.98817507979941" />
-      <entry key="H1" value="8.994084050473798" />
-      <entry key="H2" value="9.001120397090995" />
-      <entry key="H4" value="9.280141424845853" />
-      <entry key="D1" value="43.25789225789582" />
-      <entry key="W1" value="246.2253758189764" />
+      <entry key="MS100" value="0.012763387507182887" />
+      <entry key="MS500" value="1.4026459048700182" />
+      <entry key="S2" value="4.570625770730072" />
+      <entry key="S5" value="6.661442474094942" />
+      <entry key="S10" value="7.960295041487963" />
+      <entry key="S30" value="9.205176255027823" />
+      <entry key="S60" value="9.58544214478703" />
+      <entry key="M2" value="9.788189382094892" />
+      <entry key="M5" value="9.914154991140078" />
+      <entry key="M10" value="9.956887861503109" />
+      <entry key="M15" value="9.971216220198954" />
+      <entry key="M30" value="9.985586879447839" />
+      <entry key="H1" value="9.992789100818353" />
+      <entry key="H2" value="10.000472445418144" />
+      <entry key="H4" value="10.279808405021022" />
+      <entry key="D1" value="44.25765330277738" />
+      <entry key="W1" value="247.22518513174157" />
     </decayedShown>
   </component>
   <component name="ProblemsViewState">
@@ -136,6 +123,7 @@
   "keyToString": {
     "Git.Working.Tree.Tab.closed.by.user": "closed",
     "Python.Hermes (CLI).executor": "Debug",
+    "Python.Hermes (Desktop).executor": "Debug",
     "Python.Hermes (TUI).executor": "Debug",
     "Python.mcp_startup.executor": "Debug",
     "Python.skills_tool.executor": "Debug",
@@ -163,7 +151,7 @@
       <recent name="C:\Users\Administrator\PycharmProjects\example\hermes-agent\plugins\platforms\HerEmail" />
     </key>
   </component>
-  <component name="RunManager" selected="Python.mcp_startup">
+  <component name="RunManager" selected="Python.Hermes (Desktop)">
     <configuration name="mcp_startup" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="hermes-agent" />
       <option name="ENV_FILES" value="" />
@@ -216,6 +204,8 @@
     </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="Python.skills_tool" />
+        <item itemvalue="Python.mcp_startup" />
         <item itemvalue="Python.mcp_startup" />
         <item itemvalue="Python.skills_tool" />
       </list>
@@ -847,6 +837,7 @@
     <SUITE FILE_PATH="coverage/hermes_agent$skills_tool.coverage" NAME="skills_tool Coverage Results" MODIFIED="1785496463670" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tools" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes__TUI_.coverage" NAME="Hermes (TUI) Coverage Results" MODIFIED="1784550044047" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes__CLI_.coverage" NAME="Hermes (CLI) Coverage Results" MODIFIED="1785495698435" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/hermes_agent$mcp_startup.coverage" NAME="mcp_startup Coverage Results" MODIFIED="1786107021952" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/hermes_cli" />
+    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__Desktop_.coverage" NAME="Hermes (Desktop) Coverage Results" MODIFIED="1787541997671" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/hermes_agent$mcp_startup.coverage" NAME="mcp_startup Coverage Results" MODIFIED="1787540412959" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/hermes_cli" />
   </component>
 </project>

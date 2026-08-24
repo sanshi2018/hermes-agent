@@ -1,17 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<module version="4">
-  <component name="PyDocumentationSettings">
-    <option name="format" value="PLAIN" />
-    <option name="myDocStringFormat" value="Plain" />
-  </component>
-  <component name="TemplatesService">
-    <option name="TEMPLATE_FOLDERS">
-      <list>
-        <option value="$MODULE_DIR$/node_modules/app-builder-lib/templates" />
-      </list>
-    </option>
-  </component>
-  <component name="TestRunnerService">
-    <option name="PROJECT_TEST_RUNNER" value="py.test" />
+<module external.system.id="pyproject.toml" type="PYTHON_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/apps" />
+      <excludeFolder url="file://$MODULE_DIR$/tests" />
+      <excludeFolder url="file://$MODULE_DIR$/tests-js" />
+      <excludeFolder url="file://$MODULE_DIR$/web" />
+      <excludeFolder url="file://$MODULE_DIR$/website" />
+    </content>
+    <orderEntry type="jdk" jdkName="uv (hermes-agent)" jdkType="Python SDK" />
+    <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

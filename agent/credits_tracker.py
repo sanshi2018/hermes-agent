@@ -805,16 +805,18 @@ def _hydrate_seed_state(agent, state) -> None:
 
 
 def seed_credits_at_session_start(agent) -> bool:
-    """Hydrate agent._credits_state from /api/oauth/account (or a dev fixture) and
-    fire the notice policy, so depletion / usage-band warnings show at session OPEN.
+    """
+    从 /api/oauth/account（或开发环境的 fixture）中填充 agent._credits_state，
+    并触发通知策略（notice policy），以便在会话打开（OPEN）时就显示额度耗尽 / 使用区间警告。
 
-    Shared by (a) the TUI/desktop agent build (fires at "ready", before any message)
-    and (b) the first-turn conversation setup (fallback for plain CLI / when the
-    build path didn't seed). Idempotent: a second call is a no-op once a seed or a
-    real header has already populated _credits_state.
+    由以下两者共享：
+    (a) TUI/桌面端的 agent 构建流程（在 "ready" 阶段、任何消息发送之前触发）
+    (b) 首轮对话设置（适用于普通 CLI 或构建路径未进行初始填充时的回退方案）。
 
-    Returns True if it seeded this call, False otherwise (not nous / already seeded /
-    fail-open error). Never raises — credits must never block session startup.
+    具有幂等性：一旦初始数据或真实请求头已经填充了 _credits_state，二次调用将是不起作用的空操作（no-op）。
+
+    如果本次调用成功填充了数据则返回 True，否则返回 False（非 nous 账户 / 已经填充 / 故障开放式的错误）。
+    绝不会抛出异常——额度检查绝不能阻塞会话启动。
     """
     try:
         if getattr(agent, "provider", "") != "nous":

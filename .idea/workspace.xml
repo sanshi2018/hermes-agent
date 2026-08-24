@@ -4,8 +4,16 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="tui-gateWay">
+    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="add desktop">
+      <change beforePath="$PROJECT_DIR$/.idea/hermes-agent.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/hermes-agent.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/agent/credits_tracker.py" beforeDir="false" afterPath="$PROJECT_DIR$/agent/credits_tracker.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hermes_cli/credential_lifecycle.py" beforeDir="false" afterPath="$PROJECT_DIR$/hermes_cli/credential_lifecycle.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hermes_cli/mcp_startup.py" beforeDir="false" afterPath="$PROJECT_DIR$/hermes_cli/mcp_startup.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tui_gateway/entry.py" beforeDir="false" afterPath="$PROJECT_DIR$/tui_gateway/entry.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tui_gateway/methods_prompt.py" beforeDir="false" afterPath="$PROJECT_DIR$/tui_gateway/methods_prompt.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tui_gateway/server.py" beforeDir="false" afterPath="$PROJECT_DIR$/tui_gateway/server.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tui_gateway/ws.py" beforeDir="false" afterPath="$PROJECT_DIR$/tui_gateway/ws.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -14,6 +22,7 @@
   </component>
   <component name="CopilotPersistence">
     <persistenceIdMap>
+      <entry key="_/Users/sanshi/PycharmProjects/hermes-agent" value="3IMaQV09GoR0p379R5WbucjZDdg" />
       <entry key="_C:/Users/Administrator/PycharmProjects/example/hermes-agent" value="3GAxTw7nf3qLRqlIqNlrayo6f3i" />
     </persistenceIdMap>
   </component>
@@ -133,9 +142,11 @@
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "codeWithMe.voiceChat.enabledByDefault": "false",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
     "copilot.chat.legacySessionMetadata.migrated": "true",
     "git-widget-placeholder": "upstream-branch",
     "git.auto.fetch.suggestion.counter": "3",
+    "junie.onboarding.icon.badge.shown": "true",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
@@ -143,7 +154,8 @@
     "nodejs_package_manager_path": "npm",
     "prettierjs.PrettierConfiguration.Package": "C:\\Users\\Administrator\\PycharmProjects\\example\\hermes-agent\\node_modules\\prettier",
     "settings.editor.selected.configurable": "http.proxy",
-    "ts.external.directory.path": "C:\\Users\\Administrator\\AppData\\Local\\Programs\\PyCharm Professional\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external",
+    "to.speed.mode.migration.done": "true",
+    "ts.external.directory.path": "/Users/sanshi/PycharmProjects/hermes-agent/node_modules/typescript/lib",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
@@ -215,8 +227,8 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-PY-261.26222.68" />
-        <option value="bundled-python-sdk-50341a9f1f9c-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.26222.68" />
+        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-PY-261.23567.174" />
+        <option value="bundled-python-sdk-024ed6589d45-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.23567.174" />
       </set>
     </attachedChunks>
   </component>
@@ -254,6 +266,7 @@
       <workItem from="1787296771548" duration="12396000" />
       <workItem from="1787552592650" duration="1881000" />
       <workItem from="1787556416962" duration="11922000" />
+      <workItem from="1787576870997" duration="9115000" />
     </task>
     <task id="LOCAL-00002" summary="一些流程梳理">
       <option name="closed" value="true" />
@@ -744,37 +757,37 @@
       <breakpoints>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
-          <line>1885</line>
+          <line>1945</line>
           <option name="timeStamp" value="2" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
-          <line>1991</line>
+          <line>2068</line>
           <option name="timeStamp" value="3" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
-          <line>2335</line>
+          <line>2412</line>
           <option name="timeStamp" value="4" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
-          <line>2623</line>
+          <line>2701</line>
           <option name="timeStamp" value="5" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
-          <line>2887</line>
+          <line>2965</line>
           <option name="timeStamp" value="11" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
-          <line>3203</line>
+          <line>3281</line>
           <option name="timeStamp" value="13" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/agent/tool_executor.py</url>
-          <line>1931</line>
+          <line>1960</line>
           <option name="timeStamp" value="17" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
@@ -784,12 +797,12 @@
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/agent/tool_executor.py</url>
-          <line>2045</line>
+          <line>2075</line>
           <option name="timeStamp" value="20" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/agent/tool_executor.py</url>
-          <line>2047</line>
+          <line>2077</line>
           <option name="timeStamp" value="21" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
@@ -838,9 +851,19 @@
           <option name="timeStamp" value="45" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/tools/terminal_hints.py</url>
-          <line>27</line>
-          <option name="timeStamp" value="47" />
+          <url>file://$PROJECT_DIR$/tui_gateway/entry.py</url>
+          <line>458</line>
+          <option name="timeStamp" value="49" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tui_gateway/ws.py</url>
+          <line>422</line>
+          <option name="timeStamp" value="54" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tui_gateway/methods_prompt.py</url>
+          <line>326</line>
+          <option name="timeStamp" value="58" />
         </line-breakpoint>
       </breakpoints>
       <default-breakpoints>
@@ -854,10 +877,20 @@
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/hermes_agent$skills_tool.coverage" NAME="skills_tool Coverage Results" MODIFIED="1785496463670" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tools" />
+    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__Desktop_Backend_Debug_.coverage" NAME="Hermes (Desktop Backend Debug) Coverage Results" MODIFIED="1787579997587" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes__TUI_.coverage" NAME="Hermes (TUI) Coverage Results" MODIFIED="1784550044047" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__Desktop_Backend_Debug_.coverage" NAME="Hermes (Desktop Backend Debug) Coverage Results" MODIFIED="1787556459612" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__CLI_.coverage" NAME="Hermes (CLI) Coverage Results" MODIFIED="1785495698435" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/hermes_agent$mcp_startup.coverage" NAME="mcp_startup Coverage Results" MODIFIED="1787333135080" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/hermes_cli" />
+    <SUITE FILE_PATH="coverage/hermes_agent$Hermes_Desktop.coverage" NAME="Hermes Desktop Coverage Results" MODIFIED="1787333319919" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes__Desktop_.coverage" NAME="Hermes (Desktop) Coverage Results" MODIFIED="1787541997671" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/hermes_agent$mcp_startup.coverage" NAME="mcp_startup Coverage Results" MODIFIED="1787540412959" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/hermes_cli" />
+    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__API_Server_.coverage" NAME="Hermes (API Server) Coverage Results" MODIFIED="1787332036827" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__CLI_.coverage" NAME="Hermes (CLI) Coverage Results" MODIFIED="1785495698435" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+  </component>
+  <component name="github-copilot-workspace">
+    <instructionFileLocations>
+      <option value=".github/instructions" />
+    </instructionFileLocations>
+    <promptFileLocations>
+      <option value=".github/prompts" />
+    </promptFileLocations>
   </component>
 </project>

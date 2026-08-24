@@ -3,10 +3,21 @@
 Handler bodies are byte-identical to their pre-split server.py form; they
 are rebound onto server.py's globals at install time — see method_ctx.py.
 """
+import os
+import threading
+import time
 
+from utils import is_truthy_value
 from .method_ctx import HandlerRegistry
 
 import types
+
+from .server import _sess_nowait, _ensure_active_session_slot, _err, logger, _voice_emit, _tts_stream_stop, _ok, \
+    _voice_mode_enabled, _expand_skill_invocation_for_replay, _load_dashboard_process_isolation_config, \
+    _session_uses_compute_host, _handle_busy_submit, _child_run_active, _wait_agent_for_prompt, \
+    _emit_terminal_turn_error, _emit, _session_info, _clear_inflight_turn, _run_prompt_submit, _start_agent_build, \
+    _persist_branch_seed, _ensure_session_db_row, _submit_prompt_to_compute_host, _session_db, _start_inflight_turn
+from .transport import current_transport
 
 _registry = HandlerRegistry()
 method = _registry.method

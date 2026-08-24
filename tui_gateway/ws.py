@@ -298,14 +298,15 @@ async def handle_ws(
     auth_identity: dict | None = None,
     subprotocol: str | None = None,
 ) -> None:
-    """Run one WebSocket session. Wire-compatible with ``tui_gateway.entry``.
+    """
+    运行单个 WebSocket 会话。与 ``tui_gateway.entry`` 线缆兼容（Wire-compatible）。
 
-    *auth_identity* is the server-minted ``{user_id, provider}`` recorded at
-    WS-upgrade authentication (``hermes_cli.web_server._ws_auth_reason``); it
-    is stored on the transport as ``WSTransport.auth_identity`` and is the
-    only identity authority for browser-controller registration. Existing
-    callers (stdio-free harnesses, the embedded TUI child) omit it and get a
-    ``None`` transport identity — unchanged behaviour.
+    *auth_identity* 是在 WebSocket 升级认证时记录的、由服务器生成的 ``{user_id, provider}``
+    （位于 ``hermes_cli.web_server._ws_auth_reason``）；
+    它作为 ``WSTransport.auth_identity`` 存储在传输层上，
+    并且是浏览器控制器注册的唯一身份凭证来源。
+    现有的调用方（无 stdio 的测试套件、嵌入式 TUI 子进程）省略该参数，
+    并获取一个 ``None`` 值的传输层身份——行为保持不变。
     """
     peer = _ws_peer_label(ws)
     transport: WSTransport | None = None

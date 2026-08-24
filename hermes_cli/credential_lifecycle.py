@@ -211,13 +211,14 @@ def purge_env_credential_references(
 
 
 def save_provider_env_credential(env_var: str, value: str) -> Dict[str, Any]:
-    """Save/update a credential in ``.env`` and reconcile every mirror.
+    """
+    在 ``.env`` 中保存或更新凭据，并调和（reconcile）每一个镜像。
 
-    After the ``.env`` write, any config.yaml mirror that held the PREVIOUS
-    value of this var (``model.api_key`` etc.) is updated to the new value so
-    a stale higher-precedence copy cannot shadow the rotation (#62269).
-    Suppressed ``env:<VAR>`` pool sources are re-enabled so a deliberate
-    re-add through the UI behaves like ``hermes auth add``.
+    在写入 ``.env`` 之后，所有保存了该变量旧值（如 ``model.api_key`` 等）的
+    config.yaml 镜像都会被更新为新值，
+    从而防止过期的更高优先级副本遮蔽（shadow）密钥轮换操作（#62269）。
+    此前被抑制的 ``env:<VAR>`` 池源（pool sources）会被重新启用，
+    因此通过 UI 显式进行的重新添加操作，其行为将与执行 ``hermes auth add`` 保持一致。
     """
     from hermes_cli.config import load_env, save_env_value
 

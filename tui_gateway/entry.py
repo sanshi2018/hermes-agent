@@ -383,23 +383,21 @@ def _has_configured_mcp_servers() -> bool:
 
 
 def ensure_mcp_discovery_started() -> None:
-    """Start background MCP discovery for the current profile context, once.
+    """
+    为当前配置（profile）上下文启动后台 MCP 发现流程（仅执行一次）。
 
-    ``main()`` calls this for the stdio/TUI path. WebSocket/Desktop
-    entrypoints can accept sessions without running ``main()``, so the
-    agent-build path (``server._start_agent_build``) also calls it AFTER
-    binding the session profile's HERMES_HOME override — the shared owner in
-    ``hermes_cli.mcp_startup`` captures the caller's context-local override
-    and propagates it into the discovery thread, so discovery reads the
-    SELECTED profile's ``mcp_servers``, not the launch profile's (#67605).
+    ``main()`` 会在 stdio/TUI 路径下调用此函数。
+    WebSocket/Desktop 入口点可以在不运行 ``main()`` 的情况下接收会话，
+    因此 agent 构建路径（``server._start_agent_build``）也会在绑定会话配置的 HERMES_HOME 覆盖项之后调用它；
+    ``hermes_cli.mcp_startup`` 中的共享所有者（shared owner）会捕获调用方的上下文本地覆盖项，并将其传递到发现线程中，
+    从而确保发现流程读取的是所选配置（SELECTED profile）的 ``mcp_servers``，而非启动配置（launch profile）的配置项（#67605）。
 
-    Delegating to the shared owner (instead of a hand-rolled thread) keeps
-    the process-wide start lock, the retry-after-zero-connected allowance,
-    and interactive-OAuth suppression.
+    将其委托给共享所有者（而非手动创建线程），可以保留进程级启动锁（process-wide start lock）、
+    零连接后的重试配额（retry-after-zero-connected allowance），以及交互式 OAuth 抑制。
 
-    Known limitation: MCP tool registration is process-global, so in a
-    multi-profile process the FIRST profile that builds an agent wins the
-    discovery slot. Full per-profile MCP registries are tracked in #67605.
+    已知限制：MCP 工具注册是进程全局的，
+    因此在多配置（multi-profile）进程中，首个构建 agent 的配置将占用该发现槽位（discovery slot）。
+    更完善的单配置独立 MCP 注册表正在 #67605 中进行跟踪。
     """
     global _mcp_discovery_enabled
 

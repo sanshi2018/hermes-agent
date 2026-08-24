@@ -51,6 +51,7 @@ from tui_gateway.transport import (
     current_transport,
     reset_transport,
 )
+from .methods_prompt import _pending_reaction_notes
 
 logger = logging.getLogger(__name__)
 
@@ -2334,16 +2335,17 @@ def _current_session_steer_authority(
 
 
 def dispatch(req: dict, transport: Optional[Transport] = None) -> dict | None:
-    """Route inbound RPCs — long handlers to the pool, everything else inline.
+    """
+    路由传入的 RPC 请求——将长处理程序发送到线程池，其余处理程序直接内联执行。
 
-    Returns a response dict when handled inline. Returns None when the
-    handler was scheduled on the pool; the worker writes its own response
-    via the bound transport when done.
+    当在内联状态下处理时，返回一个响应字典。
+    当处理程序被调度到线程池时，返回 None；
+    工作线程完成后，会通过绑定的传输通道自行写入响应。
 
-    *transport* (optional): pins every write produced by this request —
-    including any events emitted by the handler — to the given transport.
-    Omitting it falls back to the module-level stdio transport, preserving
-    the original behaviour for ``tui_gateway.entry``.
+    *transport*（可选）：
+    将该请求产生的所有写入操作——包括处理程序发出的任何事件——绑定到指定的传输通道。
+    省略该参数时，将回退到模块级的 stdio 传输通道，
+    从而保留 ``tui_gateway.entry`` 的原始行为。
     """
     t = transport or _stdio_transport
     token = bind_transport(t)
@@ -2501,24 +2503,22 @@ def _wait_agent_for_prompt(session: dict, rid: str, sid: str) -> dict | None:
 
 
 def _start_agent_build(sid: str, session: dict) -> None:
-    """Start building the real AIAgent for a TUI session, once.
+    """为 TUI 会话开始构建真正的 AIAgent（仅执行一次）。
 
-    Classic `hermes` shows the prompt before constructing AIAgent; the TUI used
-    to eagerly build it during session.create, making startup feel blocked on
-    tool discovery/model metadata even though the composer was visible.  Keep
-    the shell responsive by deferring this work until the first prompt (or any
-    command that actually needs the agent), while retaining the same ready/error
-    event contract for the frontend.
+    经典的 `hermes` 在构建 AIAgent 之前就会显示提示符；
+    而 TUI 此前会在 session.create 期间急切（eagerly）地构建它，
+    这使得启动过程看起来被工具发现/模型元数据获取所阻塞，即使输入框（composer）已经可见。
+    通过将此工作延迟到首条提示词（或任何真正需要 agent 的命令）时执行，
+    既能保持 Shell 的响应能力，又为前端保留相同的 ready/error 事件契约。
     """
     ready = session.get("agent_ready")
     if ready is None:
         return
-    # A lazy watch session spectating an in-flight child must stay lazy so the
-    # subagent live-mirror keeps flowing. Incidental RPCs (session.info, model
-    # metadata, etc.) resolve through _sess(), which would otherwise upgrade it
-    # to a full agent mid-stream and silently kill the mirror (the mirror bails
-    # once agent is set). Once the child completes, the guard lifts and the next
-    # prompt/RPC builds the agent normally so the user can talk to the session.
+    # 正在观摩进行中的子进程的惰性（lazy）监听会话必须保持惰性状态，
+    # 以便子 agent 的实时镜像（live-mirror）能持续流动。
+    # 附带的 RPC 请求（如 session.info、模型元数据等）会通过 _sess() 进行解析，
+    # 否则 _sess() 会在中途将其升级为完整的 agent，并静默终止镜像（一旦设置了 agent，镜像就会退出）。
+    # 一旦子进程完成，该防护解除，下一条提示词/RPC 将正常构建 agent，使用户可以与该会话交谈。
     if session.get("lazy") and _child_run_active(str(session.get("session_key") or "")):
         return
     lock = session.setdefault("agent_build_lock", threading.Lock())
@@ -2656,12 +2656,12 @@ def _start_agent_build(sid: str, session: dict) -> None:
                 pass
 
             _wire_callbacks(sid)
-            # Surface the self-improvement review's "💾 …" summary as an event
-            # the TUI/desktop render in-transcript, honoring
-            # display.memory_notifications. _init_session wires this for the
-            # eager/branch paths; deferred-built sessions (session.create and the
-            # default cold resume) build through here, so without this their
-            # review summaries would leak to stdout instead of the chat.
+            # 将自我改进审查（self-improvement review）的 "💾 …" 摘要
+            # 作为事件暴露出来，以便 TUI/桌面端在对话转录（in-transcript）中渲染，
+            # 并遵循 display.memory_notifications 配置。
+            # _init_session 会为急切（eager）/分支路径挂接此逻辑；
+            # 延迟构建的会话（session.create 以及默认的冷恢复）会通过此处进行构建，
+            # 因此如果不加上此逻辑，它们的审查摘要将会泄露到 stdout，而不是呈现在聊天界面中。
             try:
                 agent.background_review_callback = lambda message, _sid=sid: _emit(
                     "review.summary", _sid, {"text": str(message)}
@@ -2689,10 +2689,11 @@ def _start_agent_build(sid: str, session: dict) -> None:
                 info["config_warning"] = cfg_warn
                 logger.warning(cfg_warn)
             _emit("session.info", sid, info)
-            # If MCP discovery is still in flight (a server slower than the
-            # bounded wait_for_mcp_discovery join in _make_agent), the agent
-            # was built without those tools. Catch up once they land — see
-            # _schedule_mcp_late_refresh. Cache-safe (pre-first-turn only).
+            # 如果 MCP 发现流程仍在进行中
+            # （即服务器响应速度低于 _make_agent 中设置上限的 wait_for_mcp_discovery join 等待时间），
+            # 则 Agent 构建时未包含这些工具。
+            # 一旦发现流程完成，便进行追赶同步——详见 _schedule_mcp_late_refresh。
+            # 缓存安全（仅限首轮对话之前）。
             _schedule_mcp_late_refresh(sid, agent)
         except Exception as e:
             current["agent_error"] = str(e)
@@ -7162,30 +7163,31 @@ def _reset_session_agent(sid: str, session: dict) -> dict:
 
 
 def _schedule_mcp_late_refresh(sid: str, agent) -> None:
-    """Refresh a session's tool snapshot when MCP discovery lands late.
+    """当 MCP 发现流程延迟完成时，刷新会话的工具快照。
 
-    The agent snapshots ``agent.tools`` once at build time and never re-reads
-    the registry (run_agent/agent_init). ``_make_agent`` briefly joins the
-    background MCP discovery thread (``wait_for_mcp_discovery``, bounded by the
-    ``mcp_discovery_timeout`` config value, default 1.5s) so
-    already-spawning servers land in that snapshot — but a server that takes
-    longer than the bound to connect (common for an HTTP MCP server on first
-    connect) lands *after* the agent is built. Its tools are then absent from
-    both the agent and the banner for the whole session, even though the
-    classic CLI shows them (the CLI re-derives ``get_tool_definitions`` at
-    banner render time, which re-waits, so it picks them up).
+    Agent 在构建阶段仅对 ``agent.tools`` 进行一次快照，
+    且后续不会重新读取注册表（run_agent/agent_init）。
+    ``_make_agent`` 会短暂等待（join）后台 MCP 发现线程
+    （即 ``wait_for_mcp_discovery``，其等待时间受配置项 ``mcp_discovery_timeout`` 限制，默认 1.5 秒），
+    以便让正在启动的服务器赶上该快照——
+    但如果某个服务器的连接耗时超过了此上限（HTTP MCP 服务器首次连接时很常见），
+    它就会在 Agent 构建完成*之后*才就绪。
+    这会导致在整个会话期间，该服务器的工具在 Agent 和横幅（banner）中均不可用，
+    即使经典的 CLI 可以显示它们（CLI 在渲染横幅时会重新派生 ``get_tool_definitions``，
+    此时会再次等待，从而能够捕获这些工具）。
 
-    This schedules an off-critical-path daemon that waits for discovery to
-    finish, then rebuilds the snapshot and re-emits ``session.info`` so both
-    the agent's callable tools and the banner count catch up — the same
-    rebuild ``/reload-mcp`` performs, but automatic.
+    本函数会调度一个不在关键路径上的守护线程（off-critical-path daemon），
+    用于等待发现流程结束，随后重建快照并重新发送 ``session.info`` 事件，
+    从而使 Agent 的可调用工具与横幅中的统计计数同步更新——
+    其执行的重建操作与手动执行 ``/reload-mcp`` 完全相同，但过程是自动的。
 
-    Cache safety: the rebuild only runs while the session is still pre-first-
-    turn (no API call made yet → nothing cached to invalidate). If the user
-    has already sent a message, we leave the snapshot frozen rather than
-    invalidate the prompt cache mid-conversation — those late tools then
-    require an explicit ``/reload-mcp`` (which gates on user consent), exactly
-    as today. No-op when discovery already finished before the agent build.
+    缓存安全性：仅当会话仍处于“首轮对话之前”状态时（即尚未发起 API 调用 → 无需使任何缓存失效），
+    才会执行重建。
+    如果用户已经发送了消息，我们将保持快照处于冻结状态，
+    而不是在中途使 Prompt 缓存失效——
+    此时，这些延迟到达的工具将需要显式执行 ``/reload-mcp``（该命令需要用户确认授权），
+    其行为与当前机制完全一致。
+    如果发现流程在 Agent 构建之前就已经完成，则本操作为一个不起作用的空操作（no-op）。
     """
     try:
         from tui_gateway.entry import mcp_discovery_in_flight, join_mcp_discovery
@@ -7319,12 +7321,13 @@ def _make_agent(
 
     from run_agent import AIAgent
 
-    # MCP tool discovery runs in a background daemon thread at startup so a
-    # dead server can't freeze the shell.  The agent snapshots its tool list
-    # once here and never re-reads it, so briefly wait for in-flight discovery
-    # to land before building — bounded, so a slow/dead server still can't
-    # block. Dashboard /api/ws uses hermes_cli.mcp_startup; TUI stdio keeps
-    # its existing tui_gateway.entry-owned thread.
+    # MCP 工具发现流程在启动时运行于后台守护线程中，
+    # 从而避免未响应的服务器冻结 Shell 界面。
+    # Agent 在此处对工具列表进行一次性快照（snapshot）且后续不会重新读取，
+    # 因此在构建之前短暂等待正在进行的发现流程完成——该等待是有限度的（bounded），
+    # 即使服务器响应缓慢或死亡，也依然不会引发阻塞。
+    # Dashboard /api/ws 使用的是 hermes_cli.mcp_startup；
+    # TUI stdio 则保留其由 tui_gateway.entry 拥有的现有线程。
     try:
         from hermes_cli.mcp_startup import wait_for_mcp_discovery
 
@@ -8521,24 +8524,25 @@ def _interrupt_busy_session(sid: str, session: dict, agent: Any) -> None:
 def _handle_busy_submit(
     rid, sid: str, session: dict, text: Any, transport: Any, queued: bool = False
 ) -> dict | None:
-    """Apply the ``display.busy_input_mode`` policy to a prompt that lands while
-    a turn is in flight, instead of rejecting it with ``session busy``.
+    """
+    将 ``display.busy_input_mode`` 策略应用于在轮次（turn）进行期间发起的提示词（prompt），
+    而不是以 ``session busy`` 直接拒绝它。
 
-    The old rejection forced clients into a deadline-bounded busy-retry that
-    silently dropped the send when turn teardown outlived the deadline. The
-    default policy now redirects a capable core agent in place; older agents
-    retain the proven interrupt-and-queue path drained from ``run``'s tail.
+    旧有的拒绝方式会强制客户端进入带超时限制的忙碌重试循环，
+    一旦轮次清理（teardown）耗时超出了超时限制，就会静默丢弃该发送请求。
+    现在的默认策略会直接在原地重新定向（redirect）能力完备的 core agent；
+    而较旧的 agent 则保留原有的“中断并入队”路径，并在 ``run`` 的末尾进行消费与清理。
 
-    Modes: ``interrupt`` (default) → redirect the live turn, falling back to
-    hard interrupt + queue for older agents; ``queue`` → queue without
-    interrupting; ``steer`` → inject after the current atomic action.
+    模式：
+    ``interrupt``（默认）→ 重新定向进行中的轮次，对于较旧的 agent 则回退到硬中断（hard interrupt）加入队；
+    ``queue`` → 仅入队而不中断；
+    ``steer`` → 在当前原子操作（atomic action）结束后注入。
 
-    ``queued=True`` (client's queue drain, ``prompt.submit`` param) overrides
-    the mode entirely: the message was explicitly queued as "run after", so it
-    must NEVER become a live-turn correction or interrupt. Without this, a
-    drain that loses the settle race (client observed idle, server still
-    unwinding the turn) redirected the live turn with next-turn text — queue
-    semantics betrayed by a millisecond race the user can't see.
+    ``queued=True``（客户端的队列消费，即 ``prompt.submit`` 参数）会完全覆盖该模式：
+    该消息已被显式列为“随后运行”，因此绝对不能演变为进行中轮次的修正或中断。
+    如果没有这一限制，未能赶上稳定竞赛（settle race，即客户端观察到空闲，而服务端仍处于轮次解构中）的队列消费，
+    就会将下一轮的文本错误地用于重新定向进行中的轮次——
+    导致用户无法察觉的毫秒级竞态条件破坏了队列的原有语义。
     """
     mode = "queue" if queued else _load_busy_input_mode()
     agent = session.get("agent")

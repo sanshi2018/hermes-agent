@@ -175,18 +175,19 @@ def _discover_mcp_tools_without_interactive_oauth() -> None:
 def wait_for_mcp_discovery(
     timeout: "float | None" = None, *, single_query: bool = False
 ) -> None:
-    """Wait for background MCP discovery before the first tool snapshot.
+    """
+    在首次生成工具快照前，等待后台 MCP 发现流程完成。
 
-    ``thread.join(timeout)`` returns the INSTANT discovery completes, so this
-    only ever blocks for the real connect time of a still-pending server —
-    users with no MCP servers or fast servers pay ~0s.  The bound (from
-    ``mcp_discovery_timeout`` in config) just caps the wait so a dead server
-    can't freeze startup; servers that miss it are picked up by the automatic
-    late-binding refresh.
+    ``thread.join(timeout)`` 会在发现流程完成的“瞬间”立刻返回，
+    因此只有当存在尚未就绪的服务器时，此函数才会产生实际连接等待——
+    对于没有 MCP 服务器或服务器响应极快的用户，此过程几乎耗时 0 秒。
+    等待上限（来自于配置中的 ``mcp_discovery_timeout``）仅用于设限，
+    以防止死掉的服务器冻结启动过程；
+    未能赶上该时限的服务器后续会被自动延迟绑定（late-binding）的刷新机制捕获。
 
-    When ``single_query`` is True, the bound comes from
-    ``mcp_single_query_discovery_timeout`` instead (default 15s vs 1.5s
-    interactive) because one-shot sessions have no second turn to recover.
+    当 ``single_query`` 为 True 时，等待上限则改为使用
+    ``mcp_single_query_discovery_timeout``（默认为 15 秒，而交互式模式为 1.5 秒），
+    因为单次执行（one-shot）的会话没有第二轮对话来恢复未捕获的工具。
     """
     thread = _mcp_discovery_thread
     if thread is None or not thread.is_alive():

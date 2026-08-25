@@ -1,4 +1,4 @@
-import { execFile, execFileSync, spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
@@ -31,7 +31,18 @@ import {
 } from 'electron'
 
 import { classifyActiveRuntime } from './active-runtime-state'
+import { destroyKeepaliveAgents, downloadAgentFor, jsonAgentFor, withRetry } from './api-transport'
 import { stopBackendChild as stopBackendChildImpl, stopBackendTreesForUpdate } from './backend-child'
+import {
+  type BackendOutputTail,
+  claimDecision,
+  createBackendOutputTail,
+  execText,
+  isPidOnlyStartMarker,
+  pidOnlyStartMarker,
+  probeStartMarker,
+  processStartMarker
+} from './backend-claim'
 import { dashboardFallbackArgs, sourceDeclaresServe } from './backend-command'
 import { createBackendConnectionState } from './backend-connection-state'
 import { buildDesktopBackendEnv, hermesManagedNodePathEntries, normalizeHermesHomeRoot } from './backend-env'
@@ -86,11 +97,12 @@ import {
   normalizeRemoteHeaders,
   normalizeSshConfig,
   normAuthMode,
+  pathForRegistryBackendRequest,
   pathWithGlobalRemoteProfile,
-  pathWithProfileScope,
   profileHasRemoteConnection,
   profileRemoteOverride,
   profileSshOverride,
+  type RegistryBackendRequestScope,
   remoteRequestMatchesBaseUrl,
   resolveAuthMode,
   resolveProfileApiRequest,
@@ -99,7 +111,6 @@ import {
   resolveTestWsUrl,
   savedProfileSsh,
   tokenPreview,
-  translateSelfProfileQuery,
   withTransientRetries
 } from './connection-config'
 import { applyConnectionConfigAtomically } from './connection-config-apply'
@@ -163,9 +174,11 @@ import { registerFsIpc } from './fs-ipc'
 import {
   filenameFromContentDisposition,
   gatewayFilePath,
+  gatewayFileRequestPaths,
   isNotFoundError,
   parseDataUrlToBuffer,
-  pumpStreamToFile
+  pumpStreamToFile,
+  resolveGatewayFileBackend
 } from './gateway-file-download'
 import { probeGatewayWebSocket } from './gateway-ws-probe'
 import { registerGitIpc } from './git-ipc'
@@ -190,10 +203,14 @@ import {
   writeSecretFileAtomic
 } from './hardening'
 import { cursorPointInWindow } from './hud-cursor'
+import { startHudGameOverlayWatch } from './hud-game-overlay'
+import { applyHudResetBounds, defaultHudBounds } from './hud-geometry'
 import { registerHudIpc } from './hud-ipc'
+import { applyHudElectronOverlay, promoteHudOverlay } from './hud-overlay'
 import { snapHudBounds } from './hud-snap'
 import { createHudSnapShortcut } from './hud-snap-shortcut'
 import { buildHudWindowUrl } from './hud-url'
+import { resolveHudWindowing } from './hud-windowing'
 import { createLinkTitleWindow, guardLinkTitleSession, readLinkTitleWindowTitle } from './link-title-window'
 import { ensureMainWindow } from './main-window-lifecycle'
 import { createMediaProtocolHandler, MEDIA_PROTOCOL } from './media-protocol'
@@ -215,11 +232,7 @@ import {
 import { runNativeLogin } from './native-oauth-login'
 import { loadNativeTokenSet, type NativeTokenStoreIo, persistNativeTokenSet } from './native-token-store'
 import { serializeJsonBody, setJsonRequestHeaders } from './oauth-net-request'
-import {
-  createParentStartMarkerResolver,
-  electronProcessStartMarker,
-  parentWatchdogEnv
-} from './parent-process-identity'
+import { createParentStartMarkerResolver, parentWatchdogEnv } from './parent-process-identity'
 import { registerPetOverlayIpc } from './pet-overlay-ipc'
 import {
   buildRegistryProfileRoutes,
@@ -327,7 +340,7 @@ import {
 } from './venv-blocker-scan'
 import { fetchMarketplaceThemes, searchMarketplaceThemes } from './vscode-marketplace'
 import { createWakeIndicatorWindowController } from './wake-indicator-window'
-import { readWindowBelow } from './window-below'
+import { enumerateWindowsFrontToBack, enumerationFailed, readWindowBelow } from './window-below'
 import { installWindowRendererLifecycle } from './window-renderer-lifecycle'
 import { createWindowRevealController } from './window-reveal'
 import {
@@ -1290,7 +1303,8 @@ function registerMediaProtocol() {
 
       return resolvedPath
     },
-    resolveRemoteConnection: profile => ensureBackend(profile)
+    resolveRemoteConnection: ({ connectionId, profile }) =>
+      connectionId ? ensureRegistryBackend(connectionId, profile) : ensureBackend(profile)
   })
 
   protocol.handle(MEDIA_PROTOCOL, handler)
@@ -3153,70 +3167,9 @@ function writeBackendOwnership(contents) {
   }
 }
 
-function execText(command, args, { timeout = 3000 } = {}) {
-  return new Promise<string>((resolve, reject) => {
-    execFile(command, args, hiddenWindowsChildOptions({ encoding: 'utf8', timeout }), (error, stdout) => {
-      if (error) {
-        reject(error)
-      } else {
-        resolve(String(stdout || '').trim())
-      }
-    })
-  })
-}
-
-async function processStartMarker(pid) {
-  if (process.platform === 'linux') {
-    const stat = await fs.promises.readFile(`/proc/${pid}/stat`, 'utf8')
-
-    const fields = stat
-      .slice(stat.lastIndexOf(')') + 1)
-      .trim()
-      .split(/\s+/)
-
-    if (!/^\d+$/.test(fields[19] || '')) {
-      throw new Error(`Invalid /proc start marker for PID ${pid}`)
-    }
-
-    return `linux:${fields[19]}`
-  }
-
-  if (IS_WINDOWS) {
-    const electronMarker =
-      pid === process.pid ? electronProcessStartMarker(pid, process.pid, process.getCreationTime?.()) : null
-
-    if (electronMarker) {
-      return electronMarker
-    }
-
-    const ticks = await execText(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        `$p = Get-Process -Id ${pid} -ErrorAction Stop; $p.StartTime.ToUniversalTime().Ticks`
-      ],
-      // PowerShell 5.1 cold starts routinely exceed the default 3s execText
-      // budget (2.4-8s observed in #87169); give the marker probe headroom.
-      { timeout: 30_000 }
-    )
-
-    if (!/^\d+$/.test(ticks)) {
-      throw new Error(`Invalid Windows start marker for PID ${pid}`)
-    }
-
-    return `win:${ticks}`
-  }
-
-  const started = await execText('ps', ['-p', String(pid), '-o', 'lstart='])
-
-  if (!started) {
-    throw new Error(`Missing process start marker for PID ${pid}`)
-  }
-
-  return `ps:${started}`
-}
+// execText and processStartMarker moved to backend-claim.ts (#93608) so the
+// claim/probe policy is testable — including on Windows CI with real
+// PowerShell — without booting Electron. main.ts calls through the module.
 
 async function backendCommandForPid(pid) {
   try {
@@ -3238,6 +3191,22 @@ async function backendCommandForPid(pid) {
 }
 
 async function processIdentityMatches(identity) {
+  // Degraded PID-only identity (#93608): the start-marker probe failed while
+  // the child was verifiably alive, so only PID liveness can be checked here.
+  // backendIdentityMatches layers the command-line check on top before
+  // anything destructive relies on the answer.
+  if (isPidOnlyStartMarker(identity.startMarker)) {
+    try {
+      process.kill(identity.pid, 0)
+
+      return true
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | null)?.code
+
+      return code === 'ESRCH' || code === 'ENOENT' ? false : code === 'EPERM' ? true : undefined
+    }
+  }
+
   try {
     return (await processStartMarker(identity.pid)) === identity.startMarker
   } catch (error) {
@@ -3360,14 +3329,42 @@ const desktopParentStartMarker = createParentStartMarkerResolver({
   }
 })
 
-async function claimBackendChild(child, command, profile, nonce) {
+async function claimBackendChild(child, command, profile, nonce, outputTail: BackendOutputTail | null = null) {
+  // Probe/claim policy lives in backend-claim.ts (#93608): a marker probe
+  // that fails against a LIVE child degrades to PID-only identity — matching
+  // createParentStartMarkerResolver — instead of killing a healthy backend
+  // over a flaky Get-Process (PS 5.1 cold starts, #87169). Only a child that
+  // actually died keeps the fail-closed throw, now carrying its stderr tail.
+  const probe = await probeStartMarker(child.pid)
+  const decision = claimDecision(child.exitCode === null && !child.killed, probe)
+
+  if (decision.action === 'fail') {
+    stopBackendChild(child)
+    await waitForBackendExit(child)
+    throw new Error(
+      `Hermes backend (PID ${child.pid}) died before its identity could be recorded: ${decision.reason}${outputTail?.describe() ?? ''}`
+    )
+  }
+
+  let startMarker
+
+  if (decision.action === 'degrade') {
+    startMarker = pidOnlyStartMarker(child.pid)
+    rememberLog(
+      `WARNING: process start marker probe failed for live Hermes backend PID ${child.pid}; ` +
+        `claiming with PID-only identity instead of stopping it: ${decision.reason}`
+    )
+  } else {
+    startMarker = decision.startMarker
+  }
+
   try {
     const identity = await backendOwnership.claim({
       command,
       nonce,
       pid: child.pid,
       profile,
-      startMarker: await processStartMarker(child.pid),
+      startMarker,
       // Record the spawning Electron so reapOrphans can tell an orphaned
       // backend (parent gone) from one owned by a live instance — a live
       // parent's backend is never reaped (#87295).
@@ -3381,7 +3378,9 @@ async function claimBackendChild(child, command, profile, nonce) {
   } catch (error) {
     stopBackendChild(child)
     await waitForBackendExit(child)
-    throw new Error(`Could not persist ownership for the Hermes backend: ${error.message}`)
+    throw new Error(
+      `Could not persist ownership for the Hermes backend: ${error.message}${outputTail?.describe() ?? ''}`
+    )
   }
 }
 
@@ -4272,8 +4271,21 @@ function resolveWebDist() {
 }
 
 function resolveRendererIndex() {
-  const candidates = [path.join(APP_ROOT, 'dist', 'index.html'), path.join(resolveWebDist(), 'index.html')]
-  const present = candidates.filter(fileExists)
+  const asarIndex = path.join(APP_ROOT, 'dist', 'index.html')
+  const webDistIndex = path.join(resolveWebDist(), 'index.html')
+
+  // A packaged build ships dist/ twice: inside app.asar AND — because
+  // asarUnpack lists dist/** — beside it in app.asar.unpacked. Prefer the
+  // unpacked tree, matching the resolveWebDist()/unpackedPathFor precedent:
+  // it is the copy the embedded dashboard serves and the copy a repair
+  // rewrites, while pointing the window at the asar-internal index.html is
+  // exactly how lazy chunks end up fetched from a path that cannot serve
+  // them (#93479). Every window loader shares this resolver (main, overlay,
+  // quick), so the ordering fix covers all of them. Dev is unchanged:
+  // unpackedPathFor is a no-op outside an asar, so both candidates collapse
+  // to APP_ROOT/dist and the original order is preserved.
+  const candidates = IS_PACKAGED ? [webDistIndex, asarIndex] : [asarIndex, webDistIndex]
+  const present = [...new Set(candidates)].filter(fileExists)
 
   // index.html and the hashed chunks it names are one generation. An update
   // that replaces only one of the two shipped copies (app.asar vs
@@ -4856,99 +4868,113 @@ function multipartBody(upload) {
 }
 
 function fetchJson(url, token, options: any = {}) {
-  return new Promise((resolve, reject) => {
-    const { body, contentType } = options.upload
-      ? multipartBody(options.upload)
-      : {
-          body: options.body === undefined ? undefined : Buffer.from(JSON.stringify(options.body)),
-          contentType: 'application/json'
+  // Retry policy lives in api-transport.ts: idempotent verbs retry on any
+  // transient transport error; POST/PUT/DELETE only when the request provably
+  // never reached the server (see shouldRetryRequest) — never double-submit.
+  return withRetry(
+    (requestState: any) =>
+      new Promise((resolve, reject) => {
+        const { body, contentType } = options.upload
+          ? multipartBody(options.upload)
+          : {
+              body: options.body === undefined ? undefined : Buffer.from(JSON.stringify(options.body)),
+              contentType: 'application/json'
+            }
+
+        const parsed = new URL(url)
+        const client = parsed.protocol === 'https:' ? https : http
+        const agent = jsonAgentFor(parsed.protocol)
+        const timeoutMs = resolveTimeoutMs(options.timeoutMs, DEFAULT_FETCH_TIMEOUT_MS)
+
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          reject(new Error(`Unsupported Hermes backend URL protocol: ${parsed.protocol}`))
+
+          return
         }
 
-    const parsed = new URL(url)
-    const client = parsed.protocol === 'https:' ? https : http
-    const timeoutMs = resolveTimeoutMs(options.timeoutMs, DEFAULT_FETCH_TIMEOUT_MS)
+        const req = client.request(
+          parsed,
+          {
+            agent,
+            method: options.method || 'GET',
+            headers: {
+              ...headersForRemoteRequest(url),
+              ...(options.headers || {}),
+              'Content-Type': contentType,
+              'X-Hermes-Session-Token': token,
+              // RFC 8252 native flow authenticates the gated gateway with a bearer
+              // token instead of the loopback session-token header. When
+              // ``options.bearer`` is set we send Authorization: Bearer <token>;
+              // the gateway's OAuth gate verifies it via the provider stack with
+              // no cookie involved.
+              ...(options.bearer ? { Authorization: `Bearer ${options.bearer}` } : {}),
+              ...(body ? { 'Content-Length': String(body.length) } : {})
+            }
+          },
+          res => {
+            const chunks = []
+            res.on('error', reject)
+            res.on('data', chunk => chunks.push(chunk))
+            res.on('end', () => {
+              const text = Buffer.concat(chunks).toString('utf8')
 
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      reject(new Error(`Unsupported Hermes backend URL protocol: ${parsed.protocol}`))
+              if ((res.statusCode || 500) >= 400) {
+                reject(new Error(`${res.statusCode}: ${text || res.statusMessage}`))
 
-      return
-    }
+                return
+              }
 
-    const req = client.request(
-      parsed,
-      {
-        method: options.method || 'GET',
-        headers: {
-          ...headersForRemoteRequest(url),
-          ...(options.headers || {}),
-          'Content-Type': contentType,
-          'X-Hermes-Session-Token': token,
-          // RFC 8252 native flow authenticates the gated gateway with a bearer
-          // token instead of the loopback session-token header. When
-          // ``options.bearer`` is set we send Authorization: Bearer <token>;
-          // the gateway's OAuth gate verifies it via the provider stack with
-          // no cookie involved.
-          ...(options.bearer ? { Authorization: `Bearer ${options.bearer}` } : {}),
-          ...(body ? { 'Content-Length': String(body.length) } : {})
-        }
-      },
-      res => {
-        const chunks = []
-        res.on('error', reject)
-        res.on('data', chunk => chunks.push(chunk))
-        res.on('end', () => {
-          const text = Buffer.concat(chunks).toString('utf8')
+              if (!text) {
+                resolve(null)
 
-          if ((res.statusCode || 500) >= 400) {
-            reject(new Error(`${res.statusCode}: ${text || res.statusMessage}`))
+                return
+              }
 
-            return
+              // A 2xx response whose body is HTML means the request fell through
+              // to the SPA index.html (e.g. an unregistered /api path). JSON.parse
+              // would throw an opaque `Unexpected token '<'` here, so surface a
+              // clear diagnostic with the offending URL instead.
+              const looksHtml = /^\s*<(?:!doctype|html)/i.test(text)
+              const contentType = String(res.headers['content-type'] || '')
+
+              if (looksHtml || contentType.includes('text/html')) {
+                reject(
+                  new Error(
+                    `Expected JSON from ${url} but got HTML (status ${res.statusCode}). ` +
+                      'The endpoint is likely missing on the Hermes backend.'
+                  )
+                )
+
+                return
+              }
+
+              try {
+                resolve(JSON.parse(text))
+              } catch {
+                reject(new Error(`Invalid JSON from ${url} (status ${res.statusCode}): ${text.slice(0, 200)}`))
+              }
+            })
           }
+        )
 
-          if (!text) {
-            resolve(null)
-
-            return
-          }
-
-          // A 2xx response whose body is HTML means the request fell through
-          // to the SPA index.html (e.g. an unregistered /api path). JSON.parse
-          // would throw an opaque `Unexpected token '<'` here, so surface a
-          // clear diagnostic with the offending URL instead.
-          const looksHtml = /^\s*<(?:!doctype|html)/i.test(text)
-          const contentType = String(res.headers['content-type'] || '')
-
-          if (looksHtml || contentType.includes('text/html')) {
-            reject(
-              new Error(
-                `Expected JSON from ${url} but got HTML (status ${res.statusCode}). ` +
-                  'The endpoint is likely missing on the Hermes backend.'
-              )
-            )
-
-            return
-          }
-
-          try {
-            resolve(JSON.parse(text))
-          } catch {
-            reject(new Error(`Invalid JSON from ${url} (status ${res.statusCode}): ${text.slice(0, 200)}`))
-          }
+        req.on('error', reject)
+        req.setTimeout(timeoutMs, () => {
+          req.destroy(new Error(`Timed out connecting to Hermes backend after ${timeoutMs}ms`))
         })
-      }
-    )
 
-    req.on('error', reject)
-    req.setTimeout(timeoutMs, () => {
-      req.destroy(new Error(`Timed out connecting to Hermes backend after ${timeoutMs}ms`))
-    })
+        // From here the request goes on the wire: a later transport error can no
+        // longer prove the server didn't process it, so non-idempotent verbs must
+        // not be retried past this point.
+        requestState.bodySent = true
 
-    if (body) {
-      req.write(body)
-    }
+        if (body) {
+          req.write(body)
+        }
 
-    req.end()
-  })
+        req.end()
+      }),
+    { method: options.method || 'GET' }
+  )
 }
 
 // Token-auth download that streams the response body straight to a
@@ -4975,11 +5001,13 @@ function downloadViaTokenToFile(url, token, ctx, options: any = {}) {
     }
 
     const client = parsed.protocol === 'https:' ? https : http
+    const agent = downloadAgentFor(parsed.protocol)
     const timeoutMs = resolveTimeoutMs(options.timeoutMs, DEFAULT_FETCH_TIMEOUT_MS)
 
     const req = client.request(
       parsed,
       {
+        agent,
         method: 'GET',
         headers: options.bearer ? { Authorization: `Bearer ${options.bearer}` } : { 'X-Hermes-Session-Token': token }
       },
@@ -5014,90 +5042,99 @@ function fetchPublicJson(url, options: any = {}) {
   // NO ``X-Hermes-Session-Token`` header — used by the auth-mode probe before
   // any credentials exist, and any time we must not leak a token to an
   // endpoint that doesn't need one.
-  return new Promise((resolve, reject) => {
-    const body = options.body === undefined ? undefined : Buffer.from(JSON.stringify(options.body))
-    let parsed
+  return withRetry(
+    (requestState: any) =>
+      new Promise((resolve, reject) => {
+        const body = options.body === undefined ? undefined : Buffer.from(JSON.stringify(options.body))
+        let parsed
 
-    try {
-      parsed = new URL(url)
-    } catch (error) {
-      reject(new Error(`Invalid URL: ${error.message}`))
+        try {
+          parsed = new URL(url)
+        } catch (error) {
+          reject(new Error(`Invalid URL: ${error.message}`))
 
-      return
-    }
-
-    const client = parsed.protocol === 'https:' ? https : http
-    const timeoutMs = resolveTimeoutMs(options.timeoutMs, DEFAULT_FETCH_TIMEOUT_MS)
-
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      reject(new Error(`Unsupported Hermes backend URL protocol: ${parsed.protocol}`))
-
-      return
-    }
-
-    const req = client.request(
-      parsed,
-      {
-        method: options.method || 'GET',
-        headers: {
-          ...headersForRemoteRequest(url),
-          ...(options.headers || {}),
-          'Content-Type': 'application/json',
-          ...(body ? { 'Content-Length': String(body.length) } : {})
+          return
         }
-      },
-      res => {
-        const chunks = []
-        res.on('data', chunk => chunks.push(chunk))
-        res.on('end', () => {
-          const text = Buffer.concat(chunks).toString('utf8')
 
-          if ((res.statusCode || 500) >= 400) {
-            reject(new Error(`${res.statusCode}: ${text || res.statusMessage}`))
+        const client = parsed.protocol === 'https:' ? https : http
+        const agent = jsonAgentFor(parsed.protocol)
+        const timeoutMs = resolveTimeoutMs(options.timeoutMs, DEFAULT_FETCH_TIMEOUT_MS)
 
-            return
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          reject(new Error(`Unsupported Hermes backend URL protocol: ${parsed.protocol}`))
+
+          return
+        }
+
+        const req = client.request(
+          parsed,
+          {
+            agent,
+            method: options.method || 'GET',
+            headers: {
+              ...headersForRemoteRequest(url),
+              ...(options.headers || {}),
+              'Content-Type': 'application/json',
+              ...(body ? { 'Content-Length': String(body.length) } : {})
+            }
+          },
+          res => {
+            const chunks = []
+            res.on('data', chunk => chunks.push(chunk))
+            res.on('end', () => {
+              const text = Buffer.concat(chunks).toString('utf8')
+
+              if ((res.statusCode || 500) >= 400) {
+                reject(new Error(`${res.statusCode}: ${text || res.statusMessage}`))
+
+                return
+              }
+
+              if (!text) {
+                resolve(null)
+
+                return
+              }
+
+              const looksHtml = /^\s*<(?:!doctype|html)/i.test(text)
+              const contentType = String(res.headers['content-type'] || '')
+
+              if (looksHtml || contentType.includes('text/html')) {
+                reject(
+                  new Error(
+                    `Expected JSON from ${url} but got HTML (status ${res.statusCode}). ` +
+                      'The endpoint is likely missing on the Hermes backend.'
+                  )
+                )
+
+                return
+              }
+
+              try {
+                resolve(JSON.parse(text))
+              } catch {
+                reject(new Error(`Invalid JSON from ${url} (status ${res.statusCode}): ${text.slice(0, 200)}`))
+              }
+            })
           }
+        )
 
-          if (!text) {
-            resolve(null)
-
-            return
-          }
-
-          const looksHtml = /^\s*<(?:!doctype|html)/i.test(text)
-          const contentType = String(res.headers['content-type'] || '')
-
-          if (looksHtml || contentType.includes('text/html')) {
-            reject(
-              new Error(
-                `Expected JSON from ${url} but got HTML (status ${res.statusCode}). ` +
-                  'The endpoint is likely missing on the Hermes backend.'
-              )
-            )
-
-            return
-          }
-
-          try {
-            resolve(JSON.parse(text))
-          } catch {
-            reject(new Error(`Invalid JSON from ${url} (status ${res.statusCode}): ${text.slice(0, 200)}`))
-          }
+        req.on('error', reject)
+        req.setTimeout(timeoutMs, () => {
+          req.destroy(new Error(`Timed out connecting to Hermes backend after ${timeoutMs}ms`))
         })
-      }
-    )
 
-    req.on('error', reject)
-    req.setTimeout(timeoutMs, () => {
-      req.destroy(new Error(`Timed out connecting to Hermes backend after ${timeoutMs}ms`))
-    })
+        // Past this point the request is on the wire — see fetchJson.
+        requestState.bodySent = true
 
-    if (body) {
-      req.write(body)
-    }
+        if (body) {
+          req.write(body)
+        }
 
-    req.end()
-  })
+        req.end()
+      }),
+    { method: options.method || 'GET' }
+  )
 }
 
 function mimeTypeForPath(filePath) {
@@ -6520,6 +6557,7 @@ function installPreviewShortcut(window) {
 import {
   applyZoomLevel,
   DEFAULT_ZOOM_LEVEL,
+  installZoomReassertOnNavigation,
   installZoomReassertOnWindowEvents,
   percentToZoomLevel,
   ZOOM_STEP,
@@ -6561,6 +6599,19 @@ function restorePersistedZoomLevel(window) {
   const saved = readZoomState()
 
   if (saved != null) {
+    // Drift-guard: skip when this window already shows the persisted level.
+    // Blindly re-applying on every resize/move would race the compositor's
+    // surface reconfigure during a Wayland resize storm (Cosmic tiled mode
+    // fires one whenever a new session window opens — #84818) and keep the
+    // renderer notification stream churning for no gain. The settle-verify
+    // chain in installZoomReassertOnWindowEvents re-applies only when the
+    // window actually drifted from the persisted level.
+    const current = window.webContents?.getZoomLevel?.()
+
+    if (current != null && Math.abs(current - saved) < 1e-9) {
+      return
+    }
+
     applyZoomLevel(window.webContents, saved)
 
     return
@@ -7498,33 +7549,63 @@ function readGatewayErrorText(res): Promise<string> {
   })
 }
 
-async function gatedFileAuth(connection) {
+interface GatewayFileConnection extends RegistryBackendRequestScope {
+  authMode?: 'oauth' | 'token'
+  baseUrl: string
+  token?: null | string
+}
+
+interface GatewayFileSaveContext {
+  fallbackName: string
+  suggested: string
+}
+
+interface GatewayFileSavePayload {
+  connectionId?: unknown
+  path?: unknown
+  profile?: unknown
+  suggestedName?: unknown
+}
+
+async function gatedFileAuth(connection: GatewayFileConnection) {
   const nativeAt =
     connection.authMode === 'oauth' ? await ensureNativeAccessToken(connection.baseUrl).catch(() => null) : null
 
   return resolveGatedDownloadAuth(connection.authMode, nativeAt, connection.token)
 }
 
-async function saveGatewayFile(payload: any = {}) {
+function gatewayFileRequestPath(
+  connection: GatewayFileConnection,
+  connectionId: null | string,
+  profile: null | string,
+  requestPath: string
+) {
+  return connectionId
+    ? pathForRegistryBackendRequest(requestPath, profile, connection)
+    : pathWithGlobalRemoteProfile(requestPath, profile, profileRouteOptions(profile))
+}
+
+async function saveGatewayFile(payload: GatewayFileSavePayload = {}) {
   const filePath = gatewayFilePath(payload.path)
 
   if (!filePath) {
     throw new Error('Missing gateway file path')
   }
 
-  const profile = payload.profile || null
-  const connection = await ensureBackend(profile)
+  const { connection, connectionId, profile } = await resolveGatewayFileBackend<GatewayFileConnection>(payload, {
+    ensureLegacy: ensureBackend,
+    ensureRegistry: ensureRegistryBackend
+  })
+
   const suggested = String(payload.suggestedName || '').trim()
   const fallbackName = path.basename(filePath) || suggested || 'download'
   const ctx = { suggested, fallbackName }
 
-  const requestPath = pathWithGlobalRemoteProfile(
-    `/api/fs/download?path=${encodeURIComponent(filePath)}`,
-    profile,
-    profileRouteOptions(profile)
+  const requestPaths = gatewayFileRequestPaths(filePath, requestPath =>
+    gatewayFileRequestPath(connection, connectionId, profile, requestPath)
   )
 
-  const url = `${connection.baseUrl}${requestPath}`
+  const url = `${connection.baseUrl}${requestPaths.download}`
 
   try {
     const auth = await gatedFileAuth(connection)
@@ -7543,7 +7624,7 @@ async function saveGatewayFile(payload: any = {}) {
     // /api/fs/download 404s here; fall back (ONLY on 404) to the older capped
     // data-URL route so downloads keep working against older backends.
     if (isNotFoundError(error)) {
-      return await saveGatewayFileViaDataUrl(connection, profile, filePath, ctx)
+      return await saveGatewayFileViaDataUrl(connection, requestPaths.dataUrl, ctx)
     }
 
     throw error
@@ -7554,16 +7635,14 @@ async function saveGatewayFile(payload: any = {}) {
 // `/api/fs/read-data-url` route, decode it, and save. Bounded by the gateway's
 // data-URL cap, so it only serves smaller files — enough to keep older gateways
 // working until they gain the streaming route.
-async function saveGatewayFileViaDataUrl(connection, profile, filePath, ctx: any = {}) {
-  const requestPath = pathWithGlobalRemoteProfile(
-    `/api/fs/read-data-url?path=${encodeURIComponent(filePath)}`,
-    profile,
-    profileRouteOptions(profile)
-  )
-
+async function saveGatewayFileViaDataUrl(
+  connection: GatewayFileConnection,
+  requestPath: string,
+  ctx: GatewayFileSaveContext
+) {
   const url = `${connection.baseUrl}${requestPath}`
   const auth = await gatedFileAuth(connection)
-  let json: any
+  let json: unknown
 
   if (auth.kind === 'bearer') {
     json = await fetchJson(url, null, { bearer: auth.token })
@@ -7573,7 +7652,8 @@ async function saveGatewayFileViaDataUrl(connection, profile, filePath, ctx: any
     json = await fetchJson(url, auth.token)
   }
 
-  const dataUrl = json?.dataUrl
+  const dataUrl =
+    json && typeof json === 'object' && 'dataUrl' in json && typeof json.dataUrl === 'string' ? json.dataUrl : ''
 
   if (!dataUrl) {
     throw new Error('Gateway returned no file data')
@@ -10474,7 +10554,13 @@ async function spawnPoolBackend(profile, entry, opts: { forceLocal?: boolean; po
 
   entry.process = child
   entry.token = token
-  await claimBackendChild(child, `${backend.command} ${backend.args.join(' ')}`, profile, backendNonce)
+  // Buffer stdout+stderr from the instant of spawn (#93608): an early crash's
+  // traceback must survive into the claim error and the before-ready exit
+  // message instead of a bare exit code. rememberLog attaches later, after
+  // the claim, and would miss anything printed before it.
+  const outputTail = createBackendOutputTail()
+  outputTail.attach(child)
+  await claimBackendChild(child, `${backend.command} ${backend.args.join(' ')}`, profile, backendNonce, outputTail)
 
   child.stdout.on('data', rememberLog)
   child.stderr.on('data', rememberLog)
@@ -10499,13 +10585,18 @@ async function spawnPoolBackend(profile, entry, opts: { forceLocal?: boolean; po
 
     if (!ready) {
       rejectStart?.(
-        new Error(`Hermes backend for profile "${profile}" exited before it became ready (${signal || code}).`)
+        new Error(
+          `Hermes backend for profile "${profile}" exited before it became ready (${signal || code}).${outputTail.describe()}`
+        )
       )
     }
   })
 
   // Discover the ephemeral port the child bound to
-  const port = await Promise.race([waitForDashboardPortAnnouncement(child, { readyFile }), startFailed])
+  const port = await Promise.race([
+    waitForDashboardPortAnnouncement(child, { describeOutputTail: () => outputTail.describe(), readyFile }),
+    startFailed
+  ])
 
   if (readyFile) {
     fs.unlink(readyFile, () => {})
@@ -10850,7 +10941,19 @@ async function startHermes() {
       })
     )
 
-    await claimBackendChild(hermesProcess, `${backend.command} ${backend.args.join(' ')}`, profile, backendNonce)
+    // Buffer stdout+stderr from the instant of spawn (#93608): an early
+    // crash's traceback must survive into the claim error and the
+    // before-ready exit message shown by the boot UI. rememberLog attaches
+    // later, after the claim, and would miss anything printed before it.
+    const primaryOutputTail = createBackendOutputTail()
+    primaryOutputTail.attach(hermesProcess)
+    await claimBackendChild(
+      hermesProcess,
+      `${backend.command} ${backend.args.join(' ')}`,
+      profile,
+      backendNonce,
+      primaryOutputTail
+    )
     const processOwner = backendConnectionState.attachProcess(connectionAttempt, hermesProcess)
 
     if (!processOwner) {
@@ -10909,7 +11012,7 @@ async function startHermes() {
       sendBackendExit({ code, signal })
 
       if (!backendReady) {
-        const message = `Hermes backend exited before it became ready (${signal || code}).`
+        const message = `Hermes backend exited before it became ready (${signal || code}).${primaryOutputTail.describe()}`
         updateBootProgress(
           {
             error: message,
@@ -10931,7 +11034,10 @@ async function startHermes() {
 
     // Discover the ephemeral port the child bound to
     const port = await Promise.race([
-      waitForDashboardPortAnnouncement(hermesProcess, { readyFile }),
+      waitForDashboardPortAnnouncement(hermesProcess, {
+        describeOutputTail: () => primaryOutputTail.describe(),
+        readyFile
+      }),
       backendStartFailed
     ])
 
@@ -11097,13 +11203,15 @@ function wireCommonWindowHandlers(win, { zoom = true }: { zoom?: boolean } = {})
   if (zoom) {
     installZoomShortcuts(win)
     // Re-apply persisted zoom on show/restore/resize/cross-display move
-    // (Chromium can drop webContents zoom after these window transitions) and
-    // on EVERY full load — not once. The crash-recovery path calls
-    // webContents.reload(), which fires did-finish-load again after a `once`
-    // listener is spent, so zoom was silently lost on renderer crash
-    // recovery and any in-place reload/navigation (#46429).
-    installZoomReassertOnWindowEvents(win, () => restorePersistedZoomLevel(win))
-    win.webContents.on('did-finish-load', () => restorePersistedZoomLevel(win))
+    // (Chromium can drop webContents zoom after these window transitions), on
+    // EVERY full load — not once, since crash recovery reloads and would
+    // outlive a spent `once` listener (#46429) — and after in-page navigation,
+    // where Chromium applies the target hash route's own per-URL zoom record
+    // (see installZoomReassertOnNavigation; #48658, #38854, #79863).
+    const reassertZoom = () => restorePersistedZoomLevel(win)
+
+    installZoomReassertOnWindowEvents(win, reassertZoom)
+    installZoomReassertOnNavigation(win.webContents, reassertZoom)
   }
 
   installContextMenuBridge(win)
@@ -11538,9 +11646,6 @@ let hudProfile = null
 // of a game chat frame, and where one belongs. Defaults only: once the user
 // moves or resizes the HUD, hud-state.json wins (same pattern as the main
 // window's window-state.json).
-const HUD_WIDTH = 620
-const HUD_HEIGHT = 320
-const HUD_BOTTOM_MARGIN = 72
 const HUD_STATE_PATH = path.join(app.getPath('userData'), 'hud-state.json')
 
 function readHudState() {
@@ -11575,6 +11680,26 @@ function persistHudState() {
   }
 }
 
+function resetHudWindowLayout(): boolean {
+  if (!hudWindow || hudWindow.isDestroyed()) {
+    return false
+  }
+
+  const win = hudWindow
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const bounds = defaultHudBounds(display?.workArea)
+
+  if (!applyHudResetBounds(win, bounds)) {
+    rememberLog('[hud-state] reset layout failed while applying native bounds')
+
+    return false
+  }
+
+  persistHudState()
+
+  return true
+}
+
 const schedulePersistHudState = debounce(persistHudState, 250)
 
 // How often Linux gets told where the cursor is. Fast enough that the bar is
@@ -11586,8 +11711,12 @@ const HUD_CURSOR_POLL_MS = 60
 // Snap-to-pointer — global ⌘⇧G while the HUD is open (tap, not hold).
 const HUD_SNAP_ANCHOR_Y = 48
 
+function hudWindowing() {
+  return resolveHudWindowing(process.platform, process.env, process.argv)
+}
+
 function applyHudSnapToPointer() {
-  if (!hudWindow || hudWindow.isDestroyed()) {
+  if (!hudWindow || hudWindow.isDestroyed() || !hudWindowing().clientPlacement) {
     return
   }
 
@@ -11607,6 +11736,8 @@ function applyHudSnapToPointer() {
 
   // setBounds — NOT setPosition alone: on Windows, a transparent frameless
   // window silently grows ~1px per setPosition call (see move-by handler).
+  // On native Wayland the compositor ignores the position half; the snap
+  // shortcut is therefore a documented no-op there.
   hudWindow.setBounds({
     x: origin.x,
     y: origin.y,
@@ -11639,7 +11770,17 @@ function registerHudSnapShortcut() {
  * the main process.
  */
 function startHudCursorFeed(win: BrowserWindow) {
-  if (process.platform !== 'linux') {
+  const windowing = hudWindowing()
+
+  if (!windowing.cursorFeed) {
+    if (!windowing.ignoreMouse) {
+      try {
+        win.setIgnoreMouseEvents(false)
+      } catch {
+        // best effort
+      }
+    }
+
     return
   }
 
@@ -11668,6 +11809,67 @@ function startHudCursorFeed(win: BrowserWindow) {
   win.on('closed', () => clearInterval(timer))
 }
 
+/**
+ * Watch for a fullscreen app under the HUD (the Discord-style game overlay
+ * cue) and feed the answer to its renderer. Pure detection lives in
+ * hud-game-overlay.ts; enumeration is the same front-to-back walk the
+ * read_window_below tool uses. The renderer answers with the low-opacity
+ * treatment (`data-hud-game`), so main stays out of the styling business.
+ */
+function startHudGameOverlayFeed(win: BrowserWindow) {
+  const titlesAvailable = IS_MAC ? systemPreferences.getMediaAccessStatus?.('screen') === 'granted' : true
+
+  let last = { active: false, app: '' }
+
+  const push = (state: { active: boolean; app: string }) => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('hermes:hud:game-overlay', state)
+    }
+  }
+
+  // Replay the latest state to every load of this window. The watch pushes only
+  // on CHANGE and its first tick fires the moment the window is created — well
+  // before the renderer has mounted its listener — so a HUD opened over a game
+  // that is already fullscreen would hear the one and only message before it
+  // could receive it, then sit at "no game" forever while main was certain it
+  // had reported one. (Same reason quick entry caches its last state push.)
+  // did-finish-load also covers HMR full reloads during development.
+  win.webContents.on('did-finish-load', () => push(last))
+
+  // The watch gives up after two failed enumerations and never says so, which
+  // is how a HUD that cannot see the screen at all — no game cue, and
+  // read_window_below failing beside it — leaves nothing in the log to explain
+  // itself. Report the reason once; the null keeps the watch's contract.
+  let reported = false
+
+  const enumerate = async () => {
+    const windows = await enumerateWindowsFrontToBack(process.pid, titlesAvailable)
+
+    if (!enumerationFailed(windows)) {
+      return windows
+    }
+
+    if (!reported) {
+      reported = true
+      console.warn(`[hermes] HUD cannot enumerate windows: ${windows.reason}`)
+    }
+
+    return null
+  }
+
+  const dispose = startHudGameOverlayWatch({
+    enumerate,
+    displayBounds: () => screen.getDisplayMatching(win.getBounds()).bounds,
+    selfPid: process.pid,
+    send: state => {
+      last = state
+      push(state)
+    }
+  })
+
+  win.on('closed', dispose)
+}
+
 function hudBounds() {
   // Remembered spot first — validated against the LIVE displays so a HUD
   // parked on an unplugged monitor comes back on-screen instead of lost.
@@ -11693,19 +11895,7 @@ function hudBounds() {
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   const area = display?.workArea
 
-  if (!area) {
-    return { width: HUD_WIDTH, height: HUD_HEIGHT, x: undefined, y: undefined }
-  }
-
-  const width = Math.min(HUD_WIDTH, area.width)
-  const height = Math.min(HUD_HEIGHT, area.height)
-
-  return {
-    width,
-    height,
-    x: Math.round(area.x + (area.width - width) / 2),
-    y: Math.round(Math.max(area.y, area.y + area.height - height - HUD_BOTTOM_MARGIN))
-  }
+  return defaultHudBounds(area)
 }
 
 function hudUrl(sessionId, profile) {
@@ -11748,7 +11938,7 @@ function spawnHudWindow(sessionId, profile) {
     // interprets pointer capture near the edge as a resize gesture, so the
     // window grows a few px every drag (worse at >100% DPI scaling). The
     // composer drag calls setPosition, which must move the window, not resize
-    // it. Resizing is done by the renderer's corner handle through
+    // it. Resizing is done by the renderer's edge/corner handles through
     // `hermes:hud:set-bounds`, which flips resizable on for the call — the
     // same pattern the pet overlay uses for its wheel-scale.
     resizable: false,
@@ -11779,17 +11969,12 @@ function spawnHudWindow(sessionId, profile) {
     webPreferences: chatWindowWebPreferences(PRELOAD_PATH)
   })
 
-  win.setAlwaysOnTop(true, IS_MAC ? 'floating' : 'screen-saver')
+  applyHudElectronOverlay(win, process.platform)
   win.setHiddenInMissionControl?.(true)
 
-  try {
-    win.setVisibleOnAllWorkspaces(
-      true,
-      IS_MAC ? { visibleOnFullScreen: true, skipTransformProcessType: true } : undefined
-    )
-  } catch {
-    // Not supported everywhere — best effort.
-  }
+  // Linux intentionally starts on ONE virtual desktop. During a renderer
+  // grab, hermes:hud:workspace-transfer temporarily makes the X11 window
+  // sticky; releasing it assigns the HUD to KDE's then-current desktop.
 
   // Streaming into a window that is ALWAYS blurred (the user is in another
   // app) is the entire feature, so it gets the same stream-aware unthrottling
@@ -11802,6 +11987,7 @@ function spawnHudWindow(sessionId, profile) {
   bindGeometryPersistence(win, schedulePersistHudState)
 
   startHudCursorFeed(win)
+  startHudGameOverlayFeed(win)
 
   wireWindowReveal(win, {
     show: () => {
@@ -11813,6 +11999,10 @@ function spawnHudWindow(sessionId, profile) {
       if (hudRestoreMainWindow && mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.hide()
       }
+
+      // Compositor overlay adapters (Hyprland float+pin today). Electron
+      // alwaysOnTop is already set; this is the dialect some WMs actually hear.
+      void promoteHudOverlay({ title: HUD_WINDOW_TITLE })
     }
   })
 
@@ -12547,12 +12737,11 @@ registerPetOverlayIpc({
 // --- HUD mode (chrome-free floating chat) — see hud-ipc.ts. ---------------
 const hudIpc = registerHudIpc({
   isMac: IS_MAC,
-  isWindows: IS_WINDOWS,
-  glassSupported: GLASS_SUPPORTED,
   getTranslucencyState: () => translucencyState,
   getHudWindow: () => hudWindow,
   openHudWindow,
   closeHudWindow,
+  resetHudLayout: resetHudWindowLayout,
   setHudSessionId: value => {
     hudSessionId = value
   }
@@ -13807,9 +13996,7 @@ async function dispatchRegistryApiRequest(
 ) {
   const connection: any = await ensureRegistryBackend(registryConnectionId, routeProfile)
 
-  const requestPath = connection.sharedRemote
-    ? pathWithProfileScope(request.path, requestProfile)
-    : translateSelfProfileQuery(request.path, requestProfile, connection.remoteProfile)
+  const requestPath = pathForRegistryBackendRequest(request.path, requestProfile, connection)
 
   return fetchJsonForBackend(connection, requestPath, {
     method: request?.method,
@@ -14440,6 +14627,12 @@ app.on('before-quit', () => {
     translucencyWriteTimer = null
     writePersistedTranslucency(translucencyState)
   }
+})
+
+// Close the pooled keep-alive sockets on quit so lingering connections can't
+// hold the event loop open or leak FDs past app teardown.
+app.on('will-quit', () => {
+  destroyKeepaliveAgents()
 })
 
 // Answered synchronously so preload can publish the verdict before the

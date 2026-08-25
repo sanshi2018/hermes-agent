@@ -77,6 +77,7 @@ from hermes_state_common import (  # noqa: F401  (re-exported for back-compat)
     escape_like as _escape_like,
     DEFERRED_INDEX_SQL,
     FTS_CJK_STALE_KEY,
+    FTS_REBUILD_DEFERRAL_KEY,
     FTS_SQL,
     FTS_STALE_KEY,
     FTS_STORAGE_VERSION,
@@ -3767,6 +3768,7 @@ def collect_state_db_stats(db_path: Path) -> Dict[str, Any]:
     - ``fts_rebuild_pending`` — True when the deferred v23 backfill has not
       finished (high_water present and progress < high_water)
     - ``fts_rebuild_high_water`` / ``fts_rebuild_progress`` — raw ints
+    - ``fts_rebuild_deferral`` — durable blocked-repair diagnostic, when present
     """
     stats: Dict[str, Any] = {
         "page_count": None,
@@ -3782,6 +3784,7 @@ def collect_state_db_stats(db_path: Path) -> Dict[str, Any]:
         "fts_rebuild_pending": None,
         "fts_rebuild_high_water": None,
         "fts_rebuild_progress": None,
+        "fts_rebuild_deferral": None,
     }
 
     # WAL sidecar size needs no connection at all.
@@ -3872,6 +3875,17 @@ def collect_state_db_stats(db_path: Path) -> Dict[str, Any]:
             stats["fts_rebuild_pending"] = False
         else:
             stats["fts_rebuild_pending"] = (progress or 0) < high_water
+        try:
+            row = conn.execute(
+                "SELECT value FROM state_meta WHERE key = ? LIMIT 1",
+                (FTS_REBUILD_DEFERRAL_KEY,),
+            ).fetchone()
+            if row:
+                parsed = json.loads(row[0])
+                if isinstance(parsed, dict):
+                    stats["fts_rebuild_deferral"] = parsed
+        except Exception:
+            pass
     finally:
         try:
             conn.close()
@@ -3913,6 +3927,46 @@ def count_db_holders(db_path: Path) -> Optional[int]:
         return holders
     except Exception:
         return None
+
+
+def _is_inactive_orphan_desktop_holder(
+    *,
+    ppid: int,
+    age_seconds: float,
+    min_age_seconds: float,
+    ephemeral_backend: bool,
+    connection_statuses: List[str],
+) -> bool:
+    """Pure safety predicate for the narrow Desktop holder reap."""
+    return (
+        ppid in (0, 1)
+        and age_seconds >= min_age_seconds
+        and ephemeral_backend
+        and "ESTABLISHED" not in connection_statuses
+    )
+
+
+def _concrete_state_db_holder_pids(
+    db_path: Path, holders: List[Tuple[int, str]]
+) -> List[int]:
+    """Return unique PIDs proven to hold this DB or one of its sidecars."""
+    canonical_db = os.path.normcase(os.path.abspath(os.fspath(db_path)))
+    watched = {
+        canonical_db,
+        canonical_db + "-wal",
+        canonical_db + "-shm",
+    }
+    pids: List[int] = []
+    seen = set()
+    for pid, path in holders:
+        canonical_path = os.path.normcase(
+            os.path.abspath(path.removesuffix(" (deleted)"))
+        )
+        if pid <= 0 or pid in seen or canonical_path not in watched:
+            continue
+        seen.add(pid)
+        pids.append(pid)
+    return pids
 
 
 def _read_proc_cmdline(pid: int) -> Optional[str]:
@@ -5135,6 +5189,67 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             )
             return holders or [(-1, f"open-file scan failed: {exc}")]
         return holders
+
+    def _reap_inactive_orphan_desktop_holders(
+        self, holders: List[Tuple[int, str]], *, min_age_seconds: float
+    ) -> List[int]:
+        """Terminate old PPID-1 Desktop ephemeral backends with no client.
+
+        Inspection fails closed: anything whose parent, age, argv, or network
+        connections cannot be proved safe remains a repair-blocking holder.
+        """
+        if not sys.platform.startswith("linux") or psutil is None:
+            return []
+        try:
+            from hermes_cli.dashboard_procs import _is_ephemeral_port_zero_backend
+        except Exception:
+            return []
+
+        now = time.time()
+        candidates = []
+        for pid in _concrete_state_db_holder_pids(self.db_path, holders):
+            try:
+                process = psutil.Process(pid)
+                statuses = [
+                    conn.status for conn in process.net_connections(kind="inet")
+                ]
+                if not _is_inactive_orphan_desktop_holder(
+                    ppid=process.ppid(),
+                    age_seconds=now - process.create_time(),
+                    min_age_seconds=min_age_seconds,
+                    ephemeral_backend=_is_ephemeral_port_zero_backend(process.cmdline()),
+                    connection_statuses=statuses,
+                ):
+                    continue
+            except Exception:
+                continue
+            candidates.append(process)
+
+        signalled: List[int] = []
+        for process in candidates:
+            try:
+                process.terminate()
+                signalled.append(process.pid)
+            except (psutil.Error, OSError):
+                continue
+        if not signalled:
+            return []
+
+        try:
+            _gone, alive = psutil.wait_procs(candidates, timeout=1.5)
+        except Exception:
+            alive = []
+        for process in alive:
+            try:
+                process.kill()
+            except (psutil.Error, OSError):
+                continue
+        if alive:
+            try:
+                psutil.wait_procs(alive, timeout=1.5)
+            except Exception:
+                pass
+        return signalled
 
     def _try_runtime_fts_rebuild(self, exc: sqlite3.DatabaseError) -> bool:
         """One-shot in-place FTS rebuild after a corrupt-index write failure.
@@ -8829,6 +8944,73 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
 
         return self._execute_write(_do) or 0
 
+    def sweep_orphaned_sessions(
+        self,
+        *,
+        max_idle_seconds: float,
+        sources: Tuple[str, ...] = ("tui", "desktop", "subagent"),
+        exclude_ids: Tuple[str, ...] = (),
+    ) -> List[str]:
+        """Close session rows orphaned by a dead gateway process (#65194).
+
+        The TUI/desktop gateway reaps disconnected websocket sessions with an
+        in-process ``threading.Timer`` grace timer; a gateway restart destroys
+        the timer and leaves the row ``ended_at IS NULL`` forever.  This is
+        the startup-time complement: it closes rows for the given ``sources``
+        whose ``started_at`` AND newest ``messages.timestamp`` are both older
+        than ``max_idle_seconds``, with a distinct
+        ``end_reason='startup_orphan_reap'`` for traceability.
+
+        Both timestamps must be stale on purpose: message recency alone would
+        sweep a freshly created compression/branch child carrying old copied
+        message timestamps, while ``started_at`` alone would sweep a
+        long-lived session that is still actively producing messages.
+        Message-less rows fall back to ``started_at`` via COALESCE.
+
+        Only pass sources owned by the local UI stack (never messaging-gateway
+        platforms like ``telegram`` — ending those triggers the #60609 routing
+        loop).  ``exclude_ids`` spares rows this process still holds in
+        memory (a ``session.resume`` that landed during the startup grace
+        window).  Non-destructive: messages are preserved and the row remains
+        resumable.  First-reason-wins is preserved via ``ended_at IS NULL``.
+
+        The SELECT + UPDATE run in one ``BEGIN IMMEDIATE`` write, so a sibling
+        process cannot sneak a new message or end-reason between the
+        staleness check and the close.  Returns the swept session ids.
+        """
+        srcs = tuple(s for s in sources if s)
+        if max_idle_seconds <= 0 or not srcs:
+            return []
+        cutoff = time.time() - max_idle_seconds
+        placeholders = ",".join("?" for _ in srcs)
+        staleness = (
+            "started_at < ? AND COALESCE((SELECT MAX(m.timestamp) FROM messages m"
+            " WHERE m.session_id = sessions.id), started_at) < ?"
+        )
+
+        def _do(conn):
+            rows = conn.execute(
+                f"SELECT id FROM sessions WHERE ended_at IS NULL"
+                f" AND source IN ({placeholders}) AND {staleness}",
+                (*srcs, cutoff, cutoff),
+            ).fetchall()
+            excluded = {str(x) for x in exclude_ids if x}
+            victims = [str(r["id"]) for r in rows if str(r["id"]) not in excluded]
+            if not victims:
+                return []
+            now = time.time()
+            marks = ",".join("?" for _ in victims)
+            # Re-apply the same staleness predicate under the write lock so a
+            # row that raced to activity between SELECT and UPDATE is spared.
+            conn.execute(
+                f"UPDATE sessions SET ended_at = ?, end_reason = 'startup_orphan_reap'"
+                f" WHERE id IN ({marks}) AND ended_at IS NULL AND {staleness}",
+                (now, *victims, cutoff, cutoff),
+            )
+            return victims
+
+        return self._execute_write(_do) or []
+
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get a session by ID."""
         # Cost/usage readers (/status, /usage, gateway endpoints) reach the
@@ -10164,13 +10346,16 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         compression_lock_holder: Optional[str],
         turn_lease_holder: Optional[str] = None,
         turn_lease_ttl_seconds: float = 300.0,
+        reject_active_turn_lease: bool = False,
+        reject_active_compression_lock: bool = False,
     ) -> None:
-        """Transcript-append admission checks, run INSIDE the write txn.
+        """Transcript-write admission checks, run INSIDE the write txn.
 
         Shared by :meth:`append_message` and :meth:`append_messages_batch` so
         the two writers can never diverge on these correctness invariants
-        (this guard has already needed targeted fixes — see the #74478
-        patience note below).
+        (this guard has already needed targeted fixes — see the #74478 patience
+        note below). User-initiated transcript mutations may opt in to rejecting
+        an active unowned turn lease in that same transaction.
         """
         # NOTE (#75316 redesign): appends do NOT check compression_locks.
         # The lock's job is to stop two COMPRESSIONS colliding, not to fence
@@ -10182,33 +10367,78 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         # symptom family — turns dying as session_persistence_failed while a
         # slow provider summary held the lease (#74568, #77386), including
         # stale locks from dead PIDs blocking writes for the full TTL.
-        if turn_lease_holder:
+        # Destructive user mutations are different: a compressor that already
+        # captured its watermark can otherwise publish the pre-rewind snapshot
+        # after the mutation and resurrect the removed turn. Keep that narrow
+        # fence opt-in so ordinary appends retain the watermark behavior.
+        if reject_active_compression_lock:
+            active_lock = conn.execute(
+                "SELECT holder, expires_at FROM compression_locks "
+                "WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if active_lock is not None:
+                current_holder = active_lock["holder"]
+                if (
+                    float(active_lock["expires_at"]) <= time.time()
+                    or _compression_lock_holder_process_is_dead(current_holder)
+                ):
+                    conn.execute(
+                        "DELETE FROM compression_locks "
+                        "WHERE session_id = ? AND holder = ?",
+                        (session_id, current_holder),
+                    )
+                elif current_holder != compression_lock_holder:
+                    raise SessionCompressionInProgressError(
+                        f"Session {session_id!r} is being compressed by another writer"
+                    )
+        if turn_lease_holder or reject_active_turn_lease:
             conversation_id = self._session_turn_lease_key_on_conn(conn, session_id)
             lease = conn.execute(
                 "SELECT holder, expires_at FROM session_turn_leases "
                 "WHERE conversation_id = ?",
                 (conversation_id,),
             ).fetchone()
-            if lease is None or lease["holder"] != turn_lease_holder:
-                raise SessionTurnLeaseLostError(
-                    f"Session turn lease lost; refusing transcript write "
-                    f"for {session_id!r}"
-                )
             now = time.time()
-            if float(lease["expires_at"]) <= now:
-                # Expiry makes the row reclaimable; it does not prove that a
-                # takeover occurred. BEGIN IMMEDIATE serializes this renewal
-                # with acquisition, so a still-matching owner can recover from
-                # a starved refresher without weakening the foreign-holder fence.
-                conn.execute(
-                    "UPDATE session_turn_leases SET expires_at = ? "
-                    "WHERE conversation_id = ? AND holder = ?",
-                    (
-                        now + max(0.1, float(turn_lease_ttl_seconds)),
-                        conversation_id,
-                        turn_lease_holder,
-                    ),
-                )
+            if turn_lease_holder:
+                if lease is None or lease["holder"] != turn_lease_holder:
+                    raise SessionTurnLeaseLostError(
+                        f"Session turn lease lost; refusing transcript write "
+                        f"for {session_id!r}"
+                    )
+                if float(lease["expires_at"]) <= now:
+                    # Expiry makes the row reclaimable; it does not prove that a
+                    # takeover occurred. BEGIN IMMEDIATE serializes this renewal
+                    # with acquisition, so a still-matching owner can recover from
+                    # a starved refresher without weakening the foreign-holder fence.
+                    conn.execute(
+                        "UPDATE session_turn_leases SET expires_at = ? "
+                        "WHERE conversation_id = ? AND holder = ?",
+                        (
+                            now + max(0.1, float(turn_lease_ttl_seconds)),
+                            conversation_id,
+                            turn_lease_holder,
+                        ),
+                    )
+            elif lease is not None:
+                current_holder = lease["holder"]
+                if (
+                    float(lease["expires_at"]) <= now
+                    or _compression_lock_holder_process_is_dead(current_holder)
+                ):
+                    # Match acquisition semantics: an expired or provably dead
+                    # owner is reclaimable. Deleting it inside this BEGIN IMMEDIATE
+                    # transaction also fences a stale late flush after the mutation.
+                    conn.execute(
+                        "DELETE FROM session_turn_leases "
+                        "WHERE conversation_id = ? AND holder = ?",
+                        (conversation_id, current_holder),
+                    )
+                else:
+                    raise SessionTurnLeaseLostError(
+                        f"Session has an active turn lease; refusing transcript "
+                        f"mutation for {session_id!r}"
+                    )
         session = conn.execute(
             "SELECT ended_at, end_reason FROM sessions WHERE id = ?",
             (session_id,),
@@ -10831,6 +11061,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         messages: List[Dict[str, Any]],
         active_only: bool = False,
         archive_dropped: bool = False,
+        reject_active_turn_lease: bool = False,
     ) -> None:
         """Atomically replace the stored messages for a session.
 
@@ -10865,21 +11096,35 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         fresh active rows exactly as in the destructive path, so the live view
         is identical either way; only the durability of the dropped turns
         differs.
+
+        Pass ``reject_active_turn_lease=True`` for user-initiated rewrites that
+        do not already own the cross-process turn lease. The lease check and
+        transcript mutation then share one write transaction, so a second
+        process cannot archive or replace a turn that is still being produced.
         """
 
         active_clause = " AND active = 1" if active_only else ""
 
         def _do(conn):
-            session = conn.execute(
-                "SELECT ended_at, end_reason FROM sessions WHERE id = ?",
-                (session_id,),
-            ).fetchone()
-            if (
-                session is not None
-                and session["ended_at"] is not None
-                and session["end_reason"] == "compression"
-            ):
-                raise CompressionSessionClosedError(session_id)
+            if reject_active_turn_lease:
+                self._check_transcript_write_guards(
+                    conn,
+                    session_id,
+                    None,
+                    reject_active_turn_lease=True,
+                    reject_active_compression_lock=True,
+                )
+            else:
+                session = conn.execute(
+                    "SELECT ended_at, end_reason FROM sessions WHERE id = ?",
+                    (session_id,),
+                ).fetchone()
+                if (
+                    session is not None
+                    and session["ended_at"] is not None
+                    and session["end_reason"] == "compression"
+                ):
+                    raise CompressionSessionClosedError(session_id)
             if archive_dropped:
                 # Content-preserving UPDATE: the rows keep their FTS entries
                 # (the messages_fts triggers fire on INSERT / DELETE / UPDATE
@@ -11217,13 +11462,30 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 all_rows = cursor.fetchall()
             seen: dict = {}
             for row in all_rows:
+                dedupe_content = row["content"]
+                if row["role"] == "user":
+                    from agent.context_compressor import split_user_originated_turn
+
+                    candidate = {
+                        "role": "user",
+                        "content": self._decode_content(row["content"]),
+                        "display_kind": row["display_kind"],
+                        "display_metadata": self._decode_display_metadata(
+                            row["display_metadata"]
+                        ),
+                    }
+                    handoff, live_view = split_user_originated_turn(candidate)
+                    if handoff is not None and live_view is not None:
+                        dedupe_content = self._encode_content(
+                            live_view.get("content")
+                        )
                 # Tool fields participate in the dedupe key: compaction copies
                 # them verbatim, so identical tool messages across generations
                 # still collapse, while distinct tool calls that happen to
                 # share role/content/timestamp are never merged.
                 key = (
                     row["role"],
-                    row["content"],
+                    dedupe_content,
                     row["timestamp"],
                     row["tool_call_id"],
                     row["tool_calls"],
@@ -11548,6 +11810,11 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         desired session set / active state by the caller.
         """
         messages = []
+        # Watermark rotation column-clones concurrent tail rows into the child
+        # after the new summary, so the copies need not be adjacent. Index the
+        # exact durable clone identity while decoding instead of rescanning the
+        # whole accumulated lineage for every user row.
+        exact_user_clones: Dict[Tuple[Any, str], Dict[str, Any]] = {}
         for row in rows:
             content = self._decode_content(row["content"])
             if row["role"] in {"user", "assistant"} and isinstance(content, str):
@@ -11638,9 +11905,47 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                     except (json.JSONDecodeError, TypeError):
                         logger.warning("Failed to deserialize codex_message_items, falling back to None")
                         msg["codex_message_items"] = None
-            if include_ancestors and self._is_duplicate_replayed_user_message(messages, msg):
-                continue
+            if include_ancestors:
+                canonical_content, _is_composite = (
+                    self._canonical_replayed_user_content(msg)
+                )
+                exact_clone_key = self._exact_replayed_user_clone_key(
+                    msg.get("timestamp"), canonical_content
+                )
+                previous_exact = (
+                    exact_user_clones.get(exact_clone_key)
+                    if exact_clone_key is not None
+                    else None
+                )
+                duplicate = None
+                if previous_exact is not None:
+                    previous_index = next(
+                        (
+                            index
+                            for index, candidate in enumerate(messages)
+                            if candidate is previous_exact
+                        ),
+                        None,
+                    )
+                    if previous_index is not None:
+                        duplicate = (previous_index, True)
+                if duplicate is None:
+                    duplicate = self._find_duplicate_replayed_user_message(
+                        messages, msg
+                    )
+                if duplicate is not None:
+                    duplicate_index, prefer_current = duplicate
+                    if prefer_current:
+                        # A rotated compression child can carry the same live
+                        # ask as the parent row plus the only surviving summary
+                        # scaffold. Keep the child carrier (and its durable row
+                        # id), not the simpler ancestor copy.
+                        messages.pop(duplicate_index)
+                    else:
+                        continue
             messages.append(msg)
+            if include_ancestors and exact_clone_key is not None:
+                exact_user_clones[exact_clone_key] = msg
         # DEFENSE-IN-DEPTH against background-review session pollution: a forked
         # skill/memory review that (in older builds, before the _persist_disabled
         # fix) shared the parent's session_id wrote its harness turn into this
@@ -11851,15 +12156,28 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 "ORDER BY id",
                 tuple(session_ids),
             ).fetchall()
-        ancestor_rows = [r for r in rows if r["session_id"] != session_id]
-        if not ancestor_rows:
+        ancestor_ids = {
+            int(row["id"])
+            for row in rows
+            if row["session_id"] != session_id and row["id"] is not None
+        }
+        if not ancestor_ids:
             return []
-        return self._rows_to_conversation(
-            ancestor_rows,
+        lineage = self._rows_to_conversation(
+            rows,
             session_id=session_id,
             include_ancestors=True,
             repair_alternation=False,
+            include_row_ids=True,
         )
+        prefix: List[Dict[str, Any]] = []
+        for message in lineage:
+            if message.get("_row_id") not in ancestor_ids:
+                continue
+            projected = message.copy()
+            projected.pop("_row_id", None)
+            prefix.append(projected)
+        return prefix
 
     def _is_explicit_branch_session(self, session_id: str) -> bool:
         """Return whether *session_id* is a copied user-facing branch.
@@ -11925,25 +12243,134 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         return list(reversed(chain)) or [session_id]
 
     @staticmethod
-    def _is_duplicate_replayed_user_message(messages: List[Dict[str, Any]], msg: Dict[str, Any]) -> bool:
+    def _canonical_replayed_user_content(
+        msg: Dict[str, Any],
+    ) -> Tuple[Any, bool]:
+        """Return canonical live content and whether *msg* is composite."""
         if msg.get("role") != "user":
-            return False
-        content = msg.get("content")
-        if not isinstance(content, str) or not content:
-            return False
-        for prev in reversed(messages):
-            if prev.get("role") == "user" and prev.get("content") == content:
-                return True
+            return None, False
+
+        from agent.context_compressor import split_user_originated_turn
+
+        handoff, live_view = split_user_originated_turn(msg)
+        is_composite = handoff is not None and live_view is not None
+        return (
+            live_view.get("content")
+            if is_composite and live_view is not None
+            else msg.get("content"),
+            is_composite,
+        )
+
+    @staticmethod
+    def _exact_replayed_user_clone_key(
+        timestamp: Any, content: Any
+    ) -> Optional[Tuple[Any, str]]:
+        """Return a hashable key for a column-exact rotation clone."""
+        if timestamp is None or content in (None, "", []):
+            return None
+        try:
+            encoded = json.dumps(
+                content,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        except (TypeError, ValueError):
+            return None
+        return timestamp, encoded
+
+    @staticmethod
+    def _find_duplicate_replayed_user_message(
+        messages: List[Dict[str, Any]], msg: Dict[str, Any]
+    ) -> Optional[Tuple[int, bool]]:
+        """Return an adjacent replay duplicate and whether *msg* must win.
+
+        Compression rotation may persist the current ask once in the parent
+        and again inside a composite child carrier. Compare the canonical live
+        payload for that carrier, while retaining the historical exact-string
+        dedupe for ordinary replayed users. The child carrier wins because it
+        owns both the current durable row identity and the retained scaffold.
+        """
+        if msg.get("role") != "user":
+            return None
+
+        content, prefer_current = SessionDB._canonical_replayed_user_content(msg)
+        if content in (None, "", []):
+            return None
+
+        for index in range(len(messages) - 1, -1, -1):
+            prev = messages[index]
+            if prev.get("role") == "user":
+                prev_content, prev_is_composite = (
+                    SessionDB._canonical_replayed_user_content(prev)
+                )
+                if prev_content == content and (
+                    prefer_current
+                    or prev_is_composite
+                    or isinstance(content, str)
+                ):
+                    return index, prefer_current
             if prev.get("role") == "assistant" and (prev.get("content") or prev.get("tool_calls")):
-                return False
-        return False
+                return None
+        return None
+
+    @staticmethod
+    def _is_duplicate_replayed_user_message(
+        messages: List[Dict[str, Any]], msg: Dict[str, Any]
+    ) -> bool:
+        return SessionDB._find_duplicate_replayed_user_message(messages, msg) is not None
 
     # =========================================================================
     # Rewind (soft-delete) — see /rewind slash command + issue #21910
     # =========================================================================
 
+    def get_active_message_ids(self, session_id: str) -> List[int]:
+        """Return the ordered physical ids pinned by rewind CAS checks.
+
+        Conversation projections intentionally omit legacy background-review
+        harness rows.  Destructive rewinds must nevertheless pin every active
+        physical row so the caller snapshot matches the transaction-local
+        comparison in :meth:`rewind_to_message`.
+        """
+        with self._read_ctx() as conn:
+            rows = conn.execute(
+                "SELECT id FROM messages "
+                "WHERE session_id = ? AND active = 1 ORDER BY id",
+                (session_id,),
+            ).fetchall()
+        return [int(row[0]) for row in rows]
+
+    @staticmethod
+    def _active_transcript_counts(conn, session_id: str) -> tuple[int, int]:
+        """Return active message/tool-call counts inside the caller's txn."""
+        rows = conn.execute(
+            "SELECT tool_calls FROM messages "
+            "WHERE session_id = ? AND active = 1",
+            (session_id,),
+        ).fetchall()
+        tool_call_count = 0
+        for row in rows:
+            raw = row[0]
+            if not raw:
+                continue
+            try:
+                decoded = json.loads(raw) if isinstance(raw, str) else raw
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if isinstance(decoded, list):
+                tool_call_count += len(decoded)
+            elif decoded:
+                tool_call_count += 1
+        return len(rows), tool_call_count
+
     def rewind_to_message(
-        self, session_id: str, target_message_id: int
+        self,
+        session_id: str,
+        target_message_id: int,
+        *,
+        preserve_compaction_handoff: bool = False,
+        expected_active_ids: Optional[List[int]] = None,
+        expected_target_content: Any = None,
     ) -> Dict[str, Any]:
         """Soft-delete all messages with id >= ``target_message_id`` in *session_id*.
 
@@ -11962,7 +12389,19 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             }
 
         Raises ``ValueError`` if the target message does not exist in
-        *session_id* or if its role is not ``"user"``.
+        *session_id* or if its role is not ``"user"``.  With
+        ``preserve_compaction_handoff=True``, a composite summary carrier is
+        split inside the same write transaction: its original row is archived
+        and its canonical hidden handoff scaffold is inserted as the new head.
+        That opt-in result also contains ``replacement_message_id``.
+
+        ``expected_active_ids`` optionally pins the ordered active row set.
+        ``expected_target_content`` additionally pins the selected canonical
+        live-user payload.  Both checks run inside the write transaction before
+        any row or counter mutation.  Presentation-only metadata changes (for
+        example Desktop reactions) deliberately do not invalidate a rewind.
+        A live cross-process turn lease always refuses the rewind; expired or
+        provably dead holders are reclaimed inside the mutation transaction.
 
         Always increments ``sessions.rewind_count`` — even when the
         target is already inactive — so the counter accurately reflects
@@ -11971,29 +12410,78 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         target is a no-op on row state but still bumps the counter.
         """
 
-        # 1) Validate target up-front (read-only, outside the write txn).
-        with self._lock:
-            row = self._conn.execute(
+        def _do(conn):
+            # Rewind changes the active transcript and must honor the same
+            # compression/closed-parent and cross-process turn guards as
+            # append writers.
+            self._check_transcript_write_guards(
+                conn,
+                session_id,
+                None,
+                reject_active_turn_lease=True,
+                reject_active_compression_lock=True,
+            )
+
+            if expected_active_ids is not None:
+                active_rows = conn.execute(
+                    "SELECT id FROM messages "
+                    "WHERE session_id = ? AND active = 1 ORDER BY id",
+                    (session_id,),
+                ).fetchall()
+                active_ids = [int(active_row[0]) for active_row in active_rows]
+                if active_ids != expected_active_ids:
+                    raise RuntimeError(
+                        "active transcript changed before the rewind could be persisted"
+                    )
+
+            row = conn.execute(
                 "SELECT * FROM messages WHERE id = ? AND session_id = ?",
                 (target_message_id, session_id),
             ).fetchone()
-        if row is None:
-            raise ValueError(
-                f"message {target_message_id} not found in session {session_id}"
-            )
-        target_row = dict(row)
-        if target_row.get("role") != "user":
-            raise ValueError(
-                f"rewind target must be a 'user' message (got role="
-                f"{target_row.get('role')!r}, id={target_message_id})"
-            )
+            if row is None:
+                raise ValueError(
+                    f"message {target_message_id} not found in session {session_id}"
+                )
+            target_row = dict(row)
+            if target_row.get("role") != "user":
+                raise ValueError(
+                    f"rewind target must be a 'user' message (got role="
+                    f"{target_row.get('role')!r}, id={target_message_id})"
+                )
 
-        # Decode content for callers (prefill the prompt buffer).
-        target_row["content"] = self._decode_content(target_row.get("content"))
+            replacement_message_id: Optional[int] = None
+            replacement: Optional[Dict[str, Any]] = None
+            if preserve_compaction_handoff or expected_target_content is not None:
+                if not target_row.get("active"):
+                    raise ValueError("rewind target is not active")
+                from agent.context_compressor import split_user_originated_turn
 
-        rewound: List[int] = []
+                split_target = target_row.copy()
+                split_target["content"] = self._decode_content(
+                    split_target.get("content")
+                )
+                split_target["display_metadata"] = self._decode_display_metadata(
+                    split_target.get("display_metadata")
+                )
+                handoff, live_view = split_user_originated_turn(split_target)
+                if live_view is None:
+                    raise ValueError("rewind target is not a user-originated turn")
+                live_content = live_view.get("content")
+                if isinstance(live_content, str):
+                    live_content = sanitize_context(live_content).strip()
+                if (
+                    expected_target_content is not None
+                    and live_content != expected_target_content
+                ):
+                    raise RuntimeError(
+                        "rewind target changed before it could be persisted"
+                    )
+                if preserve_compaction_handoff and handoff is None:
+                    raise ValueError(
+                        "preserve_compaction_handoff requires an active composite carrier"
+                    )
+                replacement = handoff if preserve_compaction_handoff else None
 
-        def _do(conn):
             cursor = conn.execute(
                 "SELECT id FROM messages "
                 "WHERE session_id = ? AND id >= ? AND active = 1",
@@ -12006,28 +12494,48 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                     f"UPDATE messages SET active = 0 WHERE id IN ({placeholders})",
                     ids,
                 )
+            if replacement is not None:
+                self._insert_message_rows(conn, session_id, [replacement])
+                inserted = conn.execute("SELECT last_insert_rowid()").fetchone()
+                replacement_message_id = int(inserted[0])
             conn.execute(
                 "UPDATE sessions SET rewind_count = COALESCE(rewind_count, 0) + 1 "
                 "WHERE id = ?",
                 (session_id,),
             )
-            return ids
-
-        rewound = self._execute_write(_do)
-
-        # 2) Compute new head id (largest still-active row id in session).
-        with self._lock:
-            head_row = self._conn.execute(
+            message_count, tool_call_count = self._active_transcript_counts(
+                conn, session_id
+            )
+            conn.execute(
+                "UPDATE sessions SET message_count = ?, tool_call_count = ? "
+                "WHERE id = ?",
+                (message_count, tool_call_count, session_id),
+            )
+            head_row = conn.execute(
                 "SELECT MAX(id) FROM messages WHERE session_id = ? AND active = 1",
                 (session_id,),
             ).fetchone()
-        new_head_id = head_row[0] if head_row and head_row[0] is not None else None
+            new_head_id = (
+                head_row[0] if head_row and head_row[0] is not None else None
+            )
+            return target_row, ids, new_head_id, replacement_message_id
 
-        return {
+        target_row, rewound, new_head_id, replacement_message_id = (
+            self._execute_write(_do)
+        )
+
+        # Decode content for callers (prefill the prompt buffer) without a
+        # second fallible database operation after the transaction commits.
+        target_row["content"] = self._decode_content(target_row.get("content"))
+
+        result = {
             "rewound_count": len(rewound),
             "target_message": target_row,
             "new_head_id": new_head_id,
         }
+        if preserve_compaction_handoff:
+            result["replacement_message_id"] = replacement_message_id
+        return result
 
     def restore_rewound(self, session_id: str, since_message_id: int) -> int:
         """Mark inactive messages with id >= *since_message_id* active again.

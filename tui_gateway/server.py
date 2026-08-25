@@ -51,7 +51,6 @@ from tui_gateway.transport import (
     current_transport,
     reset_transport,
 )
-from .methods_prompt import _pending_reaction_notes
 
 logger = logging.getLogger(__name__)
 
@@ -1396,17 +1395,33 @@ def _close_sessions_for_transport(
             viewers = session.get("viewers")
             if viewers:
                 viewers.pop(transport, None)
-            remaining = [
-                (ts, v)
-                for v, ts in (viewers or {}).items()
-                if v is not transport and not _transport_is_dead(v)
-            ]
-            if remaining:
-                remaining.sort(key=lambda kv: kv[0])
-                session["transport"] = remaining[-1][1]
-                continue
-            session["transport"] = _detached_ws_transport
-            session.pop("_client_gone_interrupt_requested", None)
+            # Revalidate under the sessions lock before stomping (#77129):
+            # between the owned-sessions snapshot above and this write, a
+            # concurrent session.resume can rebind the session to a NEW live
+            # transport. Stomping it back onto the drop sentinel here would
+            # knock an attached client into detached state and arm an orphan
+            # reap against a session that has a live owner. If the transport
+            # already moved on to a different live transport, this disconnect
+            # has nothing left to tear down — skip the park AND the reap.
+            with _sessions_lock:
+                current = session.get("transport")
+                if (
+                    current is not transport
+                    and current is not None
+                    and not _transport_is_dead(current)
+                ):
+                    continue
+                remaining = [
+                    (ts, v)
+                    for v, ts in (viewers or {}).items()
+                    if v is not transport and not _transport_is_dead(v)
+                ]
+                if remaining:
+                    remaining.sort(key=lambda kv: kv[0])
+                    session["transport"] = remaining[-1][1]
+                    continue
+                session["transport"] = _detached_ws_transport
+                session.pop("_client_gone_interrupt_requested", None)
             detached += 1
             try:
                 _schedule_ws_orphan_reap(sid)
@@ -1602,6 +1617,118 @@ def _start_idle_reaper() -> None:
                 pass
 
     threading.Thread(target=_loop, daemon=True).start()
+
+
+# ── Startup sweep for orphaned session rows (#65194) ─────────────────────
+# The WS-orphan reaper above is an in-process threading.Timer: a gateway
+# restart (update, crash, systemd) kills it before it fires, leaving the
+# session row `ended_at IS NULL` forever. This is the startup complement
+# every other resource type already has (docker_orphan_reaper, compression
+# orphans). Scheduled once per process from both gateway entry points
+# (stdio `entry.main` and the WS sidecar's `handle_ws`) — desktop/dashboard
+# never run `entry.main()`. state.db is shared by sibling processes on the
+# same profile, so eligibility is conservative. Disable via
+# `dashboard.startup_orphan_sweep: false` (default on).
+_ORPHAN_SWEEP_SOURCES = ("tui", "desktop", "subagent")
+_startup_orphan_sweep_ran = False
+_startup_orphan_sweep_lock = threading.Lock()
+
+
+def _session_orphan_reaper_enabled() -> bool:
+    """``dashboard.startup_orphan_sweep`` (default on). Fail-open on errors."""
+    try:
+        dashboard_cfg = (_load_cfg() or {}).get("dashboard") or {}
+        if isinstance(dashboard_cfg, dict) and "startup_orphan_sweep" in dashboard_cfg:
+            return is_truthy_value(
+                dashboard_cfg.get("startup_orphan_sweep"), default=True
+            )
+        # Fail-open: a missing key (raw yaml, no DEFAULT_CONFIG merge on
+        # this loader) must keep the sweep on.
+        return True
+    except Exception:
+        return True
+
+
+def _live_session_ids() -> list[str]:
+    """Session ids this process currently holds in memory."""
+    ids: set[str] = set()
+    with _sessions_lock:
+        for sid, session in _sessions.items():
+            if sid:
+                ids.add(str(sid))
+            agent = session.get("agent") if isinstance(session, dict) else None
+            for candidate in (
+                getattr(agent, "session_id", None),
+                session.get("session_key") if isinstance(session, dict) else None,
+            ):
+                if candidate:
+                    ids.add(str(candidate))
+    return sorted(ids)
+
+
+def _sweep_orphaned_session_rows() -> list[str]:
+    """End orphaned tui/desktop/subagent rows left by a dead process.
+
+    "Provably orphaned" is inferred conservatively from inactivity — the
+    row must have been created AND last messaged at least the session TTL
+    ago (``HERMES_TUI_SESSION_TTL_S``). A freshly created row that copied
+    an old transcript is protected by its own ``started_at``. Rows this
+    process still holds in memory (e.g. a ``session.resume`` during the
+    startup grace window) are excluded so the sweep never races a
+    mid-reconnect client.
+    """
+    db = _get_db()
+    if db is None:
+        return []
+    ttl = _SESSION_TTL_S
+    if ttl <= 0:
+        return []
+    swept = db.sweep_orphaned_sessions(
+        max_idle_seconds=ttl,
+        sources=_ORPHAN_SWEEP_SOURCES,
+        exclude_ids=tuple(_live_session_ids()),
+    )
+    if swept:
+        logger.info(
+            "Closed %d orphaned session row(s) from a previous gateway "
+            "process (startup_orphan_reap): %s",
+            len(swept),
+            ", ".join(swept),
+        )
+    return swept
+
+
+def _schedule_startup_orphan_sweep() -> None:
+    """Schedule the once-per-process startup orphan sweep (#65194).
+
+    Called from both gateway entry points. Repeat calls are no-ops. The
+    sweep is delayed by the WS-orphan grace window so a client reconnecting
+    right after a restart can ``session.resume`` its row before the sweep
+    reads the DB. ``HERMES_TUI_WS_ORPHAN_REAP_GRACE_S=0`` (park forever)
+    and ``HERMES_TUI_SESSION_TTL_S=0`` both suppress the sweep; so does
+    ``dashboard.startup_orphan_sweep: false``.
+    """
+    global _startup_orphan_sweep_ran
+    if _WS_ORPHAN_REAP_GRACE_S <= 0 or _SESSION_TTL_S <= 0:
+        return
+    if not _session_orphan_reaper_enabled():
+        return
+    if _startup_orphan_sweep_ran:
+        return
+    with _startup_orphan_sweep_lock:
+        if _startup_orphan_sweep_ran:
+            return
+        _startup_orphan_sweep_ran = True
+
+    def _run() -> None:
+        try:
+            _sweep_orphaned_session_rows()
+        except Exception:
+            logger.warning("startup orphan session sweep failed", exc_info=True)
+
+    timer = threading.Timer(_WS_ORPHAN_REAP_GRACE_S, _run)
+    timer.daemon = True
+    timer.start()
 
 
 atexit.register(_shutdown_sessions)
@@ -1861,24 +1988,35 @@ def _default_session_cwd() -> str:
 
 
 def write_json(obj: dict) -> bool:
-    """
-    发送一个 JSON 帧。根据可用的最具体传输方式进行路由。
-    优先级顺序：
-    1. 包含 Session ID 的事件帧
-       → 路由至该 Session 绑定的传输方式。
-       即使发射线程未绑定上下文变量（contextvar），异步事件也能准确送达持有该 Session 的客户端。
-    2. 否则
-       → 使用当前上下文绑定的传输方式
-       （由 `:func:\`dispatch\`` 在请求生命周期内设置）。
-    3. 否则
-       → 使用模块级的 stdio 传输方式，
-       保持与历史行为一致，并确保对 ``_real_stdout`` 进行 Monkey Patch 修改的测试能够顺利通过。
+    """Emit one JSON frame. Routes via the most-specific transport available.
+
+    Precedence:
+
+    1. Event frames with a session id → the transport stored on that session,
+       so async events land with the client that owns the session even if
+       the emitting thread has no contextvar binding.
+    2. Otherwise the transport bound on the current context (set by
+       :func:`dispatch` for the lifetime of a request).
+    3. Otherwise the module-level stdio transport, matching the historical
+       behaviour and keeping tests that monkey-patch ``_real_stdout`` green.
+
+    Every routed event frame is stamped with a per-session monotonic
+    ``seq`` and recorded in the bounded replay ring (tui_gateway.event_replay)
+    so a WS client can resume losslessly after a reconnect via
+    ``session.events.since``.
     """
     if obj.get("method") == "event":
-        sid = ((obj.get("params") or {}).get("session_id")) or ""
+        params = obj.get("params")
+        sid = ((params or {}).get("session_id")) if isinstance(params, dict) else ""
         if sid and (t := (_sessions.get(sid) or {}).get("transport")) is not None:
+            from tui_gateway.event_replay import _stamp_event
+
+            _stamp_event(obj)
             return t.write(obj)
 
+    from tui_gateway.event_replay import _stamp_event
+
+    _stamp_event(obj)
     return (current_transport() or _stdio_transport).write(obj)
 
 
@@ -2335,17 +2473,16 @@ def _current_session_steer_authority(
 
 
 def dispatch(req: dict, transport: Optional[Transport] = None) -> dict | None:
-    """
-    路由传入的 RPC 请求——将长处理程序发送到线程池，其余处理程序直接内联执行。
+    """Route inbound RPCs — long handlers to the pool, everything else inline.
 
-    当在内联状态下处理时，返回一个响应字典。
-    当处理程序被调度到线程池时，返回 None；
-    工作线程完成后，会通过绑定的传输通道自行写入响应。
+    Returns a response dict when handled inline. Returns None when the
+    handler was scheduled on the pool; the worker writes its own response
+    via the bound transport when done.
 
-    *transport*（可选）：
-    将该请求产生的所有写入操作——包括处理程序发出的任何事件——绑定到指定的传输通道。
-    省略该参数时，将回退到模块级的 stdio 传输通道，
-    从而保留 ``tui_gateway.entry`` 的原始行为。
+    *transport* (optional): pins every write produced by this request —
+    including any events emitted by the handler — to the given transport.
+    Omitting it falls back to the module-level stdio transport, preserving
+    the original behaviour for ``tui_gateway.entry``.
     """
     t = transport or _stdio_transport
     token = bind_transport(t)
@@ -2503,22 +2640,24 @@ def _wait_agent_for_prompt(session: dict, rid: str, sid: str) -> dict | None:
 
 
 def _start_agent_build(sid: str, session: dict) -> None:
-    """为 TUI 会话开始构建真正的 AIAgent（仅执行一次）。
+    """Start building the real AIAgent for a TUI session, once.
 
-    经典的 `hermes` 在构建 AIAgent 之前就会显示提示符；
-    而 TUI 此前会在 session.create 期间急切（eagerly）地构建它，
-    这使得启动过程看起来被工具发现/模型元数据获取所阻塞，即使输入框（composer）已经可见。
-    通过将此工作延迟到首条提示词（或任何真正需要 agent 的命令）时执行，
-    既能保持 Shell 的响应能力，又为前端保留相同的 ready/error 事件契约。
+    Classic `hermes` shows the prompt before constructing AIAgent; the TUI used
+    to eagerly build it during session.create, making startup feel blocked on
+    tool discovery/model metadata even though the composer was visible.  Keep
+    the shell responsive by deferring this work until the first prompt (or any
+    command that actually needs the agent), while retaining the same ready/error
+    event contract for the frontend.
     """
     ready = session.get("agent_ready")
     if ready is None:
         return
-    # 正在观摩进行中的子进程的惰性（lazy）监听会话必须保持惰性状态，
-    # 以便子 agent 的实时镜像（live-mirror）能持续流动。
-    # 附带的 RPC 请求（如 session.info、模型元数据等）会通过 _sess() 进行解析，
-    # 否则 _sess() 会在中途将其升级为完整的 agent，并静默终止镜像（一旦设置了 agent，镜像就会退出）。
-    # 一旦子进程完成，该防护解除，下一条提示词/RPC 将正常构建 agent，使用户可以与该会话交谈。
+    # A lazy watch session spectating an in-flight child must stay lazy so the
+    # subagent live-mirror keeps flowing. Incidental RPCs (session.info, model
+    # metadata, etc.) resolve through _sess(), which would otherwise upgrade it
+    # to a full agent mid-stream and silently kill the mirror (the mirror bails
+    # once agent is set). Once the child completes, the guard lifts and the next
+    # prompt/RPC builds the agent normally so the user can talk to the session.
     if session.get("lazy") and _child_run_active(str(session.get("session_key") or "")):
         return
     lock = session.setdefault("agent_build_lock", threading.Lock())
@@ -2656,12 +2795,12 @@ def _start_agent_build(sid: str, session: dict) -> None:
                 pass
 
             _wire_callbacks(sid)
-            # 将自我改进审查（self-improvement review）的 "💾 …" 摘要
-            # 作为事件暴露出来，以便 TUI/桌面端在对话转录（in-transcript）中渲染，
-            # 并遵循 display.memory_notifications 配置。
-            # _init_session 会为急切（eager）/分支路径挂接此逻辑；
-            # 延迟构建的会话（session.create 以及默认的冷恢复）会通过此处进行构建，
-            # 因此如果不加上此逻辑，它们的审查摘要将会泄露到 stdout，而不是呈现在聊天界面中。
+            # Surface the self-improvement review's "💾 …" summary as an event
+            # the TUI/desktop render in-transcript, honoring
+            # display.memory_notifications. _init_session wires this for the
+            # eager/branch paths; deferred-built sessions (session.create and the
+            # default cold resume) build through here, so without this their
+            # review summaries would leak to stdout instead of the chat.
             try:
                 agent.background_review_callback = lambda message, _sid=sid: _emit(
                     "review.summary", _sid, {"text": str(message)}
@@ -2689,11 +2828,10 @@ def _start_agent_build(sid: str, session: dict) -> None:
                 info["config_warning"] = cfg_warn
                 logger.warning(cfg_warn)
             _emit("session.info", sid, info)
-            # 如果 MCP 发现流程仍在进行中
-            # （即服务器响应速度低于 _make_agent 中设置上限的 wait_for_mcp_discovery join 等待时间），
-            # 则 Agent 构建时未包含这些工具。
-            # 一旦发现流程完成，便进行追赶同步——详见 _schedule_mcp_late_refresh。
-            # 缓存安全（仅限首轮对话之前）。
+            # If MCP discovery is still in flight (a server slower than the
+            # bounded wait_for_mcp_discovery join in _make_agent), the agent
+            # was built without those tools. Catch up once they land — see
+            # _schedule_mcp_late_refresh. Cache-safe (pre-first-turn only).
             _schedule_mcp_late_refresh(sid, agent)
         except Exception as e:
             current["agent_error"] = str(e)
@@ -2743,8 +2881,25 @@ def _start_agent_build(sid: str, session: dict) -> None:
 
 
 def _sess_nowait(params, rid):
-    s = _sessions.get(params.get("session_id") or "")
-    return (s, None) if s else (None, _err(rid, 4001, "session not found"))
+    sid = params.get("session_id") or ""
+    s = _sessions.get(sid)
+    if s:
+        return (s, None)
+    # A session-scoped RPC hit a runtime id the gateway no longer holds
+    # (detached on WS disconnect and orphan-reaped, LRU-evicted, or torn down
+    # after an idle TTL). The client is expected to recover via
+    # session.resume on the STORED session id, but a plain stale-id send
+    # leaves no trace anywhere when the resume never fires — every RPC in
+    # this class returned a silent 4001. Log it so a "message vanished"
+    # report is diagnosable as "request arrived and was rejected" instead of
+    # "request never arrived" (see #90428).
+    logger.warning(
+        "session-scoped RPC rejected: session_id=%r not in memory "
+        "(detached/reaped runtime; client should resume the stored session), rid=%r",
+        sid,
+        rid,
+    )
+    return (None, _err(rid, 4001, "session not found"))
 
 
 def _sess(params, rid):
@@ -3363,6 +3518,159 @@ def _session_db(session: dict):
         if close_db and db is not None:
             with contextlib.suppress(Exception):
                 db.close()
+
+
+def _rewind_active_session_history(
+    session: dict,
+    user_ordinal: int,
+    *,
+    require_retryable: bool = False,
+) -> tuple[list[dict], dict, int]:
+    """Rewind one canonical user turn while retaining carrier scaffolding.
+
+    The caller holds ``history_lock``.  Persistent sessions archive the target
+    and tail; a composite carrier's own hidden handoff is inserted in that same
+    transaction.  Memory is installed only after the durable commit and is
+    built from the already-validated prefix plus the returned scaffold row id,
+    so there is no fallible post-commit reload.
+    """
+    from agent.context_compressor import (
+        history_before_user_originated_turn,
+        retryable_user_text,
+        split_user_originated_turn,
+        user_originated_turn_view,
+    )
+    from agent.memory_manager import sanitize_context
+    from agent.tool_dispatch_helpers import (
+        _is_multimodal_tool_result,
+        _multimodal_text_summary,
+    )
+
+    def _comparison_content(message: dict) -> Any:
+        content = message.get("content")
+        if _is_multimodal_tool_result(content):
+            content = _multimodal_text_summary(content)
+        elif isinstance(content, list):
+            text_parts = []
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    text_parts.append(str(part.get("text", "")))
+                elif (
+                    isinstance(part, dict)
+                    and part.get("type") in {"image", "image_url", "input_image"}
+                ):
+                    text_parts.append("[screenshot]")
+            content = "\n".join(text_parts) if text_parts else None
+        if message.get("role") in {"user", "assistant"} and isinstance(content, str):
+            return sanitize_context(content).strip()
+        return content
+
+    history = _history_without_ephemeral_scaffolding(session.get("history", []))
+    user_indices = [
+        index
+        for index, message in enumerate(history)
+        if user_originated_turn_view(message) is not None
+    ]
+    if user_ordinal < 0 or user_ordinal >= len(user_indices):
+        raise ValueError("target user message is no longer in session history")
+    target_index = user_indices[user_ordinal]
+    installed, live_view = history_before_user_originated_turn(history, target_index)
+    rewound_count = len(history) - target_index
+
+    session_key = str(session.get("session_key") or "").strip()
+    persisted = False
+    if session_key:
+        with _session_db(session) as db:
+            if db is None:
+                raise RuntimeError("session database is unavailable")
+            expected_active_ids = db.get_active_message_ids(session_key)
+            durable = db.get_messages_as_conversation(
+                session_key,
+                include_row_ids=True,
+            )
+            durable_user_indices = [
+                index
+                for index, message in enumerate(durable)
+                if user_originated_turn_view(message) is not None
+            ]
+            if len(durable_user_indices) != len(user_indices):
+                raise RuntimeError(
+                    "session history changed before the rewind could be persisted"
+                )
+            durable_target_index = durable_user_indices[user_ordinal]
+            durable_target = durable[durable_target_index]
+            durable_prefix, durable_live_view = history_before_user_originated_turn(
+                durable, durable_target_index
+            )
+            if _comparison_content(durable_live_view) != _comparison_content(live_view):
+                raise RuntimeError(
+                    "session history changed before the rewind could be persisted"
+                )
+            target_row_id = durable_target.get("_row_id")
+            if not isinstance(target_row_id, int):
+                raise RuntimeError("rewind target has no durable row identity")
+            if require_retryable:
+                retryable_user_text(durable_live_view.get("content"))
+            scaffold, _ = split_user_originated_turn(durable_target)
+            result = db.rewind_to_message(
+                session_key,
+                target_row_id,
+                preserve_compaction_handoff=scaffold is not None,
+                expected_active_ids=expected_active_ids,
+                expected_target_content=durable_live_view.get("content"),
+            )
+            if scaffold is not None:
+                replacement_id = result.get("replacement_message_id")
+                if not isinstance(replacement_id, int):
+                    raise RuntimeError(
+                        "rewind commit did not return the replacement scaffold id"
+                    )
+                durable_prefix[-1]["_row_id"] = replacement_id
+                durable_prefix[-1]["_db_persisted"] = True
+                installed[-1] = durable_prefix[-1]
+            # Current clients address destructive follow-ups by durable row id.
+            # Preserve the richer warm content (for example image parts), but
+            # copy row identities when the retained warm/durable shapes align.
+            if len(installed) == len(durable_prefix) and all(
+                warm.get("role") == durable_message.get("role")
+                and bool(warm.get("display_kind"))
+                == bool(durable_message.get("display_kind"))
+                and _comparison_content(warm)
+                == _comparison_content(durable_message)
+                for warm, durable_message in zip(installed, durable_prefix)
+            ):
+                for warm, durable_message in zip(installed, durable_prefix):
+                    row_id = durable_message.get("_row_id")
+                    if isinstance(row_id, int):
+                        warm["_row_id"] = row_id
+            live_view = durable_live_view
+            rewound_count = int(result.get("rewound_count", 0))
+            persisted = True
+    elif require_retryable:
+        retryable_user_text(live_view.get("content"))
+
+    installed = [message.copy() for message in installed]
+    session["history"] = installed
+    session["history_version"] = int(session.get("history_version", 0)) + 1
+    agent = session.get("agent")
+    if agent is not None:
+        agent._session_messages = installed
+        if hasattr(agent, "_last_flushed_db_idx"):
+            agent._last_flushed_db_idx = len(installed) if persisted else 0
+        if hasattr(agent, "_db_flush_scan_prefix"):
+            agent._db_flush_scan_prefix = installed[:] if persisted else None
+    return installed, live_view, rewound_count
+
+
+def _history_without_ephemeral_scaffolding(history: list[dict]) -> list[dict]:
+    """Return the durable transcript shape without transient recovery rows."""
+    from run_agent import _is_ephemeral_scaffolding
+
+    return [
+        message.copy()
+        for message in history
+        if not _is_ephemeral_scaffolding(message)
+    ]
 
 
 def _persist_session_git_meta(session: dict, cwd: str, generation: int) -> None:
@@ -6527,19 +6835,17 @@ def _mirror_subagent_to_child(event_type: str, payload: dict) -> None:
     child_key = str(payload.get("child_session_id") or "")
     if not child_key:
         return
-    # 首先更新活跃状态注册表（Liveness registry）——
-    # 即使当前没有打开任何窗口，它也必须保持准确，
-    # 以便在运行过程中（mid-run）新打开的窗口能够立即感知到子进程处于忙碌状态。
+    # Liveness registry first — it must be accurate even when no window is
+    # open, so a window opened mid-run can immediately know the child is busy.
     if event_type == "subagent.complete":
         _active_child_runs.pop(child_key, None)
     else:
         _active_child_runs[child_key] = time.time()
-    # 仅镜像输出（Mirror）至活跃的监控 Session（以 session_key 为标识；其活跃 sid 与保存的 id 不同），
-    # 且该 Session 尚未升级为完整的 Agent。
-    # 若无窗口或窗口已关闭 → 无需进行镜像；
-    # 若 Session 已升级，则它自身拥有一个真实的原生流（native stream），
-    # 此时若叠加镜像输出，会导致同一 sid 上交错出现两轮对话。
-    # 无论哪种情况，都需清除状态，以便重新打开的窗口能开启一轮全新的合成对话（synthetic turn）。
+    # Mirror only into a live watch session (keyed by session_key; its live sid
+    # differs from the stored id) that has NOT been upgraded to a full agent.
+    # No window / closed → nothing to mirror; an upgraded session owns a real
+    # native stream and mirroring on top would interleave two turns on one sid.
+    # Either way drop state so a reopened window starts a fresh synthetic turn.
     live = _find_live_session_by_key(child_key)
     if live is None or live[1].get("agent") is not None:
         with _child_mirrors_lock:
@@ -6693,10 +6999,11 @@ def _agent_cbs(sid: str) -> dict:
         "tour_callback": lambda payload: _tour_request(sid, payload),
     }
 
-    # 助手中间过程说明（与工具调用同行的文本，或在触发“停止前校验/verify-on-stop”提示前的尝试性最终回答）。
-    # 受 display.interim_assistant_messages 开关控制（默认为 true）。
-    # 此外，为了纵深防御（defense-in-depth），在 _run_prompt_submit 中也会按轮次（per-turn）进行设置 —
-    # 按轮次设置的值会覆盖此处，且 finally 代码块会清除该值，从而防止失效的闭包再次被触发。
+    # Interim assistant commentary (text alongside tool calls, or the attempted
+    # final answer before a verify-on-stop nudge). Gated on
+    # display.interim_assistant_messages (default true). Also set per-turn in
+    # _run_prompt_submit as defense-in-depth — the per-turn set overwrites
+    # this, and the finally block clears it so a stale closure can't fire.
     if _load_interim_assistant_messages():
         callbacks["interim_assistant_callback"] = (
             lambda text, *, already_streamed=False: _emit(
@@ -7163,31 +7470,30 @@ def _reset_session_agent(sid: str, session: dict) -> dict:
 
 
 def _schedule_mcp_late_refresh(sid: str, agent) -> None:
-    """当 MCP 发现流程延迟完成时，刷新会话的工具快照。
+    """Refresh a session's tool snapshot when MCP discovery lands late.
 
-    Agent 在构建阶段仅对 ``agent.tools`` 进行一次快照，
-    且后续不会重新读取注册表（run_agent/agent_init）。
-    ``_make_agent`` 会短暂等待（join）后台 MCP 发现线程
-    （即 ``wait_for_mcp_discovery``，其等待时间受配置项 ``mcp_discovery_timeout`` 限制，默认 1.5 秒），
-    以便让正在启动的服务器赶上该快照——
-    但如果某个服务器的连接耗时超过了此上限（HTTP MCP 服务器首次连接时很常见），
-    它就会在 Agent 构建完成*之后*才就绪。
-    这会导致在整个会话期间，该服务器的工具在 Agent 和横幅（banner）中均不可用，
-    即使经典的 CLI 可以显示它们（CLI 在渲染横幅时会重新派生 ``get_tool_definitions``，
-    此时会再次等待，从而能够捕获这些工具）。
+    The agent snapshots ``agent.tools`` once at build time and never re-reads
+    the registry (run_agent/agent_init). ``_make_agent`` briefly joins the
+    background MCP discovery thread (``wait_for_mcp_discovery``, bounded by the
+    ``mcp_discovery_timeout`` config value, default 1.5s) so
+    already-spawning servers land in that snapshot — but a server that takes
+    longer than the bound to connect (common for an HTTP MCP server on first
+    connect) lands *after* the agent is built. Its tools are then absent from
+    both the agent and the banner for the whole session, even though the
+    classic CLI shows them (the CLI re-derives ``get_tool_definitions`` at
+    banner render time, which re-waits, so it picks them up).
 
-    本函数会调度一个不在关键路径上的守护线程（off-critical-path daemon），
-    用于等待发现流程结束，随后重建快照并重新发送 ``session.info`` 事件，
-    从而使 Agent 的可调用工具与横幅中的统计计数同步更新——
-    其执行的重建操作与手动执行 ``/reload-mcp`` 完全相同，但过程是自动的。
+    This schedules an off-critical-path daemon that waits for discovery to
+    finish, then rebuilds the snapshot and re-emits ``session.info`` so both
+    the agent's callable tools and the banner count catch up — the same
+    rebuild ``/reload-mcp`` performs, but automatic.
 
-    缓存安全性：仅当会话仍处于“首轮对话之前”状态时（即尚未发起 API 调用 → 无需使任何缓存失效），
-    才会执行重建。
-    如果用户已经发送了消息，我们将保持快照处于冻结状态，
-    而不是在中途使 Prompt 缓存失效——
-    此时，这些延迟到达的工具将需要显式执行 ``/reload-mcp``（该命令需要用户确认授权），
-    其行为与当前机制完全一致。
-    如果发现流程在 Agent 构建之前就已经完成，则本操作为一个不起作用的空操作（no-op）。
+    Cache safety: the rebuild only runs while the session is still pre-first-
+    turn (no API call made yet → nothing cached to invalidate). If the user
+    has already sent a message, we leave the snapshot frozen rather than
+    invalidate the prompt cache mid-conversation — those late tools then
+    require an explicit ``/reload-mcp`` (which gates on user consent), exactly
+    as today. No-op when discovery already finished before the agent build.
     """
     try:
         from tui_gateway.entry import mcp_discovery_in_flight, join_mcp_discovery
@@ -7321,13 +7627,12 @@ def _make_agent(
 
     from run_agent import AIAgent
 
-    # MCP 工具发现流程在启动时运行于后台守护线程中，
-    # 从而避免未响应的服务器冻结 Shell 界面。
-    # Agent 在此处对工具列表进行一次性快照（snapshot）且后续不会重新读取，
-    # 因此在构建之前短暂等待正在进行的发现流程完成——该等待是有限度的（bounded），
-    # 即使服务器响应缓慢或死亡，也依然不会引发阻塞。
-    # Dashboard /api/ws 使用的是 hermes_cli.mcp_startup；
-    # TUI stdio 则保留其由 tui_gateway.entry 拥有的现有线程。
+    # MCP tool discovery runs in a background daemon thread at startup so a
+    # dead server can't freeze the shell.  The agent snapshots its tool list
+    # once here and never re-reads it, so briefly wait for in-flight discovery
+    # to land before building — bounded, so a slow/dead server still can't
+    # block. Dashboard /api/ws uses hermes_cli.mcp_startup; TUI stdio keeps
+    # its existing tui_gateway.entry-owned thread.
     try:
         from hermes_cli.mcp_startup import wait_for_mcp_discovery
 
@@ -8524,25 +8829,24 @@ def _interrupt_busy_session(sid: str, session: dict, agent: Any) -> None:
 def _handle_busy_submit(
     rid, sid: str, session: dict, text: Any, transport: Any, queued: bool = False
 ) -> dict | None:
-    """
-    将 ``display.busy_input_mode`` 策略应用于在轮次（turn）进行期间发起的提示词（prompt），
-    而不是以 ``session busy`` 直接拒绝它。
+    """Apply the ``display.busy_input_mode`` policy to a prompt that lands while
+    a turn is in flight, instead of rejecting it with ``session busy``.
 
-    旧有的拒绝方式会强制客户端进入带超时限制的忙碌重试循环，
-    一旦轮次清理（teardown）耗时超出了超时限制，就会静默丢弃该发送请求。
-    现在的默认策略会直接在原地重新定向（redirect）能力完备的 core agent；
-    而较旧的 agent 则保留原有的“中断并入队”路径，并在 ``run`` 的末尾进行消费与清理。
+    The old rejection forced clients into a deadline-bounded busy-retry that
+    silently dropped the send when turn teardown outlived the deadline. The
+    default policy now redirects a capable core agent in place; older agents
+    retain the proven interrupt-and-queue path drained from ``run``'s tail.
 
-    模式：
-    ``interrupt``（默认）→ 重新定向进行中的轮次，对于较旧的 agent 则回退到硬中断（hard interrupt）加入队；
-    ``queue`` → 仅入队而不中断；
-    ``steer`` → 在当前原子操作（atomic action）结束后注入。
+    Modes: ``interrupt`` (default) → redirect the live turn, falling back to
+    hard interrupt + queue for older agents; ``queue`` → queue without
+    interrupting; ``steer`` → inject after the current atomic action.
 
-    ``queued=True``（客户端的队列消费，即 ``prompt.submit`` 参数）会完全覆盖该模式：
-    该消息已被显式列为“随后运行”，因此绝对不能演变为进行中轮次的修正或中断。
-    如果没有这一限制，未能赶上稳定竞赛（settle race，即客户端观察到空闲，而服务端仍处于轮次解构中）的队列消费，
-    就会将下一轮的文本错误地用于重新定向进行中的轮次——
-    导致用户无法察觉的毫秒级竞态条件破坏了队列的原有语义。
+    ``queued=True`` (client's queue drain, ``prompt.submit`` param) overrides
+    the mode entirely: the message was explicitly queued as "run after", so it
+    must NEVER become a live-turn correction or interrupt. Without this, a
+    drain that loses the settle race (client observed idle, server still
+    unwinding the turn) redirected the live turn with next-turn text — queue
+    semantics betrayed by a millisecond race the user can't see.
     """
     mode = "queue" if queued else _load_busy_input_mode()
     agent = session.get("agent")
@@ -11971,21 +12275,22 @@ def _run_prompt_submit(
                 with session["history_lock"]:
                     session["running"] = False
 
-        # 清空（Drain）在本轮对话（turn）期间到达的完成通知。
-        # 后台轮询器负责轮询间隔（between-turn）的事件推送；
-        # 此处是针对在对话进行中（mid-turn）到达事件的防漏安全网（safety net）。
+        # Drain completion notifications that arrived during this turn.
+        # The background poller handles between-turn delivery; this is
+        # the safety net for events that arrived mid-turn.
         #
-        # 所有权过滤器 (#42674, #35652)：在 Session B 中结束的一轮对话，
-        # 绝不能消耗属于 Session A 的事件。注册表（registry）会将本 Session
-        # 无法确切声明所有权（positively claim）的寻址事件重新入队；
-        # 随后轮询器会将该事件投递给活跃的所有者，或将其作为孤儿事件丢弃。
+        # Ownership filter (#42674, #35652): a turn finishing in session B
+        # must not consume an event that belongs to session A. The registry
+        # requeues every addressed event this session cannot positively claim;
+        # the poller then delivers it to a live owner or drops an orphan.
         try:
             from tools.process_registry import process_registry
 
-            # 确定性归属证明（感知压缩链/compression-chain aware）——
-            # 与轮询器使用的“失败封闭（fail-closed）”关卡相同。
-            # 这样可以确保：在压缩后的 Session 仍能提取其压缩前发出的派发事件时，
-            # 对话结束后的清空操作（post-turn drain）不会误接收属于其他 Session 的寻址通知 (#55578)。
+            # Positive-proof ownership (compression-chain aware) — the same
+            # fail-closed gate the poller uses, so the post-turn drain can't
+            # adopt another session's addressed notification while a
+            # post-compression session still claims its own pre-compression
+            # dispatches (#55578).
             drained = process_registry.drain_notifications(
                 session_key=session.get("session_key", ""),
                 owns_event=lambda e: _session_owns_notification_event(sid, session, e),
@@ -15176,6 +15481,21 @@ def _persist_wake_enabled(enabled: bool) -> bool:
     except Exception as e:
         logger.warning("wake: failed to persist wake_word.enabled=%s: %s", enabled, e)
         return False
+
+
+@method("ping")
+def _(rid, params: dict) -> dict:
+    """Cheapest possible liveness probe for the desktop client.
+
+    Answered synchronously on the WS reader thread, so it works even while
+    every agent is mid-turn or the GIL is contended — the round-trip only
+    measures socket health, not backend load. A desktop client uses it after
+    sleep/wake to distinguish a half-open TCP connection (no close event, so
+    ``connectionState`` still reads ``open`` while every RPC hangs until its
+    per-call timeout) from a genuinely healthy socket, and forces a reconnect
+    in the former case instead of letting the next ``prompt.submit`` hang.
+    """
+    return _ok(rid, {"pong": True})
 
 
 @method("wake.start")

@@ -6,18 +6,76 @@ are rebound onto server.py's globals at install time — see method_ctx.py.
 import os
 import threading
 import time
-
-from utils import is_truthy_value
-from .method_ctx import HandlerRegistry
-
 import types
+import uuid
+from datetime import datetime
+from pathlib import Path
+from typing import TYPE_CHECKING
 
-from .server import _sess_nowait, _ensure_active_session_slot, _err, logger, _voice_emit, _tts_stream_stop, _ok, \
-    _voice_mode_enabled, _expand_skill_invocation_for_replay, _load_dashboard_process_isolation_config, \
-    _session_uses_compute_host, _handle_busy_submit, _child_run_active, _wait_agent_for_prompt, \
-    _emit_terminal_turn_error, _emit, _session_info, _clear_inflight_turn, _run_prompt_submit, _start_agent_build, \
-    _persist_branch_seed, _ensure_session_db_row, _submit_prompt_to_compute_host, _session_db, _start_inflight_turn
+from .method_ctx import HandlerRegistry
 from .transport import current_transport
+from utils import is_truthy_value
+
+if TYPE_CHECKING:
+    # HandlerRegistry replaces each handler's globals with server.py's namespace
+    # at install time. These imports teach static analyzers about that injected
+    # namespace without creating a runtime circular import.
+    from .server import (
+        _ATTACH_BYTES_MAX_BYTES,
+        _PDF_ATTACH_MAX_BYTES,
+        _PDF_ATTACH_MAX_PAGES,
+        _allowed_image_extensions,
+        _attachment_ref_path,
+        _background_agent_kwargs,
+        _child_run_active,
+        _clear_inflight_turn,
+        _clear_session_context,
+        _decode_attach_base64,
+        _emit,
+        _emit_terminal_turn_error,
+        _ensure_active_session_slot,
+        _ensure_session_db_row,
+        _ephemeral_preview_agent_kwargs,
+        _err,
+        _expand_skill_invocation_for_replay,
+        _find_live_session_by_key,
+        _format_ref_value,
+        _handle_busy_submit,
+        _history_without_ephemeral_scaffolding,
+        _image_meta,
+        _load_cfg,
+        _load_dashboard_process_isolation_config,
+        _ok,
+        _persist_branch_seed,
+        _preview_restart_callbacks,
+        _preview_restart_history,
+        _queue_attached_image,
+        _respond,
+        _run_prompt_submit,
+        _sess,
+        _sess_building,
+        _sess_nowait,
+        _session_cwd,
+        _session_db,
+        _session_images_dir,
+        _session_info,
+        _session_uses_compute_host,
+        _sessions,
+        _sessions_lock,
+        _set_session_context,
+        _sniff_image_ext,
+        _stage_session_file_attachment,
+        _start_agent_build,
+        _start_inflight_turn,
+        _submit_prompt_to_compute_host,
+        _tts_stream_stop,
+        _voice_emit,
+        _voice_mode_enabled,
+        _wait_agent_for_prompt,
+        logger,
+        reset_hermes_home_override,
+        set_hermes_home_override,
+    )
 
 _registry = HandlerRegistry()
 method = _registry.method

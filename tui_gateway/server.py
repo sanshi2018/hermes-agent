@@ -4124,14 +4124,15 @@ def _clarify_timeout_seconds() -> float | None:
 
 
 def _clarify_block(sid: str, q, c, multi_select=False, questions=None) -> str:
-    """Bridge the clarify tool callback onto _block.
+    """将澄清（clarify）工具的回调对接（Bridge）到 _block。
 
-    Single-question calls keep the exact historical payload shape (older
-    renderers never see a new field). Batch calls emit one clarify.request
-    carrying the question list — only wire fields (qid/question/choices/
-    multi_select) are forwarded; the tool-side normalized entries also carry
-    result-assembly keys (id, choices_offered) the renderer must not see.
-    The tool decodes the JSON reply via its batch answer parser.
+    单问题调用保持与历史完全相同的载荷格式
+    （旧版渲染器绝不会看到新字段）。
+    批量调用则触发一个包含问题列表的 clarify.request——
+    仅转发线路上传输的字段（qid/question/choices/multi_select）；
+    工具端归一化的条目还包含结果拼装所需的键（id, choices_offered），
+    这些键绝不能暴露给渲染器。
+    工具会通过其批量答案解析器来解码 JSON 格式的回复。
     """
     if questions:
         wire = [

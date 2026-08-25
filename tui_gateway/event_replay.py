@@ -22,27 +22,27 @@ import threading
 import uuid
 from collections import OrderedDict, deque
 
-# Process identity for the replay contract. Seq counters live in-process, so
-# a gateway restart silently resets them to 1 while clients still hold high
-# watermarks — events_since(sid, 97) then returns [] with truncated=False and
-# the client believes it missed nothing (and its stale watermark makes every
-# future replay empty too). The epoch lets clients detect the restart and
-# reset their watermarks.
+# 用于重放协议的进程标识。序列号（Seq）计数器存在于进程内存中，
+# 因此网关重启会静默将其重置为 1，而此时客户端仍保留着较高的水位线——
+# 这会导致 events_since(sid, 97) 返回 [] 且 truncated=False，
+# 从而使客户端误以为没有丢失任何数据
+# （并且其陈旧的水位线会让未来的每一次重放都返回空）。
+# epoch 机制可以让客户端检测到重启并重置其水位线。
 _REPLAY_EPOCH = uuid.uuid4().hex
 
-# Replay ring per session. A long turn emits ~hundreds of token events; this
-# covers several minutes of streaming plus all control events.
+# 每个会话的重放环形缓冲区。一个长轮次对话会产生约数百个 token 事件；
+# 该容量可覆盖数分钟的流式传输以及所有的控制事件。
 _REPLAY_BUFFER_MAX = 512
-# Distinct sessions remembered. Desktop users rarely exceed a dozen live chats.
+# 记忆的独立会话上限。桌面端用户极少会同时开启超过十几个活跃对话。
 _REPLAY_SESSIONS_MAX = 64
 
 _replay_lock = threading.Lock()
-# sid -> deque of (seq, event_object) where event_object is the frame's
-# ``params`` dict (bare event: type/session_id/seq/payload) — the exact shape
-# the client's dispatch path consumes.
+# sid -> (seq, event_object) 双端队列（deque），
+# 其中 event_object 为该帧的 ``params`` 字典
+# （纯事件：包含 type/session_id/seq/payload）——
+# 这正是客户端分发路径所消耗的精确数据格式。
 _replay_buffers: "OrderedDict[str, deque]" = OrderedDict()
 _replay_next_seq: dict[str, int] = {}
-
 
 def replay_epoch() -> str:
     """Opaque token identifying this server process's seq numbering."""
@@ -76,13 +76,13 @@ def _stamp_event(obj: dict) -> None:
 
 
 def events_since(sid: str, last_seen: int) -> list[dict]:
-    """Return recorded EVENT OBJECTS with seq > last_seen for *sid*, in order.
+    """按顺序返回 *sid* 对应且 seq > last_seen 的已记录事件对象（EVENT OBJECTS）。
 
-    Shape contract: each element is the frame's ``params`` dict — a bare event
-    object with top-level ``type`` / ``session_id`` / ``seq`` — because that is
-    exactly what the client's dispatch path consumes. Returning the full
-    JSON-RPC envelope here would make every replayed event fail the client's
-    ``event.type`` gate and be silently dropped.
+    数据格式协议：每个元素都是该帧的 ``params`` 字典——
+    即一个包含顶层 ``type`` / ``session_id`` / ``seq`` 的纯事件对象——
+    因为这正是客户端分发路径所消耗的数据。
+    如果在这里返回完整的 JSON-RPC 包装层，
+    会导致所有重放的事件都无法通过客户端的 ``event.type`` 校验而被静默丢弃。
     """
     with _replay_lock:
         buf = _replay_buffers.get(sid or "")

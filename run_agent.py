@@ -3550,18 +3550,19 @@ class AIAgent:
         return True
 
     def redirect(self, text: str) -> bool:
-        """Redirect the active turn without converting it into a new task.
+        """重定向当前轮次对话（turn），而无需将其转换为新的任务。
 
-        During a normal Hermes model request this cancels only that request;
-        the conversation loop retains completed messages/tool results, records
-        the displayed partial reasoning as plain assistant context, appends the
-        correction as a real user message, and retries. During tool execution
-        it degrades to ``steer()`` so the tool can finish at a safe boundary.
-        Codex app-server has a native ``turn/steer`` operation and uses it
-        directly instead of cancelling.
+        在标准的 Hermes 模型请求期间，该操作仅会取消当前请求；
+        对话循环会保留已完成的消息与工具调用结果，
+        将已展示的部分推理内容记录为纯文本形式的助手上下文（assistant context），
+        并将纠正信息追加为一条真正的用户消息后重新发起重试。
+        在工具执行期间，它会降级为调用 ``steer()``，
+        以确保工具可以在安全边界内执行完毕。
+        Codex 应用服务器（app-server）拥有原生的 ``turn/steer`` 操作，
+        因此会直接使用该操作而非发起取消。
 
-        Returns ``False`` when there is no live turn or the text is empty, so
-        surfaces can fall back to their existing next-turn queue.
+        当不存在活跃轮次或文本为空时返回 ``False``，
+        以便各个界面能够回退使用现有的下一轮次队列。
         """
         if not text or not text.strip():
             return False

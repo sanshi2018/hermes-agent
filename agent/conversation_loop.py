@@ -371,41 +371,40 @@ def _moa_reference_metrics_for_hook(agent: Any) -> Any:
 
 
 def _apply_active_turn_redirect(agent: Any, messages: List[Dict[str, Any]], text: str) -> None:
-    """Append a provider-safe checkpoint and correction to the live turn.
+    """向活跃轮次追加对提供商安全（provider-safe）的检查点和纠正信息。
 
-    Incomplete provider reasoning blocks are not valid replay items (Anthropic
-    signs them; Responses reasoning items require their following output).
-    Preserve only the *visible* response text, demoted to ordinary text, then
-    add the correction as a real user message. This keeps role alternation
-    valid and leaves every previously cached message byte-for-byte unchanged.
+    未完成的提供商推理块不是有效的重放项（Anthropic 会对其进行签名；
+    Responses 推理项要求必须跟随其后续输出）。
+    仅保留*可见*的响应文本（降级为普通文本），
+    然后将纠正信息作为一条真正的用户消息追加。
+    这样既能保持角色交替的合法性，
+    又能确保此前缓存的每一字节消息都完全保持不变。
 
-    INVARIANT — raw chain-of-thought must never be serialized into replayable
-    message content. Streamed reasoning is display-only state: it may be shown
-    live, but it does not re-enter the transcript as assistant (or user) text.
-    An assistant turn whose content inlines its own chain-of-thought reads to
-    Anthropic's output classifier as reasoning-injection/prefill jailbreak,
-    and because the poisoned checkpoint is persisted and replayed on every
-    subsequent call, the session dies permanently with deterministic
-    "Provider returned an empty response" storms that no retry, nudge, or
-    empty-recovery branch can escape (July 2026: four sessions bricked this
-    way; every reasoning-free checkpoint that week was untouched — same
-    mechanism as the ~/.hermes/prefill.json incident, 20/20 blocked with
-    assistant-exposed CoT vs 0/20 without). The interrupted reasoning was
-    incomplete by definition; the model regenerates it on the retried turn.
-    If a future path needs to preserve interrupted thinking, carry it in a
-    provider-gated reasoning *field*, never in content.
-    INVARIANT — the scaffolding is provider-replay text, not transcript text.
-    ``[This response was interrupted by a user correction.]`` and its
-    ``Visible response before the interruption:`` header exist so the MODEL
-    understands its own reply was cut off. They are not prose the user wrote
-    or the agent said. Persisting them into an assistant row's ``content`` or
-    ``api_content`` made the model treat the scaffold as *its own previous
-    reply*, echo it, and self-replicate ghost rows across turns (#81841).
-    Carry the scaffolded form only in the *user correction's* ``api_content``
-    sidecar — never on the placeholder assistant row. When nothing was on
-    screen the placeholder is marked ``display_kind="hidden"`` (empty
-    content) so every transcript surface drops it, exactly like
-    compaction-reference rows.
+    不变量（INVARIANT）—— 原始思维链（chain-of-thought）绝不能序列化到可重放的消息内容中。
+    流式传输的推理仅作为展示状态使用：它可以实时显示，
+    但绝不能作为助手（或用户）文本重新进入对话记录（transcript）。
+    如果助手轮次的内容内联了其自身的思维链，
+    Anthropic 的输出分类器会将其判定为推理注入/预填越狱（prefill jailbreak）；
+    并且由于被污染的检查点会在随后的每次调用中持久化并重放，
+    该会话将永久失效，并触发确定性的“Provider returned an empty response”异常风暴，
+    任何重试、提示或空恢复分支都无法摆脱
+    （2026 年 7 月：以此方式死锁了 4 个会话；而当周每个不含推理的检查点都完好无损 ——
+    其机制与 ~/.hermes/prefill.json 事件相同，曝光了助手 CoT 的拦截率为 20/20，而未曝光的为 0/20）。
+    被打断的推理在定义上是不完整的；模型会在重试的轮次中重新生成它。
+    如果未来的逻辑分支需要保留被打断的思想，请将其承载于特定提供商控制的推理*字段*中，
+    绝对不能放入 content 中。
+
+    不变量（INVARIANT）—— 脚手架文本是“提供商重放文本”，而非“对话记录文本”。
+    ``[This response was interrupted by a user correction.]`` 及其
+    ``Visible response before the interruption:`` 标头存在的目的，
+    是为了让模型理解其自身的回复被打断了。
+    它们既不是用户编写的散文，也不是 Agent 所说的言论。
+    如果将它们持久化到助手行的 ``content`` 或 ``api_content`` 中，
+    会导致模型将该脚手架视为*其先前的回复*，进而跨轮次进行复述并自复制出幽灵行（#81841）。
+    请仅在*用户纠正信息*的 ``api_content`` 侧栏中承载脚手架化的形式 ——
+    切勿将其放置在占位助手行上。
+    当屏幕上没有任何内容时，该占位符会被标记为 ``display_kind="hidden"``（空内容），
+    从而使所有对话记录界面将其丢弃，与压缩引用（compaction-reference）行的处理方式完全一致。
     """
     visible = agent._strip_think_blocks(
         getattr(agent, "_current_streamed_assistant_text", "") or ""

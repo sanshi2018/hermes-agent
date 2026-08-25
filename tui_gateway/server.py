@@ -1988,22 +1988,22 @@ def _default_session_cwd() -> str:
 
 
 def write_json(obj: dict) -> bool:
-    """Emit one JSON frame. Routes via the most-specific transport available.
+    """发出一个 JSON 帧。通过当前可用的最精确的传输通道（transport）进行路由。
 
-    Precedence:
+    优先级顺序：
 
-    1. Event frames with a session id → the transport stored on that session,
-       so async events land with the client that owns the session even if
-       the emitting thread has no contextvar binding.
-    2. Otherwise the transport bound on the current context (set by
-       :func:`dispatch` for the lifetime of a request).
-    3. Otherwise the module-level stdio transport, matching the historical
-       behaviour and keeping tests that monkey-patch ``_real_stdout`` green.
+    1. 带有 session id 的事件帧 → 使用该会话上保存的传输通道，
+       这样即使发送线程没有绑定 contextvar，
+       异步事件也能准确送达拥有该会话的客户端。
+    2. 否则使用绑定在当前上下文中的传输通道
+       （由 :func:`dispatch` 在请求的生命周期内设置）。
+    3. 否则使用模块级的 stdio 传输通道，
+       这与历史行为保持一致，
+       并能确保那些对 ``_real_stdout`` 进行 monkey-patch 的测试顺利通过。
 
-    Every routed event frame is stamped with a per-session monotonic
-    ``seq`` and recorded in the bounded replay ring (tui_gateway.event_replay)
-    so a WS client can resume losslessly after a reconnect via
-    ``session.events.since``.
+    每一个路由的事件帧都会被打上单调递增的单会话 ``seq`` 序列号，
+    并记录在有界重放环形缓冲区（tui_gateway.event_replay）中，
+    以便 WebSocket 客户端在重连后可以通过 ``session.events.since`` 实现无损恢复。
     """
     if obj.get("method") == "event":
         params = obj.get("params")

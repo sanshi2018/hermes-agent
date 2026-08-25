@@ -3639,13 +3639,14 @@ def _(rid, params: dict) -> dict:
 
 @method("session.events.since")
 def _(rid, params: dict) -> dict:
-    """Replay recorded events for a session newer than the client's last-seen seq.
+    """重放序列号高于客户端最新接收到的序列号（seq）的会话已记录事件。
 
-    Reconnect contract (desktop / web clients): every event frame now carries
-    ``params.seq``. After a WS reconnect the client calls this with its last
-    observed seq; this returns the buffered frames in order so no mid-stream
-    event is lost. Frames older than the ring window report ``truncated`` so
-    the client knows to refetch history instead of silently accepting a gap.
+    重连协议（桌面端/ Web 端）：
+    现在每个事件帧都带有 ``params.seq``。
+    WebSocket 重连后，客户端会携带其最后收到的 seq 调用此方法；
+    该方法按顺序返回缓冲帧，确保流式事件中途不会丢失。
+    早于环形缓冲区窗口（ring window）的帧会标记为 ``truncated``，
+    以便客户端主动重新拉取历史记录，而不是默许断层的存在。
     """
     sid = str(params.get("session_id") or "")
     try:

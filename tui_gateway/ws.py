@@ -149,11 +149,12 @@ class WSTransport:
         except RuntimeError:
             on_loop = False
 
-        # Coalesce streamed token frames: buffer this frame and arm a short
-        # flush timer instead of waking the loop right now. Cheap and
-        # non-blocking — the worker returns immediately. Ordering is preserved
-        # because every non-streaming frame (below) drains the buffer ahead of
-        # itself.
+        # 合并流式 token 帧：
+        # 将当前帧存入缓冲区，并启动一个短暂的刷新定时器，
+        # 而不是立即唤醒事件循环。
+        # 这种方式开销低且非阻塞——工作线程会立即返回。
+        # 顺序可以得到保证，
+        # 因为所有非流式帧（见下方）都会在处理自身之前先清空缓冲区。
         if self._is_streaming_frame(obj):
             with self._token_lock:
                 self._pending_tokens.append(line)
@@ -164,11 +165,12 @@ class WSTransport:
                     self._loop.call_soon_threadsafe(self._arm_token_flush)
             return not self._closed
 
-        # Non-streaming frame (RPC response, control frame, non-token event):
-        # append it behind any buffered tokens and flush the whole batch NOW so
-        # it can never overtake the tokens that preceded it. The send is
-        # scheduled INSIDE the lock so the on-the-wire order matches the buffer
-        # order even if the coalesce timer fires on the loop at the same moment.
+        # 非流式帧（RPC 响应、控制帧、非 token 事件）：
+        # 将其追加到任何已缓冲的 token 之后，并“立即”刷新整批数据，
+        # 以确保它绝不会超越在其之前的 token。
+        # 发送操作会在锁“内部”调度，
+        # 这样即使合并定时器在同一时刻被事件循环触发，
+        # 实际线路上发送的顺序也会与缓冲区中的顺序保持一致。
         from agent.async_utils import safe_schedule_threadsafe
         with self._token_lock:
             self._pending_tokens.append(line)

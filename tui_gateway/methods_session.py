@@ -3,12 +3,14 @@
 Handler bodies are byte-identical to their pre-split server.py form; they
 are rebound onto server.py's globals at install time — see method_ctx.py.
 """
-
+from utils import is_truthy_value
 from .method_ctx import HandlerRegistry
 from .server import _register_session_cwd, _schedule_agent_build, _schedule_session_cap_enforcement, _ok, \
     _history_to_messages, _resolve_model, _sessions, _git_branch_for_cwd, _project_info_for_cwd, \
     DESKTOP_BACKEND_CONTRACT, _response_profile_name, _coerce_seed_history, _find_live_session_by_key, \
-    _session_resume_lock, _cancel_ws_orphan_reap, _live_session_payload
+    _session_resume_lock, _cancel_ws_orphan_reap, _live_session_payload, _init_session, _transfer_db_to_agent, \
+    _child_run_active, _stdio_transport, _maybe_schedule_auto_continue
+from .transport import current_transport
 
 _registry = HandlerRegistry()
 method = _registry.method
@@ -619,29 +621,35 @@ def _(rid, params: dict) -> dict:
                     session.get("resume_message_count") or payload["message_count"]
                 )
                 payload["hydrating"] = bool(session.get("resume_hydrating"))
-            # A lazy watch session never owns a run loop, so its payload's running
-            # flag is always False — overlay the child-run registry so a reconnecting
-            # watch window keeps its busy indicator while the child is still mid-run.
+            # 延迟/监听（lazy watch）会话从不拥有运行循环（run loop），
+            # 因此其载荷的运行中（running）标记始终为 False ——
+            # 此处叠加子运行注册表（child-run registry）的状态，
+            # 以便重新连接的监听窗口在子任务仍在运行期间
+            # 能够保持其繁忙指示器（busy indicator）的显示。
             if session.get("agent") is None and _child_run_active(target):
                 payload["running"] = True
                 payload["status"] = "streaming"
             return payload
 
         def _reuse_live_response(sid: str, session: dict) -> dict:
-            # The helper owns the resume lock because slow-path claim races can
-            # discover a live winner and return it after releasing their own lock.
-            # Keeping the client-gone check and transport rebind in one critical
-            # section makes grace expiry atomic across every reuse path.
+            # 辅助函数（helper）持有恢复锁（resume lock），
+            # 因为慢速路径（slow-path）的抢占竞争可能会发现一个活跃的胜出者，
+            # 并在释放各自的锁之后将其返回。
+            #
+            # 将“客户端断开检查（client-gone check）”与“传输层重新绑定（transport rebind）”
+            # 保持在同一个临界区（critical section）内，
+            # 可以确保宽限期过期（grace expiry）在所有复用路径中都具备原子性。
             with _session_resume_lock:
                 if _sessions.get(sid) is not session:
                     return _err(rid, 4007, "session no longer live; retry resume")
                 if session.get("_client_gone_interrupt_requested"):
                     return _err(rid, 4009, "session disconnect interrupt settling")
-                # This resume reattaches the live record: cancel any pending
-                # ws-orphan reap timer armed while the client was detached
-                # (storm killer — _live_session_payload's rebind also cancels,
-                # but only when a transport is passed; cancel unconditionally
-                # here so the fast path can never race the reap Timer).
+                # 此次恢复操作将重新附加实时记录：
+                # 取消客户端断开连接期间启动的所有挂起的
+                # WebSocket 孤立项清理定时器（ws-orphan reap timer）
+                # （风暴消除机制 —— _live_session_payload 的重新绑定也会进行取消，
+                # 但前提是传入了传输层；此处进行无条件取消，
+                # 以确保快速路径绝不会与清理定时器产生竞争）。
                 _cancel_ws_orphan_reap(sid)
                 return _ok(rid, _reuse_live_payload(sid, session))
 
@@ -651,13 +659,15 @@ def _(rid, params: dict) -> dict:
         if live is not None:
             return _reuse_live_response(*live)
 
-        # Lazy/watch resume: register the live session WITHOUT building an agent.
-        # Used by the desktop's subagent windows — the child runs inside the
-        # parent's turn, so its window only needs the stored history plus a
-        # transport for the child-mirror's live events. Skipping _make_agent here
-        # is what keeps the window cheap while the backend is busy running the
-        # delegation. A later prompt.submit upgrades it via _start_agent_build
-        # (resume_session_id keeps the upgrade on the stored conversation).
+        # 延迟/监听恢复：仅注册实时会话，**不**构建 Agent。
+        # 适用于桌面端的子 Agent（subagent）窗口 ——
+        # 子任务在父任务的轮次内部运行，
+        # 因此其窗口只需要存储的历史记录，
+        # 加上用于接收子任务镜像（child-mirror）实时事件的传输层。
+        # 此处跳过 `_make_agent` 能够保持窗口的轻量化，
+        # 从而不影响后端忙于执行委派任务时的性能。
+        # 后续的 `prompt.submit` 会通过 `_start_agent_build` 对其进行升级
+        # （`resume_session_id` 会使升级保持在已存储的对话上）。
         if is_truthy_value(params.get("lazy", False)):
             sid = uuid.uuid4().hex[:8]
             source = _resolve_session_source(str(params.get("source") or "").strip() or None)
@@ -725,18 +735,20 @@ def _(rid, params: dict) -> dict:
                 },
             )
 
-        # Desktop can ask for a bounded acknowledgement and hydrate the display
-        # transcript through the paginated REST endpoint. Register the runtime now,
-        # then load model history and initialize optional providers in background.
-        # Repeated requests reuse the record through the live fast path above.
+        # 桌面端可以请求一个范围受限的确认响应（bounded acknowledgement），
+        # 并通过分页的 REST 端点来加载/充实（hydrate）显示的对话记录。
+        # 现在先注册运行时（runtime），
+        # 随后在后台加载模型历史记录并初始化可选的提供者（providers）。
+        # 后续的重复请求将通过上方实时的快速路径复用该记录。
         #
-        # Precedence vs omit_messages: defer_history SUPERSEDES omit_messages.
-        # Desktop sends both flags on a cold resume; when defer_history is set the
-        # response never carries a transcript (messages is always []) and the ONE
-        # history read happens in the background hydration worker — the synchronous
-        # omit_messages read below (cold resume default) is skipped entirely, so
-        # the transcript is never loaded twice for one resume. omit_messages only
-        # governs the response shape of the non-deferred paths.
+        # 优先级与 omit_messages 的关系：defer_history 的优先级高于 omit_messages。
+        # 桌面端在冷恢复（cold resume）时会同时发送这两个标记；
+        # 当设置了 defer_history 时，
+        # 响应中绝不会包含对话记录（messages 始终为 []），
+        # 且**仅有一次**的历史记录读取会在后台的充实工作线程（hydration worker）中进行 ——
+        # 下方同步的 omit_messages 读取逻辑（冷恢复的默认行为）将被完全跳过，
+        # 从而确保单次恢复过程绝不会重复加载两次对话记录。
+        # omit_messages 仅用于控制非延迟（non-deferred）路径的响应结构形态。
         if defer_history and not is_truthy_value(params.get("eager_build", False)):
             sid = uuid.uuid4().hex[:8]
             source = _resolve_session_source(str(params.get("source") or "").strip() or None)
@@ -791,19 +803,25 @@ def _(rid, params: dict) -> dict:
                 },
             )
 
-        # Cold resume default: register the live session and read its stored
-        # transcript, but build the agent OFF the response path. _make_agent can
-        # block for seconds (MCP discovery, prompt/skill build, AIAgent
-        # construction), and every resume caller (desktop + Ink TUI) awaits this RPC
-        # before it paints — so building eagerly is the bulk of the multi-second
-        # "switching sessions is frozen" latency. Return the full display transcript
-        # immediately and pre-warm the agent on a short timer (the same deferred-
-        # build contract session.create uses); _sess() also builds on demand if the
-        # first prompt beats the timer. A caller that needs the agent built
-        # synchronously (e.g. tests of the build race) passes ``eager_build: true``
-        # to fall through to the eager path below. Distinct from the lazy/watch
-        # branch above: a normal resume restores the full ancestor history and the
-        # session's persisted runtime identity, and is a real (upgradable) session.
+        # 冷恢复默认行为：注册实时会话并读取其存储的对话记录，
+        # 但在响应路径之外（OFF the response path）构建 Agent。
+        # `_make_agent` 可能会阻塞数秒
+        # （MCP 发现、提示词/技能构建、AIAgent 构造），
+        # 而每个恢复调用方（桌面端 + Ink TUI）在渲染界面前
+        # 都会等待此 RPC 返回 ——
+        # 因此，急切地（eagerly）进行构建是导致长达数秒的
+        # “切换会话卡死”延迟的主要原因。
+        #
+        # 此处会立即返回完整的显示对话记录，
+        # 并通过一个短定时器预热 Agent
+        # （与 `session.create` 使用相同的延迟构建契约）；
+        # 如果首个提示词抢在定时器触发前到达，`_sess()` 也会按需进行构建。
+        # 如果调用方需要同步构建 Agent（例如测试构建竞争条件），
+        # 可以传入 ``eager_build: true`` 以回退到下方的急切构建路径。
+        #
+        # 这与上方的延迟/监听（lazy/watch）分支不同：
+        # 正常的恢复操作会还原完整的祖先历史记录以及会话持久化的运行时标识，
+        # 并且是一个真正的（可升级的）会话。
         if not is_truthy_value(params.get("eager_build", False)):
             sid = uuid.uuid4().hex[:8]
             source = _resolve_session_source(str(params.get("source") or "").strip() or None)
@@ -883,10 +901,11 @@ def _(rid, params: dict) -> dict:
                 payload["auto_continue"] = auto_continue
             return _ok(rid, payload)
 
-        # Build the agent OUTSIDE the lock — _make_agent can block for seconds
-        # (MCP discovery, prompt/skill build, AIAgent construction). Holding
-        # _session_resume_lock across it would stall session.close on the main
-        # dispatch thread (it's not a _LONG_HANDLER), blocking fast-path RPCs.
+        # 在锁机制之外构建 Agent —— _make_agent 可能会阻塞数秒
+        # （包括 MCP 发现、提示词/技能构建、AIAgent 构造）。
+        # 若在执行该操作期间持有 _session_resume_lock，
+        # 会导致主调度线程上的 session.close 发生停顿（因为它不是 _LONG_HANDLER），
+        # 进而阻塞快速路径的 RPC 调用。
         sid = uuid.uuid4().hex[:8]
         source = _resolve_session_source(str(params.get("source") or "").strip() or None)
         lease = None  # claimed lazily on the first turn (_ensure_active_session_slot)

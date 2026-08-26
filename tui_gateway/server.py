@@ -2316,14 +2316,15 @@ def _approval_request_payload(data: dict | None) -> dict:
 
 
 def _pending_clarify_request_payload(sid: str) -> dict | None:
-    """Read the clarify prompt still blocking a session, if there is one.
+    """读取仍阻塞某会话的澄清提示词（clarify prompt），如果存在的话。
 
-    Clarify prompts share `_block()`'s pending registry, so a reconnecting
-    client whose transport was detached when `clarify.request` was emitted
-    would otherwise never see the question — the agent thread stays parked on
-    the Event until timeout. Same replay contract as `pending_approval`: a
-    read-only snapshot, the registry stays authoritative and `clarify.respond`
-    with the embedded request_id resolves it.
+    澄清提示词与 `_block()` 共享挂起注册表（pending registry），
+    因此在发出 `clarify.request` 时传输层已断开连接的重新连接客户端，
+    否则将永远看不到该问题 ——
+    Agent 线程会一直停留在事件（Event）上直到超时。
+    其重放契约（replay contract）与 `pending_approval` 相同：
+    返回只读快照，注册表保持权威性，
+    通过包含嵌入式 request_id 的 `clarify.respond` 来解决/响应它。
     """
     with _prompt_lock:
         for rid, (owner_sid, _ev) in _pending.items():
@@ -8261,10 +8262,11 @@ def _expand_skill_invocation_for_replay(text: str, task_id: str) -> str:
         return text
 
 
-# Opening of the crash-recovery note synthesized by _auto_continue_note.
-# Matched (not just built) so a row persisted before the display type was
-# stamped at turn start still reads as a timeline event, and to recognize the
-# messaging gateway's twin note.
+# 由 _auto_continue_note 合成的崩溃恢复说明的开头。
+# 此处进行匹配（而不仅仅是构建），
+# 以便在轮次开始时、显示类型被标记之前就已持久化的行记录，
+# 仍能被读取/解析为时间线事件（timeline event），
+# 同时也为了识别消息网关中的孪生说明（twin note）。
 _AUTO_CONTINUE_NOTE_PREFIX = "[System note: Your previous turn was interrupted mid-run"
 
 
@@ -8602,10 +8604,11 @@ def _retire_turn_marker(session: dict, *keys: str) -> None:
 
 
 def _auto_continue_note(prompt: str) -> str:
-    # Same opening as the messaging gateway's recovery notes so transcript
-    # tooling recognizes both. The original prompt is embedded because a hard
-    # crash persists nothing of the interrupted turn to the session DB — this
-    # note is the only copy the model will see.
+    # 采用与消息网关恢复说明相同的开头，
+    # 以便对话记录工具能同时识别这两者。
+    # 嵌入原始提示词是因为：在发生严重崩溃（hard crash）时，
+    # 中断轮次的任何内容都不会持久化到会话数据库中 ——
+    # 本说明将是模型能够看到的唯一副本。
     return (
         f"{_AUTO_CONTINUE_NOTE_PREFIX} — the app or its backend process "
         "stopped before the turn could finish. Some of the work may already "
@@ -8616,14 +8619,16 @@ def _auto_continue_note(prompt: str) -> str:
 
 
 def _maybe_schedule_auto_continue(sid: str, session: dict, session_key: str) -> dict | None:
-    """Kick off a continuation turn for a crash-interrupted session.
+    """为因崩溃中断的会话发起续写轮次（continuation turn）。
 
-    Called from session.resume's cold paths after the live record is
-    registered. Returns a small descriptor for the resume payload when a
-    continuation was scheduled, else None. The turn itself runs on a
-    background thread after the (deferred) agent build finishes, through the
-    same _run_prompt_submit machinery as every other synthesized turn — so
-    the client that just resumed streams it live.
+    在注册实时记录后，从 session.resume 的冷路径中调用。
+    当排期/安排了续写操作时，返回用于恢复载荷（resume payload）的小型描述符，
+    否则返回 None。
+
+    轮次本身会在（延迟的）Agent 构建完成后，
+    于后台线程上运行，
+    并通过与所有其他合成轮次相同的 _run_prompt_submit 机制来执行 ——
+    因此刚刚恢复连接的客户端能够对其进行实时流式接收。
     """
     home = _session_home(session)
     marker = read_turn_marker(home, session_key)

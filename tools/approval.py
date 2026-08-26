@@ -2886,11 +2886,12 @@ def has_blocking_approval(session_key: str) -> bool:
 
 
 def get_pending_gateway_approval(session_key: str) -> dict | None:
-    """Return a copy of the oldest unresolved gateway approval for a session.
+    """返回指定会话中最早未解决的网关审批项（gateway approval）副本。
 
-    Reconnectable clients use this to restore an approval prompt whose original
-    notification was sent while their transport was detached.  The queue remains
-    authoritative: this is a read-only snapshot, not a claim on the approval.
+    可重新连接的客户端利用此方法来还原审批提示信息
+    （即在客户端传输层断开期间发出的原始通知）。
+    队列本身仍具备权威性：此处返回的是一个只读快照，
+    并非对该审批权的占有/抢占。
     """
     if not session_key:
         return None

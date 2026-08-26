@@ -8264,11 +8264,12 @@ def history_before_user_originated_turn(
     messages: List[Dict[str, Any]],
     index: int,
 ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    """Return a rewind prefix and canonical live view for ``index``.
+    """返回指定 ``index`` 的重退前缀（rewind prefix）与规范实时视图（canonical live view）。
 
-    When the selected row is a composite carrier, the hidden handoff scaffold
-    remains at the new history head while the live ask and later rows are
-    removed.  This retains the only representation of already-compacted turns.
+    当选定的行是一个复合载体（composite carrier）时，
+    隐藏的交接支架（handoff scaffold）会保留在新的历史头部，
+    而实时的提问（live ask）及后续行将被移除。
+    这样可以保留对已压缩轮次（already-compacted turns）的唯一表示。
     """
     if index < 0 or index >= len(messages):
         raise IndexError("user turn index is outside the transcript")

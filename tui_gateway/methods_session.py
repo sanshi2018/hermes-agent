@@ -5,6 +5,10 @@ are rebound onto server.py's globals at install time — see method_ctx.py.
 """
 
 from .method_ctx import HandlerRegistry
+from .server import _register_session_cwd, _schedule_agent_build, _schedule_session_cap_enforcement, _ok, \
+    _history_to_messages, _resolve_model, _sessions, _git_branch_for_cwd, _project_info_for_cwd, \
+    DESKTOP_BACKEND_CONTRACT, _response_profile_name, _coerce_seed_history, _find_live_session_by_key, \
+    _session_resume_lock, _cancel_ws_orphan_reap, _live_session_payload
 
 _registry = HandlerRegistry()
 method = _registry.method
@@ -111,17 +115,21 @@ def _(rid, params: dict) -> dict:
         }
         _register_session_cwd(_sessions[sid])
 
-    # NOTE: we intentionally do NOT persist a DB row here. Every TUI/desktop
-    # launch (and every "New agent" / draft) opens a session here just to paint
-    # the composer, so eagerly creating a row left an "Untitled" empty session
-    # behind for every launch the user never typed into. The row is now created
-    # lazily on the first prompt (see _ensure_session_db_row + prompt.submit),
-    # and the AIAgent's own INSERT-OR-IGNORE persists it on the first turn too.
+    # 注意：我们在此处特意选择**不**持久化数据库行记录。
+    # 每当 TUI/桌面端启动（以及每次点击“新建 Agent”/草稿）时，
+    # 都会在此处打开一个会话以渲染输入框组件（composer），
+    # 因此过早创建数据库行会导致：如果用户启动后未输入任何内容，
+    # 就会留下一个名为“Untitled”的空会话。
+    # 现在，该数据库行会在首次提交提示词时按需延迟创建
+    # （参见 _ensure_session_db_row 和 prompt.submit），
+    # 并且 AIAgent 自身的 INSERT-OR-IGNORE 机制
+    # 也会在首个对话轮次中将其持久化。
 
-    # Return the lightweight session immediately so Ink can paint the composer
-    # + skeleton panel, then build the real AIAgent just after this response is
-    # flushed.  This keeps startup responsive while still hydrating tools/skills
-    # without requiring the user to submit a first prompt.
+    # 立即返回轻量级会话，以便 Ink 能够绘制输入框组件
+    # 和骨架屏面板（skeleton panel），
+    # 然后在此响应刷新（flushed）之后，紧接着构建真正的 AIAgent。
+    # 这样既能保持启动响应的迅速，
+    # 又能在无需用户提交首个提示词的情况下预先加载工具/技能。
     _schedule_agent_build(sid)
     _schedule_session_cap_enforcement()  # trim detached idle sessions over the cap
 

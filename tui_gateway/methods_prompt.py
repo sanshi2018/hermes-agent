@@ -435,10 +435,12 @@ def _(rid, params: dict) -> dict:
         busy_transport = None
         with session["history_lock"]:
             if session.get("running"):
-                # Don't reject a mid-turn prompt — queue it (and, by default,
-                # interrupt the live turn) so it runs as the next turn. The
-                # provider interrupt itself must happen after this lock is
-                # released: a non-interruptible tool may keep it waiting.
+                # 不要拒绝会话中途输入的提示词 —— 而是将其放入队列中
+                # （并且在默认情况下，中断当前的实时对话），
+                # 以便它作为下一个对话轮次运行。
+                #
+                # 提供者的中断操作本身必须在释放此锁之后发生：
+                # 因为不可中断的工具可能会导致其保持等待状态。
                 busy_transport = t or session.get("transport")
             else:
                 break
@@ -448,13 +450,15 @@ def _(rid, params: dict) -> dict:
         )
         if busy_response is not None:
             return busy_response
-        # The old turn finished between the two lock acquisitions. Retry the
-        # claim so this prompt starts normally instead of being stranded in a
-        # queue whose drain already ran.
+        # 旧的对话轮次在两次获取锁之间已经结束。
+        # 请重新尝试抢占锁（Retry the claim），
+        # 以便此提示词能够正常启动，
+        # 而不是被孤立在已经执行完处理的队列中。
 
-    # Filled when this submit performed a truncation against a durable session:
-    # the fresh post-rewrite row ids of the surviving user turns, for client
-    # rowId rebinding (see comment at the assignment site).
+    # 当此次提交对持久化会话执行了截断操作时填充：
+    # 保留的用户轮次经重写后的最新行 ID，
+    # 用于客户端的 rowId 重新绑定
+    # （参见赋值处的注释）。
     survivor_user_row_ids = None
     survivor_row_id_map = None
     raw_rebind_ids = params.get("rebind_survivor_row_ids")

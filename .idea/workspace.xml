@@ -4,16 +4,15 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="add desktop">
+    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="gateway 走读">
       <change beforePath="$PROJECT_DIR$/.idea/hermes-agent.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/hermes-agent.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/agent/credits_tracker.py" beforeDir="false" afterPath="$PROJECT_DIR$/agent/credits_tracker.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hermes_cli/credential_lifecycle.py" beforeDir="false" afterPath="$PROJECT_DIR$/hermes_cli/credential_lifecycle.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hermes_cli/mcp_startup.py" beforeDir="false" afterPath="$PROJECT_DIR$/hermes_cli/mcp_startup.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tui_gateway/entry.py" beforeDir="false" afterPath="$PROJECT_DIR$/tui_gateway/entry.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/agent/context_compressor.py" beforeDir="false" afterPath="$PROJECT_DIR$/agent/context_compressor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run_agent.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_agent.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tui_gateway/methods_prompt.py" beforeDir="false" afterPath="$PROJECT_DIR$/tui_gateway/methods_prompt.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tui_gateway/methods_session.py" beforeDir="false" afterPath="$PROJECT_DIR$/tui_gateway/methods_session.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tui_gateway/methods_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/tui_gateway/methods_tools.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tui_gateway/server.py" beforeDir="false" afterPath="$PROJECT_DIR$/tui_gateway/server.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tui_gateway/ws.py" beforeDir="false" afterPath="$PROJECT_DIR$/tui_gateway/ws.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -59,61 +58,61 @@
 }</component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0000000016614843" />
-      <entry key="MS500" value="1.0388288453675807" />
-      <entry key="S2" value="2.213541242574651" />
-      <entry key="S5" value="3.643256923921905" />
-      <entry key="S10" value="4.8579691920795005" />
-      <entry key="S30" value="6.55006593509338" />
-      <entry key="S60" value="7.203902116924346" />
-      <entry key="M2" value="7.582056600882067" />
-      <entry key="M5" value="7.8277486743532965" />
-      <entry key="M10" value="7.916401617844804" />
-      <entry key="M15" value="7.996276405946147" />
-      <entry key="M30" value="8.864431919514669" />
-      <entry key="H1" value="11.636449148910094" />
-      <entry key="H2" value="15.390033781494468" />
-      <entry key="H4" value="18.721667924268097" />
-      <entry key="D1" value="53.1149953302571" />
-      <entry key="W1" value="252.6654413434511" />
+      <entry key="MS100" value="1.000000061706598" />
+      <entry key="MS500" value="1.0361465057470403" />
+      <entry key="S2" value="1.4360302101404514" />
+      <entry key="S5" value="1.7174747673033517" />
+      <entry key="S10" value="1.847038822784028" />
+      <entry key="S30" value="1.9461669459039217" />
+      <entry key="S60" value="1.9727111317878097" />
+      <entry key="M2" value="1.9862611884221186" />
+      <entry key="M5" value="1.9944818196178695" />
+      <entry key="M10" value="1.9990267167107536" />
+      <entry key="M15" value="2.0389152922785687" />
+      <entry key="M30" value="2.985397372250852" />
+      <entry key="H1" value="7.446034536860546" />
+      <entry key="H2" value="16.34682011262678" />
+      <entry key="H4" value="26.814731963567816" />
+      <entry key="D1" value="70.48558762776251" />
+      <entry key="W1" value="272.7615724643437" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
       <entry key="MS500" value="0.0" />
       <entry key="S2" value="0.0" />
       <entry key="S5" value="0.0" />
-      <entry key="S10" value="0.0" />
-      <entry key="S30" value="0.0" />
-      <entry key="S60" value="0.0" />
-      <entry key="M2" value="0.0" />
-      <entry key="M5" value="3.649691511635015E-190" />
-      <entry key="M10" value="2.701267966209983E-95" />
-      <entry key="M15" value="1.134324808425591E-63" />
-      <entry key="M30" value="4.821109321563142E-32" />
-      <entry key="H1" value="3.5694147073222865E-16" />
-      <entry key="H2" value="3.874556839536674E-8" />
-      <entry key="H4" value="4.5871440080481185E-4" />
-      <entry key="D1" value="1.2526506694241466" />
-      <entry key="W1" value="5.372163993975822" />
+      <entry key="S10" value="4.107046283121835E-238" />
+      <entry key="S30" value="1.327775825304162E-79" />
+      <entry key="S60" value="6.083763433499006E-40" />
+      <entry key="M2" value="4.2256456724245406E-20" />
+      <entry key="M5" value="3.430804286768819E-8" />
+      <entry key="M10" value="3.206607080173385E-4" />
+      <entry key="M15" value="0.006756002147616025" />
+      <entry key="M30" value="0.14235787349103035" />
+      <entry key="H1" value="0.6534996275753402" />
+      <entry key="H2" value="1.4001733038761124" />
+      <entry key="H4" value="2.0497623103751383" />
+      <entry key="D1" value="3.9453536199617085" />
+      <entry key="W1" value="8.266526862027717" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.9075191564211039" />
-      <entry key="MS500" value="1.0173856799470327" />
-      <entry key="S2" value="2.195052242289162" />
-      <entry key="S5" value="3.6306574349467486" />
-      <entry key="S10" value="4.8500239339290205" />
-      <entry key="S30" value="6.546808165145008" />
-      <entry key="S60" value="7.202166849622265" />
-      <entry key="M2" value="7.581159072759805" />
-      <entry key="M5" value="7.827382006258628" />
-      <entry key="M10" value="7.916216754368265" />
-      <entry key="M15" value="7.996150487226261" />
-      <entry key="M30" value="8.864347188859803" />
-      <entry key="H1" value="11.636369275181279" />
-      <entry key="H2" value="15.389967695565263" />
-      <entry key="H4" value="18.722080717622106" />
-      <entry key="D1" value="54.36755695143278" />
-      <entry key="W1" value="258.0375266633634" />
+      <entry key="MS100" value="0.9659363861014427" />
+      <entry key="MS500" value="1.028691975975227" />
+      <entry key="S2" value="1.4326397251727043" />
+      <entry key="S5" value="1.715688599728611" />
+      <entry key="S10" value="1.846046720564077" />
+      <entry key="S30" value="1.945810986520414" />
+      <entry key="S60" value="1.9725297698485218" />
+      <entry key="M2" value="1.9861696441492582" />
+      <entry key="M5" value="1.9944450263346656" />
+      <entry key="M10" value="1.9993269448253572" />
+      <entry key="M15" value="2.0456297475400813" />
+      <entry key="M30" value="3.127423066212915" />
+      <entry key="H1" value="8.09875394942867" />
+      <entry key="H2" value="17.746133467046974" />
+      <entry key="H4" value="28.8638491670627" />
+      <entry key="D1" value="74.43071786638419" />
+      <entry key="W1" value="281.02800019541354" />
     </decayedShown>
   </component>
   <component name="ProblemsViewState">
@@ -128,43 +127,43 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Git.Working.Tree.Tab.closed.by.user": "closed",
-    "Python.Hermes (CLI).executor": "Debug",
-    "Python.Hermes (Desktop Backend Debug).executor": "Debug",
-    "Python.Hermes (Desktop).executor": "Debug",
-    "Python.Hermes (TUI).executor": "Debug",
-    "Python.mcp_startup.executor": "Debug",
-    "Python.skills_tool.executor": "Debug",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "codeWithMe.voiceChat.enabledByDefault": "false",
-    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
-    "copilot.chat.legacySessionMetadata.migrated": "true",
-    "git-widget-placeholder": "upstream-branch",
-    "git.auto.fetch.suggestion.counter": "3",
-    "junie.onboarding.icon.badge.shown": "true",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "prettierjs.PrettierConfiguration.Package": "C:\\Users\\Administrator\\PycharmProjects\\example\\hermes-agent\\node_modules\\prettier",
-    "settings.editor.selected.configurable": "http.proxy",
-    "to.speed.mode.migration.done": "true",
-    "ts.external.directory.path": "/Users/sanshi/PycharmProjects/hermes-agent/node_modules/typescript/lib",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Git.Working.Tree.Tab.closed.by.user&quot;: &quot;closed&quot;,
+    &quot;Python.Hermes (CLI).executor&quot;: &quot;Debug&quot;,
+    &quot;Python.Hermes (Desktop Backend Debug).executor&quot;: &quot;Debug&quot;,
+    &quot;Python.Hermes (Desktop).executor&quot;: &quot;Debug&quot;,
+    &quot;Python.Hermes (TUI).executor&quot;: &quot;Debug&quot;,
+    &quot;Python.mcp_startup.executor&quot;: &quot;Debug&quot;,
+    &quot;Python.skills_tool.executor&quot;: &quot;Debug&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
+    &quot;copilot.chat.legacySessionMetadata.migrated&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;upstream-branch&quot;,
+    &quot;git.auto.fetch.suggestion.counter&quot;: &quot;3&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;prettierjs.PrettierConfiguration.Package&quot;: &quot;C:\\Users\\Administrator\\PycharmProjects\\example\\hermes-agent\\node_modules\\prettier&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;http.proxy&quot;,
+    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
+    &quot;ts.external.directory.path&quot;: &quot;/Users/sanshi/PycharmProjects/hermes-agent/node_modules/typescript/lib&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="C:\Users\Administrator\PycharmProjects\example\hermes-agent\plugins\platforms\HerEmail" />
     </key>
   </component>
-  <component name="RunManager" selected="Python.Hermes (Desktop Backend Debug)">
+  <component name="RunManager" selected="Python.mcp_startup">
     <configuration name="mcp_startup" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="hermes-agent" />
       <option name="ENV_FILES" value="" />
@@ -227,8 +226,8 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-PY-261.23567.174" />
-        <option value="bundled-python-sdk-024ed6589d45-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.23567.174" />
+        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-PY-261.26222.68" />
+        <option value="bundled-python-sdk-50341a9f1f9c-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.26222.68" />
       </set>
     </attachedChunks>
   </component>
@@ -267,22 +266,8 @@
       <workItem from="1787552592650" duration="1881000" />
       <workItem from="1787556416962" duration="11922000" />
       <workItem from="1787576870997" duration="9115000" />
-    </task>
-    <task id="LOCAL-00002" summary="一些流程梳理">
-      <option name="closed" value="true" />
-      <created>1783679421328</created>
-      <option name="number" value="00002" />
-      <option name="presentableId" value="LOCAL-00002" />
-      <option name="project" value="LOCAL" />
-      <updated>1783679421328</updated>
-    </task>
-    <task id="LOCAL-00003" summary="run_conversation 压缩msg&#10;codex app server 使用stio调用">
-      <option name="closed" value="true" />
-      <created>1783942902067</created>
-      <option name="number" value="00003" />
-      <option name="presentableId" value="LOCAL-00003" />
-      <option name="project" value="LOCAL" />
-      <updated>1783942902067</updated>
+      <workItem from="1787718474607" duration="3000" />
+      <workItem from="1787726330257" duration="10902000" />
     </task>
     <task id="LOCAL-00004" summary="长上下文消息压缩">
       <option name="closed" value="true" />
@@ -660,7 +645,23 @@
       <option name="project" value="LOCAL" />
       <updated>1787567033209</updated>
     </task>
-    <option name="localTasksCounter" value="51" />
+    <task id="LOCAL-00051" summary="ws">
+      <option name="closed" value="true" />
+      <created>1787650287702</created>
+      <option name="number" value="00051" />
+      <option name="presentableId" value="LOCAL-00051" />
+      <option name="project" value="LOCAL" />
+      <updated>1787650287702</updated>
+    </task>
+    <task id="LOCAL-00052" summary="gateway 走读">
+      <option name="closed" value="true" />
+      <created>1787663141153</created>
+      <option name="number" value="00052" />
+      <option name="presentableId" value="LOCAL-00052" />
+      <option name="project" value="LOCAL" />
+      <updated>1787663141153</updated>
+    </task>
+    <option name="localTasksCounter" value="53" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -684,11 +685,6 @@
     </option>
   </component>
   <component name="Vcs.Log.Tabs.Properties">
-    <option name="OPEN_GENERIC_TABS">
-      <map>
-        <entry key="066c1a02-8178-48d2-b212-15437b03b847" value="TOOL_WINDOW" />
-      </map>
-    </option>
     <option name="RECENT_FILTERS">
       <map>
         <entry key="Branch">
@@ -707,26 +703,42 @@
             </list>
           </value>
         </entry>
+        <entry key="User">
+          <value>
+            <list>
+              <RecentGroup>
+                <option name="FILTER_VALUES">
+                  <option value="*" />
+                </option>
+              </RecentGroup>
+            </list>
+          </value>
+        </entry>
       </map>
     </option>
     <option name="TAB_STATES">
       <map>
-        <entry key="066c1a02-8178-48d2-b212-15437b03b847">
-          <value>
-            <State />
-          </value>
-        </entry>
         <entry key="MAIN">
           <value>
-            <State />
+            <State>
+              <option name="FILTERS">
+                <map>
+                  <entry key="branch">
+                    <value>
+                      <list>
+                        <option value="upstream-branch" />
+                      </list>
+                    </value>
+                  </entry>
+                </map>
+              </option>
+            </State>
           </value>
         </entry>
       </map>
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="mcp线程模型" />
-    <MESSAGE value="feat(tools): progressive tool disclosure for MCP and plugin tools&#10;&#10;Adds Tool Search, a structured-tools progressive-disclosure layer that&#10;replaces MCP and non-core plugin tools in the model-visible tools array&#10;with three bridge tools (tool_search / tool_describe / tool_call) when&#10;the deferrable surface would consume more than a configurable percentage&#10;of the active model's context window. Core Hermes tools are never deferred.&#10;&#10;Default mode is 'auto' with a 10% context threshold, so small toolsets&#10;pay no overhead. Set tools.tool_search.enabled to 'on' to force or 'off'&#10;to disable.&#10;&#10;Design carefully reflects the OpenClaw production failure modes&#10;documented in the openclaw-tool-search-report:&#10;&#10;  - Core tools never defer (toolsets._HERMES_CORE_TOOLS). Addresses the&#10;    'tools silently missing from isolated cron turns' regression class&#10;    (openclaw#84141) by construction: there is no code path that can&#10;    drop a core tool.&#10;  - Catalog is stateless across turns — rebuilt from the live tool-defs&#10;    list on every assembly. No session-keyed Map that can drift out of&#10;    sync with the registry.&#10;  - tool_call unwraps the bridge call before any hook fires, so plugin&#10;    pre/post hooks, guardrails, approval flows, and the activity feed&#10;    all see the underlying tool name, not the bridge (addresses&#10;    openclaw#85588 and the verbose-mode complaint on openclaw#79823).&#10;  - The unwrap happens in both the parallel and sequential paths of&#10;    agent/tool_executor.py and also in handle_function_call, so direct&#10;    callers (sandboxed code, eval harnesses) are covered too.&#10;  - Bridge tools cannot invoke each other (recursion guard) and cannot&#10;    invoke core tools (those must be called directly).&#10;  - Tools mode only — no JS-sandbox code-mode. Keeps the surface small.&#10;  - Token estimation via cheap char/4 heuristic; precision isn't needed&#10;    for the threshold decision.&#10;&#10;Files:&#10;  - tools/tool_search.py — new module (BM25 retrieval, classification,&#10;    threshold gate, bridge dispatch, unwrap helper).&#10;  - tests/tools/test_tool_search.py — 35 tests including the OpenClaw&#10;    #84141 regression guard.&#10;  - model_tools.py — wires assembly into _compute_tool_definitions as the&#10;    final step, adds skip_tool_search_assembly kwarg so the bridge can&#10;    see the real catalog, dispatches the three bridge tools.&#10;  - agent/tool_executor.py — unwraps tool_call in both parallel and&#10;    sequential parsing loops so checkpointing, guardrails, plugin hooks,&#10;    and tool-progress callbacks all observe the underlying tool name.&#10;  - hermes_cli/config.py — DEFAULT_CONFIG['tools']['tool_search'] block.&#10;  - website/docs/user-guide/features/tool-search.md — user docs.&#10;&#10;Validation:&#10;  - 35/35 new tests pass.&#10;  - Existing tool/registry/model_tools/config/coercion/executor tests&#10;    (82 + 74 + small adjacents) green.&#10;  - Live E2E: 20 fake MCP tools registered, get_tool_definitions returns&#10;    3 bridges, tool_search returns top 3 hits, tool_describe returns&#10;    full schema, tool_call dispatches to the real underlying handler&#10;    and the underlying result is what the model sees.&#10;  - Reserved-name recursion guard verified live.&#10;  - Core-tool refusal via tool_call verified live.&#10;&#10;(cherry picked from commit 369075dc95bb998fdf493ef0f97dfa2d19c43d82)" />
     <MESSAGE value="fix(tool-search): scope bridge catalog + dispatch to the session's toolsets&#10;&#10;Tool Search read its catalog from the global registry (get_tool_definitions&#10;with no toolset scope = 'start with everything'), so a restricted-toolset&#10;session — subagent, kanban worker, curated gateway session — could:&#10;&#10;  1. tool_search the entire process registry, not just its granted tools, and&#10;  2. tool_call any registered plugin/MCP tool it was never given, because&#10;     registry.dispatch() has no enabled_tools gate for non-execute_code tools.&#10;&#10;A scoped session (enabled_toolsets=['mcp-github']) reported total_available=26&#10;and successfully invoked an out-of-scope plugin tool via tool_call.&#10;&#10;Fix:&#10;- handle_function_call gains enabled_toolsets/disabled_toolsets; the bridge&#10;  dispatch scopes get_tool_definitions to them (also stops polluting the&#10;  process-global _last_resolved_tool_names with out-of-scope tools, which&#10;  leaked into execute_code's sandbox-tool fallback).&#10;- A defense-in-depth gate rejects any tool_call'd name not in the scoped&#10;  deferrable catalog.&#10;- tool_executor's unwrap (both concurrent + sequential paths) enforces the&#10;  same scope before dispatch, since it unwraps tool_call -&gt; underlying name&#10;  and bypasses the bridge branch. New _tool_search_scoped_names() helper,&#10;  cached per-agent on registry generation + toolset scope.&#10;- New scoped_deferrable_names() helper in tool_search.py shared by both sites.&#10;&#10;Tests: 4 new regression tests in TestRegression_ToolsetScoping (scoped&#10;catalog, out-of-scope tool_call rejection, no global pollution, helper).&#10;&#10;(cherry picked from commit 7427b9d5812f3bd4deb47340ab64ef86e605c27e)" />
     <MESSAGE value="feat(tools): skills-style catalog listing for tool_search progressive disclosure&#10;&#10;Deferred MCP/plugin tools become invisible once the tool_search bridge&#10;activates — live benchmarking (48 runs, Claude Haiku 4.5) showed models&#10;substituting visible core tools (terminal/web_search/browser) for deferred&#10;capabilities or declaring them nonexistent instead of searching: 16/24&#10;task success vs 24/24 with eager loading.&#10;&#10;Skills never had this failure mode because every skill keeps a ~21-token&#10;name+description listing line in the system prompt. This ports that exact&#10;pattern to the tool bridge: when tool_search activates, a grouped manifest&#10;of every deferred tool (name + first sentence of description, clipped to&#10;60 chars, grouped per MCP server / toolset) is embedded in the tool_search&#10;bridge description.&#10;&#10;- tools/tool_search.py: build_catalog_listing() with deterministic&#10;  ordering (byte-stable across assemblies -&gt; prompt prefix stays&#10;  cacheable); token-budget fallbacks full -&gt; names-only -&gt; legacy bare&#10;  count; bridge_tool_schemas(listing=...) embeds it and instructs the&#10;  model to skip tool_search when the exact name is visible (one fewer&#10;  round-trip per use)&#10;- config: tools.tool_search.listing auto|on|off (default auto),&#10;  listing_max_tokens (default 4000, clamped 200..20000); legacy bool&#10;  shapes keep working&#10;- tests: 8 new tests (config parsing/clamps, short-desc clipping,&#10;  deterministic rendering, budget fallbacks, bridge embedding, assembly&#10;  on/off paths); full file green (47 passed)&#10;- docs: tool-search.md config table + rationale&#10;- scripts/tool_search_livetest2.py: benchmark harness v2 with real&#10;  per-call token accounting (normalize_usage spy) and a third 'listing'&#10;  mode for A/B/C comparison&#10;&#10;(cherry picked from commit e869accc1a1269b096716d606376d24df2bb6643)" />
     <MESSAGE value="feat(tools): tiered tool disclosure — always defer MCP/plugin tools, scale the listing with catalog size&#10;&#10;Tier 0: no MCP/plugin tools -&gt; everything eager (pass-through).&#10;Tier 1: deferred tools whose catalog listing fits min(threshold_pct%&#10;        of context, listing_max_tokens) -&gt; bridge + skills-style&#10;        listing, degrading to names-only over budget.&#10;Tier 2: listing over budget even names-only (Cloudflare's flat API&#10;        surface: 3,320 tools, names alone ~32K tokens) -&gt; bare bridge,&#10;        discovery through tool_search only.&#10;&#10;The old activation threshold (defer only when schemas &gt; threshold_pct&#10;of context) let mid-size catalogs ride eager and pay full schema cost;&#10;with servers like Cloudflare (~597K tokens of schema, would not even&#10;fit a 200K window) the binary gate is the wrong shape. Activation is&#10;now driven purely by deferrable-tool presence; threshold_pct is&#10;repurposed as the listing budget's context-relative leg.&#10;&#10;- AssemblyResult gains tier + listing_form for observability&#10;- listing_max_tokens default 4000 -&gt; 20000 (cap 60000) so an 830-tool&#10;  catalog keeps a names-only listing while Cloudflare-scale drops to&#10;  bare bridge&#10;- E2E verified against real captures: Linear 24 tools -&gt; tier 1 full,&#10;  Epic UE 5.8 830 tools -&gt; tier 1 names-only, Cloudflare 3,320 tools&#10;  -&gt; tier 2 (both 200K and 1M context)&#10;&#10;(cherry picked from commit 0986ac393f9dd96ae2a3196543214a542af4e7f5)" />
@@ -750,7 +762,9 @@
     <MESSAGE value="添加desktop启动入口" />
     <MESSAGE value="前后端分离配置&#10;run server&#10;&#10;$env:HERMES_DESKTOP_REMOTE_URL = &quot;http://127.0.0.1:9119&quot;&#10;$env:HERMES_DESKTOP_REMOTE_TOKEN = &quot;hermes-desktop-pycharm-debug-9119&quot;&#10;npm run dev --workspace apps/desktop" />
     <MESSAGE value="tui-gateWay" />
-    <option name="LAST_COMMIT_MESSAGE" value="tui-gateWay" />
+    <MESSAGE value="ws" />
+    <MESSAGE value="gateway 走读" />
+    <option name="LAST_COMMIT_MESSAGE" value="gateway 走读" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -782,7 +796,7 @@
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
-          <line>3281</line>
+          <line>3289</line>
           <option name="timeStamp" value="13" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
@@ -807,32 +821,32 @@
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tools/skills_tool.py</url>
-          <line>1944</line>
+          <line>1958</line>
           <option name="timeStamp" value="25" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
-          <line>7449</line>
+          <line>7798</line>
           <option name="timeStamp" value="32" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
-          <line>7454</line>
+          <line>7803</line>
           <option name="timeStamp" value="35" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
-          <line>7352</line>
+          <line>7701</line>
           <option name="timeStamp" value="36" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
-          <line>3726</line>
+          <line>3906</line>
           <option name="timeStamp" value="38" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
-          <line>6769</line>
+          <line>7118</line>
           <option name="timeStamp" value="39" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
@@ -842,7 +856,7 @@
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
-          <line>3099</line>
+          <line>3275</line>
           <option name="timeStamp" value="44" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
@@ -850,20 +864,10 @@
           <line>110</line>
           <option name="timeStamp" value="45" />
         </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/tui_gateway/entry.py</url>
-          <line>458</line>
-          <option name="timeStamp" value="49" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/tui_gateway/ws.py</url>
-          <line>422</line>
-          <option name="timeStamp" value="54" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+        <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tui_gateway/methods_prompt.py</url>
-          <line>326</line>
-          <option name="timeStamp" value="58" />
+          <line>357</line>
+          <option name="timeStamp" value="59" />
         </line-breakpoint>
       </breakpoints>
       <default-breakpoints>
@@ -877,13 +881,13 @@
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/hermes_agent$skills_tool.coverage" NAME="skills_tool Coverage Results" MODIFIED="1785496463670" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tools" />
-    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__Desktop_Backend_Debug_.coverage" NAME="Hermes (Desktop Backend Debug) Coverage Results" MODIFIED="1787579997587" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__TUI_.coverage" NAME="Hermes (TUI) Coverage Results" MODIFIED="1784550044047" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/hermes_agent$mcp_startup.coverage" NAME="mcp_startup Coverage Results" MODIFIED="1787333135080" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/hermes_cli" />
-    <SUITE FILE_PATH="coverage/hermes_agent$Hermes_Desktop.coverage" NAME="Hermes Desktop Coverage Results" MODIFIED="1787333319919" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__Desktop_.coverage" NAME="Hermes (Desktop) Coverage Results" MODIFIED="1787541997671" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes__API_Server_.coverage" NAME="Hermes (API Server) Coverage Results" MODIFIED="1787332036827" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__TUI_.coverage" NAME="Hermes (TUI) Coverage Results" MODIFIED="1784550044047" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__Desktop_Backend_Debug_.coverage" NAME="Hermes (Desktop Backend Debug) Coverage Results" MODIFIED="1787655417259" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/hermes_agent$Hermes_Desktop.coverage" NAME="Hermes Desktop Coverage Results" MODIFIED="1787333319919" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes__CLI_.coverage" NAME="Hermes (CLI) Coverage Results" MODIFIED="1785495698435" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__Desktop_.coverage" NAME="Hermes (Desktop) Coverage Results" MODIFIED="1787541997671" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/hermes_agent$mcp_startup.coverage" NAME="mcp_startup Coverage Results" MODIFIED="1787333135080" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/hermes_cli" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

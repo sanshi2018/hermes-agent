@@ -2640,14 +2640,17 @@ def _wait_agent_for_prompt(session: dict, rid: str, sid: str) -> dict | None:
 
 
 def _start_agent_build(sid: str, session: dict) -> None:
-    """Start building the real AIAgent for a TUI session, once.
+    """为 TUI 会话开始构建真正的 AIAgent（仅执行一次）。
 
-    Classic `hermes` shows the prompt before constructing AIAgent; the TUI used
-    to eagerly build it during session.create, making startup feel blocked on
-    tool discovery/model metadata even though the composer was visible.  Keep
-    the shell responsive by deferring this work until the first prompt (or any
-    command that actually needs the agent), while retaining the same ready/error
-    event contract for the frontend.
+    传统的 `hermes` 会在构建 AIAgent 之前显示提示词；
+    而 TUI 此前的做法是在 session.create 期间急切地（eagerly）构建它，
+    这导致即便输入框组件（composer）已经显示，
+    启动过程依然会因等待工具发现与模型元数据加载而感到卡顿。
+
+    通过将此工作推迟到提交首个提示词时
+    （或任何真正需要 Agent 的命令时）再执行，
+    不仅能保持外壳 UI 的迅速响应，
+    同时也为前端保留了相同的就绪/错误事件契约（event contract）。
     """
     ready = session.get("agent_ready")
     if ready is None:
@@ -2997,18 +3000,20 @@ def _terminal_task_cwd(session: dict | None) -> str:
 
 
 def _terminal_task_cwd_with_source(session: dict | None) -> tuple[str, str]:
-    """Like :func:`_terminal_task_cwd` but also names the value's ORIGIN.
+    """类似于 :func:`_terminal_task_cwd`，但同时会标明该值的来源（ORIGIN）。
 
-    Returns ``(cwd, source)`` where source is:
+    返回 ``(cwd, source)``，其中 source 为以下之一：
 
-    * ``"session"`` — the workspace the user attached to THIS session
-      (``explicit_cwd``), or this session's own tracked directory.
-    * ``"process"`` — the process-global ``TERMINAL_CWD`` env var / config
-      ``terminal.cwd`` fallback.  On a shared-container backend this is the
-      normal seed; under per-session docker isolation it is a launch
-      artifact from a PREVIOUS session (the workspace picker persists it
-      process-wide) and must never become a fresh session's bind mount —
-      terminal_tool refuses ``cwd_source: "process"`` as a mount source.
+    * ``"session"`` — 用户附加到当前会话的工作区（``explicit_cwd``），
+      或是该会话自身追踪的目录。
+    * ``"process"`` — 进程全局的 ``TERMINAL_CWD`` 环境变量，
+      或配置项 ``terminal.cwd`` 的备用退路值（fallback）。
+      在共享容器后端中，这是正常的初始种子值；
+      而在按会话隔离的 Docker 环境下，
+      它是来自上一会话的启动遗留产物
+      （工作区选择器会在整个进程范围内持久化它），
+      绝不能作为新会话的挂载点 ——
+      terminal_tool 会拒绝将 ``cwd_source: "process"`` 作为挂载源。
     """
     backend = (os.environ.get("TERMINAL_ENV") or "").strip().lower()
     if not backend or backend == "local":
@@ -8063,23 +8068,24 @@ def _content_display_text(content: Any) -> str:
 
 
 def _coerce_message_text(content: Any) -> str:
-    """Render ``message['content']`` as a plain string for transport.
+    """将 ``message['content']`` 渲染为用于传输的纯字符串格式。
 
-    Provider-side, ``content`` may be a string (most common), a list of
-    multimodal parts (e.g. ``[{"type": "text", "text": "..."},
-    {"type": "image_url", "image_url": {...}}]``), or a single structured
-    dict. Calling ``.strip()`` on a list raises ``'list' object has no
-    attribute 'strip'`` and breaks session resume entirely.
+    在提供者（Provider）端，``content`` 可以是字符串（最常见）、
+    多模态部件列表（例如 ``[{"type": "text", "text": "..."},
+    {"type": "image_url", "image_url": {...}}]``），
+    或者单个结构化的字典。
+    直接对列表调用 ``.strip()`` 会抛出 ``'list' object has no attribute 'strip'`` 错误，
+    并导致会话恢复（session resume）彻底中断。
 
-    Image parts (``image_url``) are preserved by appending the underlying
-    URL (data: or http:) into the text. The desktop renderer pulls these
-    back out via ``extractEmbeddedImages`` so the user sees the image
-    instead of the URL — and it stops the resume payload from disagreeing
-    with the cached message (which would otherwise cause the inline image
-    to flash, then disappear when the resume payload overwrites the cache).
+    对于图像部件（``image_url``），
+    通过将底层 URL（data: 或 http:）追加到文本中来予以保留。
+    桌面端渲染器会通过 ``extractEmbeddedImages`` 将其重新提取出来，
+    以便用户看到的是图像而非 URL ——
+    这同时也防止了恢复载荷（resume payload）与缓存消息产生冲突
+    （否则当恢复载荷覆盖缓存时，会导致内联图像闪烁后消失）。
 
-    Other structured dict shapes (audio, unknown types) fall back to a
-    bracketed placeholder so resume doesn't drop the message entirely.
+    其他结构化字典形态（音频、未知类型）则会降级处理为带方括号的占位符，
+    以确保会话恢复时不会完全丢弃该消息。
     """
     if content is None:
         return ""
@@ -8682,23 +8688,26 @@ def _enqueue_prompt(
     transport: Any,
     image_paths: list[str] | None = None,
 ) -> None:
-    """Stash a message to run as the very next turn once the live one ends.
+    """暂存一条消息，以便在当前实时轮次结束后，立即作为下一个轮次运行。
 
-    Used when a prompt arrives mid-turn (see ``_handle_busy_submit``). Text-only
-    arrivals share a slot and merge losslessly (mirroring the consecutive-user
-    merge in ``repair_message_sequence``). Image-bearing submissions stay as
-    separate envelopes, so their attachment ownership and chronology survive.
-    ``transport`` is pinned so the drained turn streams back to the client that
-    sent it even if the session transport is rebound meanwhile.
+    用于提示词在轮次中途到达的情况（参见 ``_handle_busy_submit``）。
+    仅包含文本的到达项会共享同一个槽位并实现无损合并
+    （镜像映射了 ``repair_message_sequence`` 中连续用户消息的合并逻辑）。
+    带有图像的提交则保留为独立的信封（envelopes），
+    从而使其附件归属和时间顺序得以留存。
+    ``transport`` 被固定绑定，
+    因此即使会话传输层在此期间被重新绑定，
+    排队处理（drained）后的轮次仍会流式流回发送它的客户端。
     """
     image_paths = list(image_paths or [])
-    # #84417: scrub any live-turn self-duplicates first so the consecutive-text
-    # merge below cannot glue "{original}\\n\\n{later}" and re-fire original
-    # on drain after a later correction settles.
+    # #84417：首先擦除与当前实时轮次自身重复的内容，
+    # 以防止下方“连续文本合并”的逻辑将 "{original}\\n\\n{later}" 拼接在一起，
+    # 从而导致在后续修正结算后集中处理（drain）时，重新触发原始提示词。
     _drop_queued_duplicates_of_inflight_user(session)
-    # Never queue a text-only self-copy of the live inflight user prompt. The
-    # live turn already owns that text; draining it after settle would restart
-    # the same user turn as a fresh agent invocation.
+    # 绝不要对当前运行中（inflight）的实时用户提示词排队一个“仅包含文本”的副本。
+    # 实时轮次已经拥有了该文本；
+    # 若在结算后再次集中处理（draining）它，
+    # 会将同一个用户轮次作为一次全新的 Agent 调用重新启动。
     if not image_paths and isinstance(text, str):
         turn = session.get("inflight_turn")
         original = (
@@ -8765,17 +8774,18 @@ def _sanitize_queued_entry_vs_inflight_user(
 
 
 def _drop_queued_duplicates_of_inflight_user(session: dict) -> None:
-    """Remove server-queue copies of the live turn's original user text.
+    """清理服务器队列中与当前实时轮次原始用户文本重复的副本。
 
-    A mid-turn ``prompt.submit`` of the same text can land in
-    ``queued_prompt`` when redirect is not yet available (model not active,
-    build window, tool boundary). If the user then corrects the turn with a
-    different prompt via redirect, that stale self-duplicate must not
-    ``_drain_queued_prompt`` after the redirected turn completes — otherwise
-    the original prompt restarts as a fresh agent turn (#84417).
+    当重定向（redirect）尚不可用时（例如模型未激活、
+    处于构建窗口期、或正处于工具调用边界），
+    中途提交（``prompt.submit``）的相同文本可能会进入 ``queued_prompt``。
+    若用户随后通过重定向提交了不同的提示词来修正该轮次，
+    则在重定向后的轮次完成后，
+    决不能通过 ``_drain_queued_prompt`` 去执行那个过期的自我重复副本 ——
+    否则原始提示词会作为一个全新的 Agent 轮次重新启动（#84417）。
 
-    Unrelated follow-ups (different text, image-bearing envelopes) stay.
-    Merged ``original + later`` slots are rewritten to ``later`` only.
+    与此无关的后续跟进（不同文本、带有图像的信封）将被保留。
+    合并后的 ``原始文本 + 后续文本`` 槽位将被重写为仅包含 ``后续文本``。
     """
     turn = session.get("inflight_turn")
     if not isinstance(turn, dict):
@@ -8804,14 +8814,14 @@ def _drop_queued_duplicates_of_inflight_user(session: dict) -> None:
 
 
 def _interrupt_busy_session(sid: str, session: dict, agent: Any) -> None:
-    """Interrupt a busy turn without blocking the RPC reader or session lock.
+    """在不阻塞 RPC 读取器或会话锁的前提下，中断正在繁忙运行的轮次。
 
-    Some providers cannot apply ``interrupt()`` until a synchronous tool or
-    network call returns. Running that call inline used to leave
-    ``prompt.submit`` holding ``history_lock`` for the whole wait, which in turn
-    blocked ``session.resume`` and delayed the queued prompt itself. Keep at
-    most one interrupt worker per session so repeated steering cannot leak an
-    unbounded number of blocked threads.
+    在同步工具或网络调用返回之前，某些提供者（providers）无法应用 ``interrupt()``。
+    以前内联（inline）运行该调用会导致 ``prompt.submit``
+    在整个等待期间一直持有 ``history_lock``，
+    进而阻塞 ``session.resume`` 并延迟排队提示词本身的执行。
+    每个会话最多保留一个中断工作线程（interrupt worker），
+    这样可以防止反复进行的引导操作（steering）泄露无限数量的被阻塞线程。
     """
     use_agent = agent is not None and hasattr(agent, "interrupt")
     use_compute_host = not use_agent and _session_uses_compute_host(session)
@@ -8841,24 +8851,30 @@ def _interrupt_busy_session(sid: str, session: dict, agent: Any) -> None:
 def _handle_busy_submit(
     rid, sid: str, session: dict, text: Any, transport: Any, queued: bool = False
 ) -> dict | None:
-    """Apply the ``display.busy_input_mode`` policy to a prompt that lands while
-    a turn is in flight, instead of rejecting it with ``session busy``.
+    """当提示词在对话轮次正在运行时到达时，
+    对其应用 ``display.busy_input_mode`` 策略，
+    而不是直接以 ``session busy`` 为由拒绝它。
 
-    The old rejection forced clients into a deadline-bounded busy-retry that
-    silently dropped the send when turn teardown outlived the deadline. The
-    default policy now redirects a capable core agent in place; older agents
-    retain the proven interrupt-and-queue path drained from ``run``'s tail.
+    旧的拒绝机制强制客户端进入超时有限的繁忙重试（busy-retry），
+    导致当轮次清理（teardown）超时时会静默丢弃发送的提示词。
+    现在的默认策略会就地重定向支持该功能的核心 Agent；
+    而旧版本的 Agent 则保留经过验证的“中断并入队”路径，
+    并从 ``run`` 方法的尾部集中处理（drain）。
 
-    Modes: ``interrupt`` (default) → redirect the live turn, falling back to
-    hard interrupt + queue for older agents; ``queue`` → queue without
-    interrupting; ``steer`` → inject after the current atomic action.
+    模式说明：
+    * ``interrupt``（默认）→ 重定向当前实时轮次，
+      若为旧版 Agent 则降级为硬中断 + 入队；
+    * ``queue`` → 仅加入队列，不进行中断；
+    * ``steer`` → 在当前原子动作（atomic action）结束后注入。
 
-    ``queued=True`` (client's queue drain, ``prompt.submit`` param) overrides
-    the mode entirely: the message was explicitly queued as "run after", so it
-    must NEVER become a live-turn correction or interrupt. Without this, a
-    drain that loses the settle race (client observed idle, server still
-    unwinding the turn) redirected the live turn with next-turn text — queue
-    semantics betrayed by a millisecond race the user can't see.
+    ``queued=True``（客户端的队列清理，``prompt.submit`` 参数）
+    会完全覆盖上述模式：
+    因为该消息已被显式排队为“在此之后运行”，
+    所以它**绝不能**变成对实时轮次的修正或中断。
+    若没有此约束，那些在交接竞争（settle race）中失败的清理过程
+    （客户端观察到空闲，而服务器仍在解理/清理轮次）
+    就会用下一轮次的文本去重定向当前的实时轮次 ——
+    从而导致排队语义因用户无法察觉的毫秒级竞争而被破坏。
     """
     mode = "queue" if queued else _load_busy_input_mode()
     agent = session.get("agent")
@@ -8872,8 +8888,10 @@ def _handle_busy_submit(
             return None
         image_paths = list(session.get("attached_images", []))
         if image_paths:
-            # Claim at submission time. A later paste must not be consumed by
-            # this prompt after the active turn finally yields.
+            # 在提交时直接进行占位/抢占（Claim）。
+            # 即使后续有粘贴（paste）的内容，
+            # 也决不能在当前活跃轮次最终让出执行权（yield）后
+            # 被此提示词消耗/吞掉。
             session["attached_images"] = []
     text_only = not image_paths and _is_text_only_busy_payload(text)
     plain_text = _coerce_message_text(text).strip() if text_only else ""
@@ -8909,9 +8927,10 @@ def _handle_busy_submit(
                 return _ok(rid, {"status": "redirected"})
         except Exception:
             pass  # preserve the proven interrupt + queue fallback below
-    # Queue before asking the live turn to stop. In particular, never call a
-    # provider or compute-host method while holding history_lock: an interrupt
-    # can wait behind the very operation it is trying to cancel.
+    # 请在要求实时轮次停止之前进行入队操作。
+    # 特别需要注意的是，切勿在持有 history_lock（历史锁）时
+    # 调用提供者（provider）或计算主机（compute-host）的方法：
+    # 因为中断操作可能会在它试图取消的那个操作之后陷入等待。
     with session["history_lock"]:
         if not session.get("running"):
             if image_paths:
@@ -8920,17 +8939,22 @@ def _handle_busy_submit(
         _enqueue_prompt(session, text, transport, image_paths=image_paths)
         session["last_active"] = time.time()
 
-    # Attachments need a separate model invocation. Queue them without
-    # cancelling the active turn so the user gets both results in order.
+    # 附件需要单独调用一次模型。
+    # 将它们放入队列中而不取消当前活跃的轮次，
+    # 以便用户能够按顺序接收到两个结果。
     #
-    # #86134: ``steer`` mode must NEVER escalate to a hard interrupt. A burst
-    # of user messages while the agent is busy can land as a mix of accepted
-    # steers (stashed in ``AIAgent._pending_steer``) and fall-through queue
-    # envelopes (payload not steerable, ``steer()`` rejected/raised). A hard
-    # interrupt here kills the live turn AND ``AIAgent.interrupt()`` drops
-    # the pending steer buffer — silently destroying the earlier messages of
-    # the burst. Steer-mode fall-throughs keep queue semantics: preserved
-    # FIFO in ``queued_prompt``/``queued_prompts`` and drained on turn end.
+    # #86134：``steer``（引导）模式绝不能升级为硬中断。
+    # 当 Agent 处于繁忙状态时，如果用户突发发送多条消息，
+    # 这些消息可能会混合存在：一部分作为已接受的引导
+    # （暂存在 ``AIAgent._pending_steer`` 中），
+    # 另一部分作为兜底的排队信封（ payload 无法引导，
+    # ``steer()`` 被拒绝或抛出异常）。
+    # 此时进行硬中断不仅会终止当前活跃的轮次，
+    # 而且 ``AIAgent.interrupt()`` 还会丢弃挂起的引导缓冲区 ——
+    # 这会静默销毁该突发消息中的早期消息。
+    # 因此，引导模式下的兜底逻辑保留了队列语义：
+    # 在 ``queued_prompt``/``queued_prompts`` 中保持先进先出（FIFO）顺序，
+    # 并在此轮次结束时集中处理（drain）。
     if mode == "interrupt" and not image_paths:
         _interrupt_busy_session(sid, session, agent)
     return _ok(rid, {"status": "queued"})

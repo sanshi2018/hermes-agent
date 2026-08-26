@@ -807,13 +807,15 @@ def _(rid, params: dict) -> dict:
             state = mgr.resume()
             if state is None:
                 return _ok(rid, {"type": "exec", "output": "No goal to resume."})
-            # Resume must restart work, not just flip persisted state
-            # (#75362). An `exec` result is display-only — nothing would
-            # re-enter the conversation loop until the user typed another
-            # message. Return a `send` dispatch carrying the canonical
-            # continuation prompt so the client fires the next turn
-            # immediately; `display` keeps the transcript showing the
-            # concise invocation instead of the model-facing scaffolding.
+            # 会话恢复（Resume）必须重新启动工作，
+            # 而不仅仅是切换持久化的状态（#75362）。
+            # `exec` 的执行结果仅用于展示 ——
+            # 在用户输入下一条消息之前，
+            # 没有任何机制会重新进入对话循环。
+            # 此处返回一个包含规范续写提示词（canonical continuation prompt）的 `send` 调度，
+            # 以便客户端能立即触发下一个轮次；
+            # 同时 `display` 会让对话记录保持显示简洁的调用信息，
+            # 而非暴露面向模型的底层脚手架（scaffolding）。
             prompt = mgr.next_continuation_prompt()
             notice = f"▶ Goal resumed: {state.goal}\nContinuing now — taking the next step."
             if not prompt:

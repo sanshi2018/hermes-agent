@@ -3279,36 +3279,37 @@ class AIAgent:
         hard_cancel: bool = False,
         tool_reason: Optional[str] = None,
     ) -> None:
-        """
-        Request the agent to interrupt its current tool-calling loop.
-        
-        Call this from another thread (e.g., input handler, message receiver)
-        to gracefully stop the agent and process a new message.
-        
-        Also signals long-running tool executions (e.g. terminal commands)
-        to terminate early, so the agent can respond immediately.
-        
-        Args:
-            message: Optional new message that triggered the interrupt.
-                     If provided, the agent will include this in its response context.
-            hard_cancel: Mark this as an explicit stop rather than a redirect or
-                         incoming-message interrupt. Compression may honor this
-                         atomic signal even while ordinary interrupts are masked.
-            tool_reason: Trusted fixed category safe to expose in tool output.
-                         Arbitrary diagnostic or caller text belongs in message.
-        
-        Example (CLI):
-            # In a separate input thread:
+        """请求 Agent 中断其当前的工具调用循环。
+
+        可以从另一个线程（例如：输入处理程序、消息接收器）调用此方法，
+        以平滑优雅地停止 Agent 并处理新消息。
+
+        同时也会向长耗时工具的执行过程（例如：终端命令）发出信号
+        以使其尽早终止，从而让 Agent 能够立即作出响应。
+
+        参数：
+            message: 可选参数，触发本次中断的新消息。
+                     如果提供了此参数，Agent 将在其响应上下文中包含该消息。
+            hard_cancel: 将此标记为显式停止，而非重定向或
+                         新消息触发的中断。即使普通中断被屏蔽，
+                         上下文压缩逻辑仍可能响应此原子信号。
+            tool_reason: 可安全暴露在工具输出中的受信任固定类别。
+                         任意诊断信息或调用方自定义文本应放在 message 中。
+
+        示例（命令行 CLI）：
+            # 在单独的输入线程中：
             if user_typed_something:
                 agent.interrupt(user_input)
-        
-        Example (Messaging):
-            # When new message arrives for active session:
+
+        示例（消息系统 Messaging）：
+            # 当活跃会话收到新消息时：
             if session_has_running_agent:
                 running_agent.interrupt(new_message.text)
         """
-        # A hard stop and redirect share one lock so /stop cannot race with an
-        # accepted correction and accidentally turn itself into a retry.
+
+        # 强制停止（hard stop）与重定向共享同一把锁，
+        # 这样可以防止 /stop 与已接受的修正产生竞争条件，
+        # 进而意外地将自身转换为一次重试（retry）。
         def _admit_hard_cancel() -> None:
             event = getattr(self, "_hard_interrupt_requested", None)
             if event is None:

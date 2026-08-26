@@ -180,13 +180,15 @@ declare global {
         // materially edited so the renderer can dispose (and re-dial) the
         // secondary gateways scoped to it. Optional: older Electron mains
         // don't emit it.
-        onChanged?: (callback: (payload: { connectionId: string; reason: 'removed' | 'updated' }) => void) => () => void
+        onChanged?: (
+          callback: (payload: { connectionId: string; reason: 'removed' | 'saved' | 'updated' }) => void
+        ) => () => void
       }
       sshConfigHosts: () => Promise<DesktopSshHostsResult>
       sshResolveHost: (host: string) => Promise<DesktopSshResolveResult>
       probeConnectionConfig: (remoteUrl: string) => Promise<DesktopConnectionProbeResult>
       oauthLoginConnectionConfig: (remoteUrl: string) => Promise<DesktopOauthLoginResult>
-      oauthLogoutConnectionConfig: (remoteUrl?: string) => Promise<DesktopOauthLogoutResult>
+      oauthLogoutConnectionConfig: (remoteUrl: string) => Promise<DesktopOauthLogoutResult>
       // Hermes Cloud: one portal login powers discovery + silent per-agent
       // sign-in (cloud-auto-discovery Phase 3).
       cloud: {
@@ -198,6 +200,9 @@ declare global {
       }
       profile: {
         get: () => Promise<DesktopActiveProfile>
+        // Persists the profile used on the next Desktop launch without
+        // interrupting the live gateway workspace switch.
+        remember: (name: string | null) => Promise<DesktopActiveProfile>
         // Persists the desktop's profile choice and relaunches the local
         // backend under the new HERMES_HOME (reloads the window). Pass null to
         // clear the preference.

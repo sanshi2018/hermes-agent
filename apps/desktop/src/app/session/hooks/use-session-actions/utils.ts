@@ -27,6 +27,7 @@ import {
   setCurrentServiceTier,
   setCurrentUsage,
   setMessagingSessions,
+  setSessionOwnerHint,
   setSessions,
   setWorkspaceCwdOwner,
   setYoloActive
@@ -36,6 +37,7 @@ import type { SessionProfileRoute } from '@/store/session-request-router'
 // Re-exported for the many session-actions/tile call sites that already import
 // it from here; the canonical definition lives in @/store/session.
 export { sessionMatchesStoredId }
+import { sessionOwnerRouteFromRow, type SessionOwnerScope } from '@/store/session-request-router'
 import { reportBackendContract, reportInstallMethodWarning } from '@/store/updates'
 import type { SessionCreateResponse, SessionInfo, SessionResumeResponse, SessionRuntimeInfo } from '@/types/hermes'
 
@@ -1246,13 +1248,22 @@ export function upsertOptimisticSession(
   title: string | null = null,
   preview: string | null = null,
   parentSessionId: string | null = null,
-  lastActive?: number
+  lastActive?: number,
+  owner?: null | SessionProfileRoute
 ) {
   const now = lastActive ?? Date.now() / 1000
-  // Stamp the profile the session was just created on (= the live gateway's
-  // profile) so the scoped sidebar shows the new row immediately instead of
-  // filtering it out as "default" until the aggregator re-fetches.
-  const profileKey = normalizeProfileKey($activeGatewayProfile.get())
+  // Stamp the profile the session was just created on so the scoped sidebar
+  // shows the new row immediately instead of filtering it out as "default"
+  // until the aggregator re-fetches. An explicitly routed create ($newChatRoute
+  // / a tile's route) names its EXACT owner: the backend profile that route
+  // serves, on that route's connection. The live gateway's profile is only the
+  // owner for an unrouted create — in All-profiles / Bot routing the ambient
+  // profile stays on `default` while the session lives on another backend (and
+  // a concurrent source switch can move the active gateway before this row is
+  // inserted), so a row stamped `default` then misroutes every session-scoped
+  // RPC that resolves its owner off the row ("session not found" on turn two).
+  const profileKey = normalizeProfileKey(owner ? owner.targetProfile || owner.profile : $activeGatewayProfile.get())
+  const connectionId = owner?.connectionId.trim() || ''
 
   const session: SessionInfo = {
     // Seed cwd so the grouped sidebar can place the new row in its repo/worktree
@@ -1274,7 +1285,12 @@ export function upsertOptimisticSession(
     source: 'tui',
     started_at: now,
     title,
-    tool_call_count: 0
+    tool_call_count: 0,
+    ...(connectionId ? { connection_id: connectionId } : {})
+  }
+
+  if (owner) {
+    setSessionOwnerHint(id, owner)
   }
 
   setSessions(prev => [session, ...prev.filter(s => s.id !== id)])
@@ -1489,6 +1505,25 @@ export async function resolveSessionProfile(storedSessionId: null | string): Pro
   const profile = (await resolveStoredSession(storedSessionId))?.profile?.trim()
 
   return profile || undefined
+}
+
+/**
+ * The OWNER of a stored session through the same cache → active-backend →
+ * cross-profile ladder, preferring the EXACT route when the resolved row is
+ * connection-tagged (unified-list splice, optimistic create row, a carried
+ * tag) over its bare profile. Session-scoped RPC dispatch uses this as the
+ * async rung after the sync ladder (tile route → hint → row) misses, so a
+ * registry-owned session never degrades to a profile-only route that dials a
+ * different socket than the one holding its runtime.
+ */
+export async function resolveSessionOwner(storedSessionId: null | string): Promise<SessionOwnerScope> {
+  if (!storedSessionId) {
+    return undefined
+  }
+
+  const row = await resolveStoredSession(storedSessionId)
+
+  return sessionOwnerRouteFromRow(row) ?? (row?.profile?.trim() || undefined)
 }
 
 type SessionRuntimeStatePatch = Partial<

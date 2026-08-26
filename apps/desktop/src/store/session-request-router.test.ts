@@ -78,6 +78,7 @@ const {
 } = await import('./gateway')
 
 const { requestForSessionProfile, sessionRpcNeedsProfileRoute } = await import('./session-request-router')
+const { $connectionsRegistry } = await import('./connection-registry-state')
 
 function installDesktop(): void {
   ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = {
@@ -103,6 +104,7 @@ function makePrimary() {
 beforeEach(() => {
   secondaryGateways.length = 0
   promptAckStatus = null
+  $connectionsRegistry.set(null)
   configureGatewayRegistry({ onEvent: vi.fn() })
   closeSecondaryGateways()
 })
@@ -177,6 +179,26 @@ describe('sessionRpcNeedsProfileRoute', () => {
 })
 
 describe('requestForSessionProfile', () => {
+  it('keeps routing a bare profile owner through its legacy profile pool when a connection registry exists', async () => {
+    // A profile pick on the primary or the explicit `local` source takes the
+    // legacy profile-only door (store/profile activateOnCurrentSource), so a
+    // session minted there is owned by that profile's pool socket in every
+    // topology — a registry does not turn the bare profile into a guess.
+    const primary = makePrimary()
+    setPrimaryGateway(primary as never, 'default')
+    installDesktop()
+    $connectionsRegistry.set({ connections: [{ id: 'local' }] } as never)
+    const ambient = vi.fn(async () => ({ ambient: true }))
+
+    await expect(
+      requestForSessionProfile('loki', ambient as never, 'session.resume', { session_id: 'stored-a' })
+    ).resolves.toEqual({ method: 'session.resume', params: { session_id: 'stored-a' } })
+    expect(window.hermesDesktop!.getConnection).toHaveBeenCalledWith('loki')
+    expect(secondaryGateways).toHaveLength(1)
+    expect(primary.request).not.toHaveBeenCalled()
+    expect(ambient).not.toHaveBeenCalled()
+  })
+
   it('keeps concurrent same-name requests pinned while foreground activation changes', async () => {
     const primary = makePrimary()
     setPrimaryGateway(primary as never, 'default')
@@ -486,5 +508,19 @@ describe('requestForSessionProfile', () => {
     await requestForSessionProfile(null, ambient as never, 'session.usage', { session_id: 'rt-2' })
 
     expect(ambient).toHaveBeenCalledOnce()
+  })
+
+  it('preserves ambient request arity as optional controls are supplied', async () => {
+    const ambient = vi.fn(async () => ({ ambient: true }))
+    const params = { session_id: 'rt-3' }
+    const controller = new AbortController()
+
+    await requestForSessionProfile(null, ambient as never, 'session.usage', params)
+    await requestForSessionProfile(null, ambient as never, 'session.usage', params, 1_800_000)
+    await requestForSessionProfile(null, ambient as never, 'session.usage', params, undefined, controller.signal)
+
+    expect(ambient.mock.calls.map(args => args.length)).toEqual([2, 3, 4])
+    expect(ambient).toHaveBeenNthCalledWith(2, 'session.usage', params, 1_800_000)
+    expect(ambient).toHaveBeenNthCalledWith(3, 'session.usage', params, undefined, controller.signal)
   })
 })

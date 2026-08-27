@@ -34,6 +34,7 @@ so plugin-defined tools appear alongside the built-in tools.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import copy
 import hashlib
 import importlib.metadata
@@ -46,6 +47,7 @@ import queue
 import re
 import sys
 import threading
+import time
 import types
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -395,6 +397,62 @@ VALID_HOOKS: Set[str] = {
 SHELL_UNSUPPORTED_HOOKS: Set[str] = {
     "transform_api_error_classification",
 }
+
+# Timeout coverage is an allowlist for the agent-turn hot path, not every
+# entry in VALID_HOOKS. The goal is to stop a hung Python plugin callback from
+# wedging the conversation loop (#76821) without joining the worker (avoids
+# the #6622 ThreadPoolExecutor shutdown hang). Hooks not listed below run
+# synchronously to completion.
+#
+# Intentionally unbounded (no hook_callback_timeout wrapper):
+#   - on_session_finalize / on_session_reset — infrequent teardown / session
+#     swap; finalize is a last-chance flush where fail-open abandon can lose
+#     state. (on_session_start/end stay bounded — they sit on the common
+#     session-boundary path.)
+#   - subagent_start — observer only; blocking delegation belongs in
+#     pre_tool_call. Lower frequency than tool/LLM hooks.
+#   - pre_gateway_dispatch — policy gate (skip/rewrite/allow). Abandoning is
+#     unsafe either way (fail-open skips auth-like checks; fail-closed can
+#     drop legitimate messages). Prefer finish-or-exception fallthrough.
+#   - pre_approval_request / post_approval_response — observers only (cannot
+#     veto); the approval UX already has its own timeout; not on the tool
+#     loop hot path.
+#   - kanban_task_* — fire after the board DB commit, observers only, in
+#     dispatcher/worker processes; kanban has its own heartbeat/stale reclaim.
+# Abandon-without-join also leaves a daemon thread that may still mutate
+# shared state — safer for value-returning observers than for gates/flushes.
+#
+# Bounded hooks: timeout is fail-open (abandon/skip, agent continues).
+_HOOK_TIMEOUT_BOUNDED_HOOKS: Set[str] = {
+    "post_tool_call",
+    "transform_terminal_output",
+    "transform_tool_result",
+    "transform_llm_output",
+    "pre_llm_call",
+    "post_llm_call",
+    "pre_api_request",
+    "post_api_request",
+    "api_request_error",
+    "pre_verify",
+    "on_session_start",
+    "on_session_end",
+}
+
+# Policy hooks: timeout / still-running must fail closed (block the tool).
+# Skipping would let the tool run without a completed policy decision.
+_HOOK_TIMEOUT_FAIL_CLOSED_HOOKS: Set[str] = {"pre_tool_call"}
+
+# Documented parent-thread serialization contract — never move the callback
+# body onto a timeout worker (see website/docs/user-guide/features/hooks.md).
+_HOOK_CALLER_THREAD_HOOKS: Set[str] = {"subagent_stop"}
+
+# After a timeout, suppress re-firing the same callback for this long so a
+# repeatedly invoked hung hook cannot accumulate abandoned daemon threads.
+_HOOK_TIMEOUT_SUPPRESSION_SECONDS = 60.0
+
+_PRE_TOOL_CALL_TIMEOUT_BLOCK_MESSAGE = (
+    "pre_tool_call plugin callback timed out or is still running"
+)
 
 ENTRY_POINTS_GROUP = "hermes_agent.plugins"
 ENTRY_POINT_CAPABILITIES_GROUP = "hermes_agent.plugin_capabilities"
@@ -1835,47 +1893,43 @@ class PluginContext:
         arguments: Optional[Dict[str, Any]] = None,
         timeout: float = 30,
     ) -> Dict[str, Any]:
-        """
-        在已配置的 MCP 服务器上调用工具（#64204，受能力限制）。
-        
-        同步调用；
-        在插件钩子（hooks）和工具中调用是安全的。
-        通过 `:mod:`tools.mcp_tool`` 中现有的原生 MCP 客户端机制进行路由
-        （包括后台循环、信任层级门控、断路器、重连以及结果渲染）——
-        绝不会创建并行的客户端或连接。
+        """Call a tool on a configured MCP server (#64204, capability-gated).
 
-        默认关闭：
-        插件没有任何 MCP 访问权限，
-        除非操作员在 `config.yaml` 中的 ``plugins.entries.<plugin_id>.mcp_allowlist``
-        下列出其可以访问的服务器：
+        Synchronous; safe to call from plugin hooks and tools. Routes through
+        the EXISTING native MCP client machinery in :mod:`tools.mcp_tool`
+        (background loop, trust-tier gates, circuit breaker, reconnect and
+        result rendering) — never a parallel client or connection.
+
+        Default-off: a plugin has NO MCP access until the operator lists the
+        servers it may reach under ``plugins.entries.<plugin_id>.mcp_allowlist``
+        in config.yaml::
 
             plugins:
               entries:
                 my-plugin:
                   mcp_allowlist: ["knowledge_rag", "github"]
 
-        调用未列出的服务器会引发 `:class:`PermissionError``。
-        这是一个基于单台服务器的授权，
-        特意避免赋予对所有已配置服务器的全局环境权限。
+        Calls to unlisted servers raise :class:`PermissionError`. This is a
+        per-server grant, deliberately not ambient authority over every
+        configured server.
+        # TODO(#64228): swap the per-server allowlist for the declared
+        # capability model once it lands (per-tool grants, expiry, ro/rw).
 
-        # TODO(#64228): 一旦声明的能力模型落地，
-        # 就将基于单台服务器的允许列表替换为该模型
-        # （包括基于每个工具的授权、过期时间、只读/读写）。
+        Args:
+            server: MCP server name as configured in ``mcp.servers``.
+            tool: Tool name on that server (unprefixed).
+            arguments: JSON-serializable arguments dict for the tool.
+            timeout: Seconds to wait for the call (default 30) so a hung
+                MCP server can never stall the hook/tool pipeline.
 
-        **参数 (Args):**
-        *   **server:** 在 ``mcp.servers`` 中配置的 MCP 服务器名称。
-        *   **tool:** 该服务器上的工具名称（不含前缀）。
-        *   **arguments:** 供该工具使用的可 JSON 序列化的参数字典。
-        *   **timeout:** 等待调用的秒数（默认为 30），以确保挂起的 MCP 服务器永远不会阻塞钩子/工具流水线。
+        Returns:
+            Envelope dict: ``{"ok": True, "result": <parsed result>}`` on
+            success or ``{"ok": False, "error": <message>}`` when the MCP
+            call itself failed. Results larger than ~64KB are truncated
+            with a marker.
 
-        **返回值 (Returns):**
-        *   信封字典（Envelope dict）：
-            成功时返回 ``{"ok": True, "result": <解析后的结果>}``，
-            或者当 MCP 调用本身失败时返回 ``{"ok": False, "error": <错误信息>}``。
-            大于约 64KB 的结果将被截断并带有标记。
-
-        **引发异常 (Raises):**
-        *   **PermissionError:** 服务器不在该插件的 ``mcp_allowlist`` 中。
+        Raises:
+            PermissionError: server not in this plugin's ``mcp_allowlist``.
         """
         plugin_id = self.manifest.key or self.manifest.name
         allowlist = self._mcp_allowlist(plugin_id)
@@ -2872,23 +2926,25 @@ class PluginContext:
         install_hint: str = "",
         **entry_kwargs: Any,
     ) -> Optional[PluginRegistration]:
-        """注册一个网关平台适配器。
+        """Register a gateway platform adapter.
 
-        ``adapter_factory`` 接收一个 ``PlatformConfig``，
-        并返回一个 ``BasePlatformAdapter`` 子类的实例。
+        The adapter_factory receives a ``PlatformConfig`` and returns a
+        ``BasePlatformAdapter`` subclass instance.
 
-        ``check_fn`` 是一个“被动”依赖项检测函数 —— 用于检查“当前依赖是否可被导入？”。
-        它绝对不能安装任何内容：状态显示和配置加载过程会随时调用它。
-        如果你的平台 SDK 支持按需（延迟）安装，
-        请将“主动”安装器作为 ``ensure_deps_fn`` 单独传递（通过 ``entry_kwargs`` 转发）；
-        当 ``check_fn`` 返回 False 时，网关会在即将连接平台之前，
-        从 ``create_adapter()`` 中调用它。
+        ``check_fn`` is a PASSIVE dependency probe — "are deps importable
+        right now?".  It must never install anything: status displays and
+        config loading call it freely.  If your platform's SDK is
+        lazy-installable, pass the ACTIVE installer separately as
+        ``ensure_deps_fn`` (forwarded via ``entry_kwargs``); the gateway
+        calls it from ``create_adapter()`` when ``check_fn`` is False,
+        right before connecting the platform.
 
-        额外的关键字参数将转发给 ``PlatformEntry``
-        （例如 ``setup_fn``、``emoji``、``allowed_users_env``、``platform_hint``、``ensure_deps_fn``）。
-        未知的参数键将由 dataclass 构造函数抛出 TypeError。
+        Extra keyword arguments are forwarded to ``PlatformEntry`` (e.g.
+        ``setup_fn``, ``emoji``, ``allowed_users_env``, ``platform_hint``,
+        ``ensure_deps_fn``).  Unknown keys raise TypeError from the
+        dataclass constructor.
 
-        示例：
+        Example::
 
             ctx.register_platform(
                 name="irc",
@@ -3227,12 +3283,12 @@ class PluginContext:
         position: str = "after_memory",
         max_chars: int = DEFAULT_SYSTEM_PROMPT_SECTION_MAX_CHARS,
     ) -> PluginRegistration:
-        # 注册受限上下文，
-        # 该上下文会被固定在每个新会话的提示词中。
-        #
-        # 可调用对象（Callables）将接收到一个只读的会话信息映射。
-        # 渲染完成的完整系统提示词已由核心模块持久化，并会原样恢复；
-        # 因此，在进程重启时，不需要额外维护并行的插件区域状态。
+        """Register bounded context that is frozen into each new session prompt.
+
+        Callables receive a read-only session-info mapping. The rendered full
+        system prompt is already persisted by core and restored verbatim, so no
+        parallel plugin-section state is needed for process restarts.
+        """
         if not is_valid_system_prompt_section_id(id):
             raise ValueError(
                 "system prompt section id must be 1-128 lowercase characters "
@@ -3299,26 +3355,27 @@ class PluginContext:
     # -- inter-plugin event bus --------------------------------------------
 
     def emit(self, event: str, payload: Optional[dict] = None) -> int:
-        """将 *event* 发布给所有订阅者；返回已调用的订阅者数量。
+        """Publish *event* to all subscribers; return the number invoked.
 
-        事件将以 ``<plugin_key>:<event>`` 的形式进行分发，其中
-        ``plugin_key`` 被强制设置为该插件自身的注册键
-        （``manifest.key or manifest.name``）。只需传入不带命名空间的事件名称 ——
-        插件只能在其自身的命名空间下进行发布。
+        The event is delivered as ``<plugin_key>:<event>`` where
+        ``plugin_key`` is FORCED to this plugin's own registry key
+        (``manifest.key or manifest.name``). Pass only the bare event name —
+        a plugin may only publish under its own namespace.
 
-        如果传入已包含命名空间的名称（任何包含 ``':'`` 的名称，
-        包括 ``hermes:x`` 或其他插件的 ``other:x``），系统将抛出
-        ``ValueError`` 并记录警告日志 —— 采用安全失败（fail-closed）机制。
-        ``hermes:`` 前缀为核心系统保留。
+        Passing an already-namespaced name (anything containing ``':'``,
+        including ``hermes:x`` or a foreign ``other:x``) is rejected with a
+        ``ValueError`` and a logged warning — fail-closed. The ``hermes:``
+        prefix is reserved for core.
 
-        分发采用“发后即忘”（fire-and-forget）机制，通过宿主拥有的单 worker 队列处理：
-        这既保留了注册顺序，又避免了阻塞的订阅者拖慢发送者。
-        队列设有待处理任务的容量上限；当容量满载时，新事件将被丢弃并记录警告。
-        每个订阅者都会收到一份深拷贝的 payload，且运行在独立的 ``try/except`` 隔离环境中。
-        可等待（Awaitable）的结果将通过现有的事件循环安全（loop-safe）插件路径进行解析。
+        Delivery is fire-and-forget through a host-owned, single-worker queue:
+        registration order is preserved, while a blocking subscriber cannot
+        stall the emitter. The queue has a bounded pending budget; a full
+        budget drops the new event with a warning. Each subscriber receives a
+        deep-copied payload and is isolated in its own ``try/except``. Awaitable
+        results are resolved through the existing loop-safe plugin path.
 
-        返回已排期的订阅者回调函数数量（当没有订阅者，
-        或者因容量上限/递归预算超限导致 emit 被丢弃时，返回 0）。
+        Returns the count of subscriber callbacks scheduled (0 when there are
+        no subscribers, or when the pending/recursion budget drops the emit).
         """
         plugin_key = self.manifest.key or self.manifest.name
         if not event or not isinstance(event, str):
@@ -3350,16 +3407,15 @@ class PluginContext:
         return self._manager._dispatch_event(full_event, payload or {})
 
     def subscribe(self, event: str, callback: Callable) -> None:
-        """将 *callback* 订阅到一个全限定（fully-qualified）事件名称上。
+        """Subscribe *callback* to a fully-qualified event name.
 
-        *event* 为完整的 ``<plugin_key>:<event>`` 名称
-        （或者是核心系统发出的 ``hermes:<event>``）。
-        订阅操作是不受限制的 —— 任何插件都可以监听任何已发布的事件；
-        只有 *发送（emitting）* 操作才会受命名空间门控限制。
+        *event* is the full ``<plugin_key>:<event>`` name (or ``hermes:<event>``
+        if core ever emits). Subscribing is unrestricted — any plugin may
+        listen to any published event; only *emitting* is namespace-gated.
 
-        回调函数会按注册顺序存储为宿主拥有的账本条目（ledger entries）。
-        所有者键（owner key）允许插件在卸载/重新加载时移除订阅，
-        从而避免后续任何事件触发僵尸回调（zombie callback）。
+        Callbacks are stored in registration order as host-owned ledger
+        entries. The owner key lets plugin unload/reload remove subscriptions
+        before any later event can invoke a zombie callback.
         """
         if not event or not isinstance(event, str):
             raise ValueError(
@@ -3470,6 +3526,78 @@ class PluginContext:
 
 
 # ---------------------------------------------------------------------------
+# Hook callback timeout (non-blocking abandon)
+# ---------------------------------------------------------------------------
+
+# Default wall-clock cap for a single Python plugin hook callback. Overridden
+# by ``plugins.hook_callback_timeout`` in config.yaml (see DEFAULT_CONFIG).
+# Shell hooks already enforce their own subprocess timeout.
+_HOOK_CALLBACK_TIMEOUT_SECS = 30.0
+_MAX_HOOK_CALLBACK_TIMEOUT_SECS = 600.0
+
+
+def _resolve_hook_callback_timeout() -> float:
+    """Return the effective hook-callback timeout in seconds.
+
+    Reads ``plugins.hook_callback_timeout`` via the cached readonly config
+    loader. Falls back to ``_HOOK_CALLBACK_TIMEOUT_SECS``. Values ``<= 0``
+    disable the threaded timeout (sync call). Values above
+    ``_MAX_HOOK_CALLBACK_TIMEOUT_SECS`` are clamped.
+    """
+    timeout = _HOOK_CALLBACK_TIMEOUT_SECS
+    try:
+        from hermes_cli.config import load_config_readonly
+
+        plugins_cfg = (load_config_readonly() or {}).get("plugins")
+        if isinstance(plugins_cfg, dict) and "hook_callback_timeout" in plugins_cfg:
+            raw = plugins_cfg.get("hook_callback_timeout")
+            if raw is not None:
+                timeout = float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "plugins.hook_callback_timeout is not a number; using default %gs",
+            _HOOK_CALLBACK_TIMEOUT_SECS,
+        )
+        timeout = _HOOK_CALLBACK_TIMEOUT_SECS
+    except Exception:
+        timeout = _HOOK_CALLBACK_TIMEOUT_SECS
+
+    if timeout < 0:
+        logger.warning(
+            "plugins.hook_callback_timeout=%g is negative; using default %gs",
+            timeout,
+            _HOOK_CALLBACK_TIMEOUT_SECS,
+        )
+        return _HOOK_CALLBACK_TIMEOUT_SECS
+    if timeout > _MAX_HOOK_CALLBACK_TIMEOUT_SECS:
+        logger.warning(
+            "plugins.hook_callback_timeout=%g exceeds max %gs; clamping",
+            timeout,
+            _MAX_HOOK_CALLBACK_TIMEOUT_SECS,
+        )
+        return _MAX_HOOK_CALLBACK_TIMEOUT_SECS
+    return timeout
+
+
+def _hook_uses_callback_timeout(hook_name: str, timeout: float) -> bool:
+    """Whether *hook_name* should run under the non-blocking timeout path."""
+    if timeout <= 0 or hook_name in _HOOK_CALLER_THREAD_HOOKS:
+        return False
+    return (
+        hook_name in _HOOK_TIMEOUT_BOUNDED_HOOKS
+        or hook_name in _HOOK_TIMEOUT_FAIL_CLOSED_HOOKS
+    )
+
+
+def _pre_tool_call_timeout_block() -> Dict[str, str]:
+    """Fail-closed directive when a policy callback times out or is still running."""
+    return {
+        "action": "block",
+        "message": _PRE_TOOL_CALL_TIMEOUT_BLOCK_MESSAGE,
+    }
+
+
+# ---------------------------------------------------------------------------
 # PluginManager
 # ---------------------------------------------------------------------------
 
@@ -3477,9 +3605,9 @@ class PluginManager:
     """Central manager that discovers, loads, and invokes plugins."""
 
     def __init__(self, scope_key: Optional[str] = None) -> None:
-        # 永久捕获 home 作用域。
-        # 卸载过程可能会在不同的环境配置上下文中运行，
-        # 但每一次逆向（恢复）操作都必须针对该注册信息的原始作用域。
+        # Capture the home immutably. Unload can run from a different ambient
+        # profile context, but every inverse must target the registration's
+        # original scope.
         self.scope_key = scope_key or hermes_home_key()
         self.home_path = Path(self.scope_key)
         self._discovery_lock = threading.RLock()
@@ -3498,16 +3626,14 @@ class PluginManager:
         # Plugin skill registry: qualified name → metadata dict.
         self._plugin_skills: Dict[str, Dict[str, Any]] = {}
         self._portable_mcp_servers: Dict[str, Dict[str, Any]] = {}
-        # 插件注册的辅助任务：key → {key, display_name,
-        # description, defaults, plugin}。详见 PluginContext.register_auxiliary_task。
+        # Plugin-registered auxiliary tasks: key → {key, display_name,
+        # description, defaults, plugin}. See PluginContext.register_auxiliary_task.
         self._aux_tasks: Dict[str, Dict[str, Any]] = {}
-        # 显式选择的、作用域限定于配置文件（profile-scoped）的人工审批传输介质（transports）。
+        # Explicitly-selected, profile-scoped human approval transports.
         self._approval_transports: Dict[str, Any] = {}
-        # 插件间事件总线（Inter-plugin event bus）。
-        # 订阅记录是带有所有者标记的账本条目（ledger entries），
-        # 这样在卸载/重新加载时便能清理僵尸回调（zombie callbacks）。
-        # 单个守护进程工作线程（daemon worker）在保持发送者非阻塞的同时，
-        # 还能保证注册顺序不被打乱。
+        # Inter-plugin event bus. Subscriptions are owner-tagged ledger entries
+        # so unload/reload can remove zombie callbacks. A single daemon worker
+        # preserves registration order while keeping emitters non-blocking.
         self._subscriptions: Dict[str, List[_EventSubscription]] = {}
         self._event_lock = threading.RLock()
         self._event_idle = threading.Condition(self._event_lock)
@@ -3517,29 +3643,38 @@ class PluginManager:
             maxsize=_EVENT_PENDING_CAP
         )
         self._event_worker: Optional[threading.Thread] = None
-        # 即使每个重入的 emit 操作都是排队处理而非递归调用，
-        # 单 worker 的链式深度上限仍然能对相互触发 emit 的插件进行限制。
+        # Per-worker chain depth caps mutually-emitting plugins even though each
+        # re-entrant emit is queued rather than invoked recursively.
         self._emit_depth = threading.local()
-
-        # 由插件注册的 Slack Block Kit 动作处理程序。
-        # 每个条目形式为 (matcher, callback, plugin_name)；
-        # Slack 适配器会在 connect() 阶段将它们接入其 slack_bolt App 中。
-        # 其中 ``matcher`` 可以是 ``app.action()`` 接受的任意类型（如 action_id 字符串字面量、已编译的 ``re.Pattern``，或约束条件字典）；
-        # ``callback`` 是一个符合 slack_bolt 签名 ``(ack, body, action)`` 的异步函数。
+        # Slack Block Kit action handlers registered by plugins. Each entry
+        # is (matcher, callback, plugin_name); the Slack adapter wires them
+        # into its slack_bolt App at connect() time. ``matcher`` is whatever
+        # ``app.action()`` accepts (a literal action_id string, a compiled
+        # ``re.Pattern``, or a constraint dict); ``callback`` is an async
+        # function with the slack_bolt signature ``(ack, body, action)``.
         self._slack_action_handlers: List[tuple] = []
-
-        # 注册句柄既按插件独立保存（用于所有权查找），
-        # 也进行全局保存（用于跨插件覆盖时的逆序拆卸）。
+        # In-flight / recently-timed-out hook callbacks. Keyed by
+        # (hook_name, id(cb)) so a stuck policy hook cannot spawn a new
+        # abandoned daemon thread on every subsequent fire.
+        self._hook_running_callbacks: Dict[tuple, object] = {}
+        self._hook_timeout_suppressed_until: Dict[tuple, float] = {}
+        self._hook_timeout_lock = threading.Lock()
+        self._hook_timeout_suppression_seconds = _HOOK_TIMEOUT_SUPPRESSION_SECONDS
+        # Registration handles are kept both per plugin (ownership lookup) and
+        # globally (reverse-order teardown for overrides spanning plugins).
         #
-        # 多 Profile 约束 (#65593)：
-        # 尽管一个进程中可能同时存在多个 PluginManager 实例（以解析后的 hermes home 作为 key），
-        # 但若干进程全局的注册表（tools、platforms、providers）是由多个 profile 共享的。
-        # 因此，账本（ledger）以每个 manager 为单位进行索引 — 即以 (hermes_home, plugin_id) 为 key —
-        # 并且每个 release/restore 闭包都会进行身份校验（identity-conditional），
-        # 从而确保某个 profile 的卸载绝不会清理掉另一个 profile 的注册项。
-        # 按照 scope_key 索引的注册表覆盖层（参见 tools/registry.py 和 gateway/platform_registry.py）承载了 profile 维度；
-        # 任何仍属于进程全局的内容均受到身份检查的保护。
-        # TODO(#64178): 当对称式强制重载（force-reload）落地时，将显式的 profile 索引扩展到所有剩余的进程全局槽位中。
+        # Multi-profile constraint (#65593): several process-global registries
+        # (tools, platforms, providers) are shared across profiles while
+        # multiple PluginManager instances may coexist in one process (keyed
+        # by resolved hermes home). The ledger is therefore keyed per manager
+        # — i.e. per (hermes_home, plugin_id) — and every release/restore
+        # closure is identity-conditional, so one profile's unload can never
+        # clear another profile's registrations. Registry overlays keyed by
+        # scope_key (see tools/registry.py and gateway/platform_registry.py)
+        # carry the profile dimension; anything still process-global is
+        # guarded by the identity checks. TODO(#64178): extend explicit
+        # profile keying to any remaining process-global slots when the
+        # symmetric force-reload lands.
         self._ownership_ledger: Dict[str, List[PluginRegistration]] = {}
         self._registration_order: List[PluginRegistration] = []
         # Persistent (process-global) registrations that survived an
@@ -3904,6 +4039,9 @@ class PluginManager:
             self._predeclared_modules.clear()
             self._predeclared_tools.clear()
             self._context_engine = None
+            with self._hook_timeout_lock:
+                self._hook_running_callbacks.clear()
+                self._hook_timeout_suppressed_until.clear()
             self._discovered = False
         else:
             for key in target_keys:
@@ -5288,6 +5426,17 @@ class PluginManager:
         wrapped in its own try/except so a misbehaving plugin cannot break the
         core agent loop.
 
+        Hot-path / observer hooks in ``_HOOK_TIMEOUT_BOUNDED_HOOKS`` and the
+        policy hook ``pre_tool_call`` are bounded by
+        ``plugins.hook_callback_timeout`` (default 30s). On timeout the worker
+        is abandoned (not joined) so we do not reintroduce the #6622 hang.
+        Timed-out or still-running ``pre_tool_call`` callbacks fail closed
+        with a block directive; other bounded hooks fail open (skip).
+
+        ``subagent_stop`` (and any hook in ``_HOOK_CALLER_THREAD_HOOKS``)
+        always runs on the caller thread to preserve the documented parent-
+        thread serialization contract.
+
         Returns a list of non-``None`` return values from callbacks.
 
         For ``pre_llm_call``, callbacks may return a dict describing
@@ -5310,16 +5459,97 @@ class PluginManager:
             kwargs.setdefault("telemetry_schema_version", OBSERVER_SCHEMA_VERSION)
         callbacks = self._hooks.get(hook_name, [])
         results: List[Any] = []
+        timeout = _resolve_hook_callback_timeout()
+        use_timeout = _hook_uses_callback_timeout(hook_name, timeout)
+        fail_closed = hook_name in _HOOK_TIMEOUT_FAIL_CLOSED_HOOKS
+
         for cb in callbacks:
+            callback_name = getattr(cb, "__name__", repr(cb))
+            callback_key = (hook_name, id(cb))
             try:
-                ret = self._invoke_hook_callback(cb, kwargs)
+                if use_timeout:
+                    token = object()
+                    now = time.monotonic()
+                    with self._hook_timeout_lock:
+                        suppressed_until = self._hook_timeout_suppressed_until.get(
+                            callback_key
+                        )
+                        running = callback_key in self._hook_running_callbacks
+                        if (
+                            suppressed_until is not None and suppressed_until > now
+                        ) or running:
+                            logger.warning(
+                                "Hook '%s' callback %s skipped after previous "
+                                "timeout or while still running",
+                                hook_name,
+                                callback_name,
+                            )
+                            if fail_closed:
+                                results.append(_pre_tool_call_timeout_block())
+                            continue
+                        if suppressed_until is not None:
+                            self._hook_timeout_suppressed_until.pop(callback_key, None)
+                        self._hook_running_callbacks[callback_key] = token
+
+                    context = contextvars.copy_context()
+                    done = threading.Event()
+                    outcome: Dict[str, Any] = {}
+                    failure: Dict[str, Exception] = {}
+
+                    def _runner(
+                        _cb: Callable[..., Any] = cb,
+                        _key: tuple = callback_key,
+                        _token: object = token,
+                    ) -> None:
+                        try:
+                            # Route through _invoke_hook_callback so the
+                            # additive-payload signature filtering (narrow
+                            # legacy callbacks) applies on the worker too.
+                            outcome["value"] = context.run(
+                                self._invoke_hook_callback, _cb, kwargs
+                            )
+                        except Exception as exc:
+                            failure["exc"] = exc
+                        finally:
+                            with self._hook_timeout_lock:
+                                if self._hook_running_callbacks.get(_key) is _token:
+                                    self._hook_running_callbacks.pop(_key, None)
+                            done.set()
+
+                    thread = threading.Thread(
+                        target=_runner,
+                        name=f"hermes-hook-{callback_name}"[:40],
+                        daemon=True,
+                    )
+                    thread.start()
+                    if not done.wait(timeout=timeout):
+                        # Do not join — that would reintroduce the #6622 hang.
+                        with self._hook_timeout_lock:
+                            self._hook_timeout_suppressed_until[callback_key] = (
+                                time.monotonic()
+                                + self._hook_timeout_suppression_seconds
+                            )
+                        logger.warning(
+                            "Hook '%s' callback %s timed out after %gs — skipping",
+                            hook_name,
+                            callback_name,
+                            timeout,
+                        )
+                        if fail_closed:
+                            results.append(_pre_tool_call_timeout_block())
+                        continue
+                    if "exc" in failure:
+                        raise failure["exc"]
+                    ret = outcome.get("value")
+                else:
+                    ret = self._invoke_hook_callback(cb, kwargs)
                 if ret is not None:
                     results.append(ret)
             except Exception as exc:
                 logger.warning(
                     "Hook '%s' callback %s raised: %s",
                     hook_name,
-                    getattr(cb, "__name__", repr(cb)),
+                    callback_name,
                     exc,
                 )
         return results
@@ -5471,12 +5701,11 @@ class PluginManager:
             )
 
     def _dispatch_event(self, event: str, payload: Dict[str, Any]) -> int:
-        """以非阻塞方式将 *event* 入队；返回已排期的订阅者数量。
+        """Queue *event* without blocking; return subscriber count scheduled.
 
-        单个守护进程工作线程（daemon worker）可以保持注册顺序。
-        每个 manager 代次（generation）的待处理任务量是有上限的，
-        因此一个阻塞的订阅者最多只能占用一个 worker，
-        而当任务预算满载后，后续的 emit 将会被丢弃。
+        A single daemon worker preserves registration order. Pending work is
+        bounded per manager generation so a blocking subscriber can consume at
+        most one worker while later emits are dropped once the budget is full.
         """
         depth = getattr(self._emit_depth, "value", 0)
         if depth >= _EVENT_EMIT_DEPTH_CAP:

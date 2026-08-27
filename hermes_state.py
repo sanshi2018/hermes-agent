@@ -9385,6 +9385,45 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
 
         return self._execute_write(_do) > 0
 
+    def backfill_null_session_profiles(self, profile_name: str) -> int:
+        """One-shot owner backfill for legacy pre-ownership session rows.
+
+        Sessions created before the durable-ownership work (#95407 lineage)
+        carry ``profile_name = NULL``. On single-backend installs that was
+        harmless, but once a Desktop registers a second connection the
+        fail-closed owner ladder (which is correct for new sessions) can no
+        longer route those rows anywhere — every pre-campaign session becomes
+        unresumable after upgrade (#94724, field report).
+
+        This store belongs to exactly one profile — the profile whose
+        ``state.db`` this is — so stamping its own name onto rows that never
+        recorded one is a single-match backfill, not a guess. Rules mirror the
+        ``create_session`` COALESCE contract:
+
+        * only ``NULL``/empty ``profile_name`` rows are touched — a non-NULL
+          owner is NEVER overwritten;
+        * idempotent and one-shot-per-row: a second run matches zero rows.
+
+        Returns the number of rows stamped (0 when nothing was legacy).
+        """
+        stamp = (profile_name or "").strip()
+        if not stamp:
+            return 0
+
+        def _do(conn):
+            cursor = conn.execute(
+                """UPDATE sessions
+                   SET profile_name = ?
+                 WHERE profile_name IS NULL OR TRIM(profile_name) = ''""",
+                (stamp,),
+            )
+            rowcount = cursor.rowcount
+            if rowcount is None or rowcount < 0:
+                rowcount = conn.execute("SELECT changes()").fetchone()[0]
+            return rowcount
+
+        return int(self._execute_write(_do) or 0)
+
     def set_session_archived(self, session_id: str, archived: bool) -> bool:
         """Archive or unarchive a session.
 
@@ -13134,16 +13173,39 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             self._remove_session_files(sessions_dir, sid)
         return count
 
+    #: Shared selector for :meth:`count_empty_sessions` and
+    #: :meth:`delete_empty_sessions` so the badge and the sweep agree.
+    #:
+    #: ``message_count`` tracks live (``active = 1``) rows only; rewind
+    #: (:meth:`replace_messages` w/ ``archive_dropped``) and in-place
+    #: compaction (:meth:`archive_and_compact`) reset it to 0 while keeping
+    #: dropped turns on disk as ``active = 0`` — the only recoverable copy
+    #: (#70516 / #80763 / #82756). The ``NOT EXISTS`` probe is the authority;
+    #: ``message_count = 0`` stays as a cheap prefilter. Same shape as every
+    #: other emptiness guard in this module. (#95868)
+    _EMPTY_SESSION_WHERE = (
+        "message_count = 0 "
+        "AND ended_at IS NOT NULL "
+        "AND archived = 0 "
+        "AND NOT EXISTS ("
+        "SELECT 1 FROM messages WHERE messages.session_id = sessions.id"
+        ")"
+    )
+
     def count_empty_sessions(self) -> int:
         """Return the count of empty, non-active, non-archived sessions.
 
-        "Empty" = ``message_count = 0`` AND the session has ended
+        "Empty" = the session holds no message rows at all AND has ended
         (``ended_at IS NOT NULL``) AND is not archived. The ``ended_at``
         guard matches the safety contract used by :meth:`prune_sessions`:
         only ended sessions are candidates for bulk deletion, so a freshly
         spawned session whose first message hasn't landed yet — or one
         held open by the live agent — is never sniped out from under
         the runtime.
+
+        Emptiness is decided by :data:`_EMPTY_SESSION_WHERE` — see that
+        constant for why the ``NOT EXISTS`` probe is needed instead of
+        trusting ``message_count`` alone.
 
         Backs the ``GET /api/sessions/empty/count`` endpoint that lets the
         web dashboard hide its "Delete empty" button when there's nothing
@@ -13152,10 +13214,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         """
         with self._lock:
             cursor = self._conn.execute(
-                "SELECT COUNT(*) FROM sessions "
-                "WHERE message_count = 0 "
-                "AND ended_at IS NOT NULL "
-                "AND archived = 0"
+                f"SELECT COUNT(*) FROM sessions WHERE {self._EMPTY_SESSION_WHERE}"
             )
             return cursor.fetchone()[0]
 
@@ -13167,9 +13226,9 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
 
         Mirrors :meth:`prune_sessions`' transactional shape:
 
-        * Selects candidate IDs first (``message_count = 0`` AND
-          ``ended_at IS NOT NULL`` AND ``archived = 0``) so we never
-          touch a live session or one the user deliberately archived.
+        * Selects candidate IDs first (:data:`_EMPTY_SESSION_WHERE`) so we
+          never touch a live session, one the user deliberately archived,
+          or one whose transcript survives as soft-archived rows.
         * Orphans any child whose parent is in the kill list — children
           of an empty parent are kept and re-parented to ``NULL`` rather
           than cascade-deleted, matching ``delete_session`` /
@@ -13192,10 +13251,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
 
         def _do(conn):
             cursor = conn.execute(
-                "SELECT id FROM sessions "
-                "WHERE message_count = 0 "
-                "AND ended_at IS NOT NULL "
-                "AND archived = 0"
+                f"SELECT id FROM sessions WHERE {self._EMPTY_SESSION_WHERE}"
             )
             session_ids = {row["id"] for row in cursor.fetchall()}
 
@@ -13210,10 +13266,11 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             )
 
             for sid in session_ids:
-                # DELETE FROM messages is paranoia — by construction
-                # these rows have ``message_count = 0`` — but if a
-                # bookkeeping bug ever lets the counter drift below the
-                # real row count, we still leave a clean FK state.
+                # DELETE FROM messages is paranoia — the selector's
+                # ``NOT EXISTS`` probe already proved these sessions own no
+                # message rows — but a row inserted between the SELECT and
+                # this statement would otherwise be left dangling, so we
+                # still leave a clean FK state.
                 conn.execute(
                     "DELETE FROM messages WHERE session_id = ?", (sid,)
                 )

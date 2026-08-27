@@ -5508,24 +5508,24 @@ class AIAgent:
         self._close_openai_client(client, reason=reason, shared=False)
 
     def _abort_request_openai_client(self, client: Any, *, reason: str) -> None:
-        """Cross-thread abort: shut sockets down without releasing FDs.
+        """跨线程中断（Cross-thread abort）：在不释放文件描述符（FD）的前提下关闭 Socket。
 
-        Companion to :meth:`_close_request_openai_client` for stranger-thread
-        callers (interrupt-check loop, stale-call detector). Calling
-        ``client.close()`` from a thread that does not own the active httpx
-        connection raced the still-live SSL BIO and corrupted unrelated file
-        descriptors when the kernel recycled the just-freed TCP FD (#29507).
+        本方法是 :meth:`_close_request_openai_client` 的配套实现，专供外部线程（如中断检查循环、陈旧调用检测器）调用。
+        如果在不拥有当前活跃 httpx 连接的线程中直接调用 ``client.close()``，
+        会与仍处于存活状态的 SSL BIO 发生竞态条件：当内核回收刚释放的 TCP FD 时，
+        可能导致无关的文件描述符损坏（#29507）。
 
-        Here we only ``shutdown(SHUT_RDWR)`` the pool's sockets. That unblocks
-        the owning worker thread's pending ``recv``/``send`` with an EOF or
-        ``EPIPE`` so it can unwind and close ``client`` from its own context
-        — which is where the FD release belongs.
+        在此处，我们仅对连接池的 Socket 执行 ``shutdown(SHUT_RDWR)`` 操作。
+        这会向所属工作线程中处于等待状态的 ``recv``/``send`` 发送 EOF 或 ``EPIPE`` 信号以解除阻塞，
+        从而让该工作线程能够在其自身的上下文中优雅地解开（unwind）并关闭 ``client`` 资源 ——
+        而这才是文件描述符（FD）释放操作应当发生的地方。
         """
         if client is None:
             return
-        # A pool whose sockets were shut down from a stranger thread must
-        # never be reused: poison the cache slot so the owner-thread close
-        # discards it and the next create builds a fresh client.
+        # 凡是 Socket 被外部线程（stranger thread）强行关闭过的连接池，
+        # 绝对不能被再次复用：必须对此缓存槽位（cache slot）进行投毒标记，
+        # 以便拥有该客户端的主工作线程在执行 close 时将其彻底丢弃，
+        # 从而确保下一次创建操作能够构建出一个全新的客户端。
         with self._openai_client_lock():
             cache = self._request_client_cache_ref()
             if cache["client"] is client:

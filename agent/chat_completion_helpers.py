@@ -73,15 +73,18 @@ def _context_thread_target(callback):
 
 
 def _join_worker_for_relay_teardown(worker, *, label: str) -> None:
-    """Bounded worker join before raising InterruptedError (#81521).
+    """
+    在抛出 InterruptedError 之前对工作线程进行有界的等待连接 (join)（参见 #81521）。
 
-    Raising immediately lets turn teardown (finish_logical_calls /
-    end_turn / close_session) race a still-open Relay physical LLM scope
-    and corrupt the LIFO stack — "scope handle is not at the top of the
-    stack" → CLI EIO / redraw storm.  Only joins when Relay managed
-    execution is actually live: when no Relay consumers are registered
-    there is no scope to unwind, and the join would just delay interrupt
-    detection (tests/run_agent/test_interrupt_propagation.py).
+    如果立即抛出异常，会导致轮次清理逻辑（finish_logical_calls / end_turn / close_session）
+    与仍然处于打开状态的 Relay 物理 LLM 作用域发生竞态条件，
+    从而破坏 LIFO 栈——引发 "scope handle is not at the top of the stack"
+    错误，进而导致 CLI EIO 异常或界面重绘风暴。
+
+    该 join 操作仅在 Relay 管理的执行过程实际处于活跃状态时才会触发：
+    当没有注册任何 Relay 消费者时，不存在需要解开的作用域，
+    此时进行 join 只会延迟对中断信号的捕获检测
+    （详见 tests/run_agent/test_interrupt_propagation.py）。
     """
     try:
         from agent import relay_runtime
@@ -924,20 +927,21 @@ def _bedrock_reasoning_stale_floor(model_id: object) -> "float | None":
 
 
 def _dispatch_nonstreaming_api_request(agent, api_kwargs: dict, *, make_client):
-    """Run one non-streaming LLM request for the active api_mode and return it.
+    """
+    执行一次针对当前 `api_mode` 的非流式（non-streaming）LLM 请求并返回结果。
 
-    Shared by the interrupt-worker path (``interruptible_api_call``) and the
-    inline path (``direct_api_call``) so the per-api_mode dispatch — codex /
-    anthropic / bedrock / MoA / OpenAI-compatible — lives in exactly one place.
+    该函数由中断工作线程路径（`interruptible_api_call`）
+    与内联路径（`direct_api_call`）共享使用，
+    从而使针对不同 `api_mode` 的分发逻辑
+    —— 包括 codex / anthropic / bedrock / MoA / 兼容 OpenAI —— 仅保存在唯一的代码位置。
 
-    ``make_client(reason, kind=...)`` builds the per-request client for the
-    codex / OpenAI-compatible (``kind="openai"``) and anthropic
-    (``kind="anthropic_messages"``) branches; the worker path uses it to
-    register the client with its stranger-thread abort machinery, the inline
-    path uses it to capture the client for its own ``finally`` close. The
-    bedrock / MoA branches manage their own clients and never call it. All
-    interrupt, abort, cancellation, and close semantics stay in the callers —
-    this helper only issues the request.
+    `make_client(reason, kind=...)` 用于为以下分支创建单次请求专属的客户端：
+    codex / 兼容 OpenAI（`kind="openai"`）以及 anthropic（`kind="anthropic_messages"`）；
+    工作线程路径会利用它将客户端注册到跨线程中断终止机制中，
+    内联路径则利用它捕获客户端以在自身的 `finally` 块中执行关闭操作。
+    bedrock 与 MoA 分支会自行管理其客户端，从不调用该函数。
+    所有的中断、终止、取消以及关闭等相关语义均由调用方自行维护
+    —— 本辅助函数仅负责发起请求。
     """
     if agent.api_mode == "codex_responses":
         request_client = make_client("codex_stream_request")
@@ -978,19 +982,19 @@ def _dispatch_nonstreaming_api_request(agent, api_kwargs: dict, *, make_client):
             raise
         return normalize_converse_response(raw_response)
     if agent.provider == "moa":
-        # MoA is a virtual chat-completions provider backed by the
-        # in-process MoAClient facade. Do not rebuild a request-local
-        # OpenAI client from the virtual runtime metadata.
+        # MoA 是一个由进程内 MoAClient 外观类（facade）提供支持的
+        # 虚拟聊天补全（chat-completions）服务提供者。
+        # 切勿根据虚拟运行时的元数据重新构建请求局部的 OpenAI 客户端。
         #
-        # After a client replacement (credential rotation /
-        # dead-connection cleanup / fallback+restore), agent.client may
-        # become a native OpenAI client while agent.provider stays
-        # "moa".  Pop the MoA-internal key so the native SDK does not
-        # reject it as an unexpected kwarg — but only when the live
-        # client is NOT the facade: the facade consumes the key, and
-        # stripping it there forces a wasteful duplicate reference
-        # fan-out (the facade re-prepares from scratch).  Only the MoA
-        # facade's completions object exposes ``prepare()``.  (#78382)
+        # 在客户端发生替换（凭据轮换 / 坏连接清理 / 故障转移与恢复）之后，
+        # agent.client 可能会变成原生的 OpenAI 客户端，
+        # 而 agent.provider 依然保持为 "moa"。
+        # 此时需要弹出 MoA 内部特有的参数项，
+        # 从而避免原生 SDK 将其作为意外传入的关键字参数（kwarg）而拒绝处理 ——
+        # 但**仅当**当前活跃的客户端不是外观类时才执行此弹出操作：
+        # 因为 MoA 外观类本身会消耗该参数项，如果在这里将其剥离，
+        # 会强制触发一次浪费性能的重复引用扇出（外观类将不得不从头重新准备）。
+        # 在所有对象中，只有 MoA 外观类的 completions 对象才会暴露 ``prepare()`` 方法。（参见 #78382）
         _completions = getattr(getattr(agent.client, "chat", None), "completions", None)
         if not callable(getattr(_completions, "prepare", None)):
             api_kwargs.pop("_moa_prepared_request", None)
@@ -1000,29 +1004,30 @@ def _dispatch_nonstreaming_api_request(agent, api_kwargs: dict, *, make_client):
 
 
 def should_use_direct_api_call(agent) -> bool:
-    """Whether an OpenAI-wire request should skip the interrupt worker.
+    """OpenAI 协议请求是否应当跳过中断工作线程（interrupt worker）。
 
-    Two nested-pool contexts wedge before the socket opens when the request
-    is pushed onto yet another daemon worker thread:
+    当请求被推送到另一个守护工作线程时，在 Socket 连接建立之前，
+    存在两个嵌套线程池上下文发生死锁/卡顿的情况：
 
-    - Gateway cron turns (#62151): gateway asyncio loop → cron thread →
-      interrupt worker. Fixed by running inline.
-    - Delegated children (#60203): gateway loop → async-delegation executor
-      (module-lifetime daemon pool) → per-child timeout executor → interrupt
-      worker. Same fingerprint after multi-day gateway uptime — children hang
-      at their FIRST API call with zero stale-detector output (the worker
-      never reaches dispatch), all providers, restart cures it. The cron fix
-      originally excluded delegation "for lack of evidence"; #60203 is that
-      evidence.
+    - Gateway 定时任务（Cron turns, #62151）：
+      gateway asyncio 事件循环 → cron 线程 → interrupt worker。
+      修复方案：改为内联（inline）执行。
 
-    Running inline drops the deepest thread layer (whose only job is
-    interactive-interrupt responsiveness). Interrupts still work: the inline
-    path registers ``agent._active_request_abort``, which ``interrupt()``
-    invokes cross-thread to shut the active sockets — the same mechanism the
-    async-delegation stall monitor (#72227) relies on.
+    - 委托子任务（Delegated children, #60203）：
+      gateway 事件循环 → 异步委托执行器（模块生命周期内的守护线程池）→
+      每个子任务的超时执行器 → interrupt worker。
+      在 Gateway 持续运行数天后出现相同特征 —— 子任务在发起第一次 API 调用时即挂起，
+      且陈旧检测器（stale-detector）无任何输出（工作线程甚至尚未到达调度阶段）。
+      所有 Provider 均受影响，重启即可恢复。
+      此前 Cron 的修复方案因“缺乏证据”未包含委托任务，#60203 提供了该证据。
 
-    Keep native/Codex/Bedrock/MoA transports on their established workers:
-    their cancellation and client ownership differ.
+    内联运行移除了最深层的线程（该线程唯一的职责是响应交互式中断）。
+    中断机制依然有效：内联路径会注册 ``agent._active_request_abort``，
+    ``interrupt()`` 可以跨线程调用它来关闭活跃的 Socket —— 这与异步委托卡顿监控器（#72227）
+    所依赖的机制完全相同。
+
+    对于 native/Codex/Bedrock/MoA 等传输方式，仍保留在其原有的工作线程中：
+    它们的取消逻辑和客户端所有权模型有所不同。
     """
     if getattr(agent, "api_mode", None) != "chat_completions":
         return False
@@ -1030,9 +1035,9 @@ def should_use_direct_api_call(agent) -> bool:
         return False
     if getattr(agent, "platform", None) == "cron":
         return True
-    # Delegated child (delegate_task sync or background) — detected via the
-    # execution ContextVar set by _run_single_child, with the agent's own
-    # platform stamp as a fallback for callers that bypass the runner.
+    # 委托子任务（delegate_task 同步或后台模式）——
+    # 通过 _run_single_child 设置的执行 ContextVar 进行检测；
+    # 对于绕过 runner 的调用方，则降级使用 Agent 自身的平台标识（platform stamp）进行识别。
     try:
         from agent.delegation_context import is_delegated_child_context
 
@@ -1334,30 +1339,29 @@ def direct_api_call(agent, api_kwargs: dict):
 
 def interruptible_api_call(agent, api_kwargs: dict):
     """
-    Run the API call in a background thread so the main conversation loop
-    can detect interrupts without waiting for the full HTTP round-trip.
+    在后台线程中运行 API 调用，
+    以便主对话循环无需等待整个 HTTP 往返过程即可检测到中断信号。
 
-    Each worker thread gets its own OpenAI client instance. Interrupts only
-    close that worker-local client, so retries and other requests never
-    inherit a closed transport.
+    每个工作线程拥有各自独立的 OpenAI 客户端实例。
+    中断操作只会关闭该工作线程本地的客户端，
+    因此重试和其他请求绝不会继承一个已关闭的传输通道。
 
-    Includes a stale-call detector: if no response arrives within the
-    configured timeout, the connection is killed and an error raised so
-    the main retry loop can try again with backoff / credential rotation /
-    provider fallback.
+    内置陈旧调用检测器（stale-call detector）：
+    若在配置的超时时间内未收到响应，系统将强行终止连接并抛出异常，
+    以便主重试循环能够结合退避策略、凭据轮换或 Provider 降级进行重试。
     """
-    # Cron and other non-interactive, nested-pool contexts must not spawn the
-    # interrupt worker — it wedges before the socket opens on the 2nd+ call
-    # (#62151). Run inline instead. See should_use_direct_api_call.
+    # Cron 定时任务及其他非交互式、存在嵌套线程池的上下文，严禁派生中断工作线程（interrupt worker）——
+    # 否则在发生第二次及以上的调用时，请求会在 Socket 打开前发生卡顿/死锁（#62151）。
+    # 此时应改为内联（inline）执行。详情参阅 should_use_direct_api_call。
     if should_use_direct_api_call(agent):
         return direct_api_call(agent, api_kwargs)
 
     result = {"response": None, "error": None}
 
-    # Cross-turn stale-call circuit breaker (#58962) — non-streaming sibling
-    # of the guard in interruptible_streaming_api_call.  Quiet-mode /
-    # subagent / no-stream-consumer sessions take THIS path, and a wedged
-    # unattended session here has the same infinite stale-retry class.
+    # 跨轮次陈旧调用断路器（#58962）——
+    # 属于 interruptible_streaming_api_call 中防护机制的非流式（non-streaming）同胞版本。
+    # 静默模式（Quiet-mode）、子 Agent（subagent）以及无流式消费者的会话均走此路径；
+    # 若此类无人值守的会话在此处发生卡顿，同样会引发无限次的陈旧重试问题。
     _check_stale_giveup(agent)
 
     request_client_holder = {"client": None, "owner_tid": None}
@@ -1387,18 +1391,19 @@ def interruptible_api_call(agent, api_kwargs: dict):
         return client
 
     def _close_request_client_once(reason: str) -> None:
-        # #29507: dispatch on the calling thread.
+        # #29507：在调用方线程上派发执行。
         #
-        # When ``_call`` (the worker) reaches its ``finally`` it owns the
-        # close and we pop + fully close as before. When a *stranger* thread
-        # (the interrupt-check loop, the stale-call detector) drives the
-        # close, only shut the sockets down so the worker's blocked
-        # ``recv``/``send`` unwinds with an ``EPIPE`` / EOF — and let the
-        # worker close ``client`` from its own thread on its way out. That
-        # avoids the FD-recycling race where the kernel reassigned a
-        # just-closed TLS socket FD to ``kanban.db``, and the still-live SSL
-        # BIO on the worker thread then wrote a 24-byte TLS application-data
-        # record into the SQLite header (#29507).
+        # 当 ``_call``（工作线程）到达其 ``finally`` 块时，由它负责资源的关闭，
+        # 我们按原样弹出（pop）并彻底关闭客户端。
+        # 当由“外部线程”（如中断检查循环、陈旧调用检测器）来驱动关闭时，
+        # 仅需关闭 Socket，以便工作线程中处于阻塞状态的 ``recv``/``send``
+        # 能够伴随 ``EPIPE`` / EOF 自动解开（unwind）——
+        # 并让工作线程在其退出路径上自行关闭 ``client`` 资源。
+        #
+        # 这样可以避免文件描述符（FD）回收时的竞态条件：
+        # 即内核将刚刚关闭的 TLS Socket FD 重新分配给了 ``kanban.db``，
+        # 而工作线程上仍存活的 SSL BIO 随后将一条 24 字节的 TLS 应用数据记录
+        # 写入到了 SQLite 数据库头文件中（#29507）。
         with request_client_lock:
             request_client = request_client_holder.get("client")
             owner_tid = request_client_holder.get("owner_tid")
@@ -1434,11 +1439,11 @@ def interruptible_api_call(agent, api_kwargs: dict):
 
     def _call():
         try:
-            # _set_request_client registers each per-request client with the
-            # stranger-thread abort machinery above; the shared dispatch helper
-            # builds it via this callback (openai- or anthropic-kind) so the
-            # interrupt / stale-call detectors can force-close the worker's
-            # connection without touching the shared client (#67142).
+            # _set_request_client 会将每个“单次请求专属的客户端”（per-request client）
+            # 注册到上述的“跨线程中断机制”中；
+            # 共享的调度辅助函数会通过此回调（支持 openai 或 anthropic 类型）创建它，
+            # 从而使中断检测器与过期调用检测器能够直接强制关闭工作线程的连接，
+            # 而无需影响/触及共享的客户端对象（参见 #67142）。
             result["response"] = _dispatch_nonstreaming_api_request(
                 agent,
                 api_kwargs,
@@ -1607,11 +1612,11 @@ def interruptible_api_call(agent, api_kwargs: dict):
         t.join(timeout=0.3)
         _poll_count += 1
 
-        # Every ~30s: touch activity for the gateway inactivity monitor AND
-        # rewrite the live spinner/status line so CLI/TUI/Desktop users see
-        # what the agent is waiting on instead of an unexplained generic
-        # spinner (the "infinite thinking" complaint — the wait itself is
-        # usually a slow/overloaded provider, but the UI never said so).
+        # 每隔大约 30 秒：
+        # 1. 刷新活动状态（touch activity），供 Gateway 空闲监控器识别；
+        # 2. 重写实时 Spinner/状态行，让 CLI/TUI/Desktop 用户清楚看到 Agent 正在等待什么，
+        #    而不是面对一个毫无解释的通用加载图标（解决“无限思考”的客诉 ——
+        #    虽然等待本身通常是因为 Provider 响应慢或过载，但 UI 此前从未对此给出说明）。
         if _poll_count % 100 == 0:  # 100 × 0.3s = 30s
             _elapsed = time.time() - _call_start
             try:
@@ -1787,29 +1792,27 @@ def interruptible_api_call(agent, api_kwargs: dict):
                     and getattr(agent, "_codex_stream_last_event_ts", None) is not None
                 ),
             )
-            # Mark THIS request cancelled before force-closing so the worker's
-            # exception handler recognizes the forced transport error as a
-            # cancel and exits cleanly instead of surfacing a network error or
-            # (in the streaming path) burning full retry cycles. (#6600)
+            # 在强行关闭前，将“本请求”标记为已取消，
+            # 以便工作线程的异常处理器能将此强制传输错误识别为取消操作并干净利落地退出，
+            # 而不是抛出网络错误，或者（在流式传输路径中）白白耗尽所有的重试次数。（#6600）
             _request_cancelled["value"] = True
             logger.debug(
                 "Force-closing httpx client due to interrupt (not a network error)."
             )
-            # Force-close the in-flight worker-local HTTP connection to stop
-            # token generation without poisoning the shared client used to
-            # seed future retries. #67142: for anthropic this aborts the
-            # request-local client's sockets from this poll (stranger) thread
-            # rather than closing the shared _anthropic_client, which could
-            # release a TLS FD mid-SSL-BIO and corrupt an unrelated SQLite DB.
+            # 强行关闭正在运行的“工作线程本地” HTTP 连接，以停止 Token 生成，
+            # 同时避免污染用于后续重试的共享客户端。
+            # #67142：对于 Anthropic 而言，此操作会直接从当前轮询线程（异构线程/外部线程）
+            # 强行中断“请求本地”客户端的 Socket，而不是关闭共享的 _anthropic_client ——
+            # 后者可能会在 SSL-BIO 传输过程中提前释放 TLS 文件描述符（FD），进而导致不相干的 SQLite 数据库损坏。
             try:
                 _close_request_client_once("interrupt_abort")
             except Exception:
                 pass
-            # #81521 (sibling of the streaming-path fix): wait for the worker
-            # to unwind Relay-managed scopes before surfacing
-            # InterruptedError, so turn teardown cannot race a still-open
-            # physical scope and corrupt the LIFO stack. No-op when Relay
-            # managed execution is not live.
+            # #81521（流式传输路径修复方案的同胞版本）：
+            # 在抛出 InterruptedError 之前，等待工作线程解开（unwind）由 Relay 管理的作用域，
+            # 以免轮次清理（turn teardown）与仍处于打开状态的物理作用域发生竞态条件，
+            # 进而破坏 LIFO（后进先出）栈。
+            # 当 Relay 管理的执行过程未处于激活状态时，此操作为无操作（No-op）。
             _join_worker_for_relay_teardown(t, label="Non-streaming")
             raise InterruptedError("Agent interrupted during API call")
     if result["error"] is not None:
@@ -3327,20 +3330,21 @@ def _build_partial_stream_stub(
 
 
 def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=None):
-    """Streaming variant of _interruptible_api_call for real-time token delivery.
+    """
+    `_interruptible_api_call` 的流式变体版本，用于实时传输 token 数据。
 
-    Handles all three api_modes:
-    - chat_completions: stream=True on OpenAI-compatible endpoints
-    - anthropic_messages: client.messages.stream() via Anthropic SDK
-    - codex_responses: delegates to _run_codex_stream (already streaming)
+    处理所有三种 `api_mode`：
+    - **chat_completions**：在兼容 OpenAI 的端点上设置 `stream=True`
+    - **anthropic_messages**：通过 Anthropic SDK 调用 `client.messages.stream()`
+    - **codex_responses**：委托给 `_run_codex_stream` 处理（其本身已具备流式能力）
 
-    Fires stream_delta_callback and _stream_callback for each text token.
-    Tool-call turns suppress the callback — only text-only final responses
-    stream to the consumer.  Returns a SimpleNamespace that mimics the
-    non-streaming response shape so the rest of the agent loop is unchanged.
+    为每个文本 token 触发 `stream_delta_callback` 和 `_stream_callback`。
+    工具调用（tool-call）轮次会抑制回调的触发 —— 只有纯文本的最终响应
+    才会以流式方式输送给消费者。函数返回一个 `SimpleNamespace` 对象，
+    其结构模拟了非流式响应的形状，从而使 agent 循环的其余部分保持不变。
 
-    Falls back to _interruptible_api_call on provider errors indicating
-    streaming is not supported.
+    当提供商返回表明不支持流式传输的错误时，
+    会回退退至 `_interruptible_api_call` 执行。
     """
     if agent._interrupt_requested:
         raise InterruptedError("Agent interrupted before streaming API call")

@@ -4561,40 +4561,37 @@ def apply_pending_steer_to_tool_results(agent, messages: list, num_tool_msgs: in
 
 
 def force_close_tcp_sockets(client: Any) -> int:
-    """Abort in-flight TCP I/O by shutting down sockets WITHOUT closing FDs.
+    """
+    通过终止套接字（socket）来中断正在进行的 TCP I/O，**但并不关闭文件描述符（FD）**。
 
-    When a provider drops a connection mid-stream — or the user issues an
-    interrupt — we want to unblock httpx's reader/writer immediately rather
-    than waiting for the kernel's per-connection timeout. ``shutdown(SHUT_RDWR)``
-    achieves that: it sends FIN, breaks any pending ``recv``/``send`` with EOF
-    or ``EPIPE``, but does NOT release the file descriptor.
+    当服务提供商在传输中途断开连接，或者用户发起中断时，
+    我们希望能够立即解除 httpx 读写者的阻塞，
+    而不是等待内核自带的单连接超时机制。
+    `shutdown(SHUT_RDWR)` 能够完美做到这一点：
+    它会发送 FIN 包，通过 EOF 或 `EPIPE` 终止所有挂起的 `recv`/`send` 操作，
+    但**绝对不会**释放该文件描述符。
 
-    Historically this helper also called ``socket.close()`` so the FD got
-    released immediately, but that's unsafe when (as is the case for both the
-    interrupt-abort path and stale-call kill path) the helper runs on a
-    different thread than the one driving the request:
+    在早期实现中，此辅助函数也会一并调用 `socket.close()` 以便立即释放 FD，
+    但在辅助函数与驱动请求的线程并非同一个线程时（无论是中断终止路径，
+    还是清理过期调用的路径，均属于这种情况），这种做法非常不安全：
 
-      * The Python ``socket.socket`` we close here is the SAME object held by
-        httpx's pool, so closing it via Python sets its ``_fd`` to -1 and
-        future operations on that Python object fail safely.
-      * BUT the SSL wrapper (``ssl.SSLSocket``'s underlying OpenSSL ``BIO``)
-        caches the raw integer FD. Once ``os.close(fd)`` runs, the kernel may
-        immediately recycle that integer to the next ``open()`` call — e.g.
-        the kanban dispatcher opening ``kanban.db``.
-      * The owning worker thread then unwinds httpx, the SSL layer flushes a
-        pending TLS record, and the encrypted bytes get written into the
-        wrong file (issue #29507: 24-byte TLS application-data record
-        clobbering SQLite header bytes 5..28).
+      * 我们在此处关闭的 Python `socket.socket`，与 httpx 连接池持有的对象属于同一个实例，
+        因此通过 Python 关闭它会将内部 `_fd` 设为 -1，后续对该 Python 对象的操作也能安全地报错失败。
+      * **但是**，SSL 封装层（即 `ssl.SSLSocket` 底层的 OpenSSL `BIO`）缓存了原始的整数 FD。
+        一旦 `os.close(fd)` 被执行，内核就可能立刻将该整数分配给随后的 `open()` 调用——
+        例如 kanban 分发器打开 `kanban.db` 的操作。
+      * 随后，负责该任务的工作线程开始清理并展开 httpx 堆栈，SSL 层会刷新挂起的 TLS 记录，
+        导致这些加密字节被写入了错误的文件中（参见 Issue #29507：24 字节的 TLS 应用数据记录
+        直接覆盖损坏了 SQLite 文件头部的第 5 到 28 字节）。
 
-    The fix is to let the owning thread own the close. ``shutdown()`` from any
-    thread is FD-safe; ``close()`` is not. The httpx connection's own close
-    path — which runs from the worker thread when it unwinds — will release
-    the FD via the same ``socket.socket`` object, and because Python's socket
-    close atomically swaps ``_fd`` to -1 *before* issuing ``os.close``, there
-    is no FD-aliasing window when only one thread closes.
+    对此的修复方案是：把 close 操作交给持有该连接的线程亲自处理。
+    在任意线程中调用 `shutdown()` 都是 FD 安全的，但调用 `close()` 却不是。
+    httpx 连接自身的关闭逻辑——会在工作线程展开堆栈时运行——将通过同一个 `socket.socket`
+    对象来释放 FD。由于 Python 的 socket close 操作会在真正执行 `os.close` **之前**
+    原子化地将 `_fd` 替换为 -1，只要确保只有一个线程执行关闭，就不会出现 FD 竞争/复用混淆的窗口期。
 
-    Returns the number of sockets shut down. (Field kept as
-    ``tcp_force_closed=N`` in the log line for backwards-compatible parsing.)
+    函数返回已被 shutdown 的套接字数量。
+    （日志中仍保留 `tcp_force_closed=N` 字段名，以兼容旧版解析逻辑。）
     """
     import socket as _socket
 

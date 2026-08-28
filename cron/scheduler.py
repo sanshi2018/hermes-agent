@@ -3270,8 +3270,26 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
             pconfig = transport.config
             runtime_adapter = transport.adapter
         else:
-            # No live transport: preserve the existing standalone delivery path,
-            # which uses the logical platform's configured credential.
+            # No live transport. A relay-fronted platform's ONLY sender is the
+            # gateway's live relay adapter — there is no standalone fallback
+            # (the connector owns the credential). A manual in-process run
+            # (`hermes cron run`) has no live relay adapter, so surface the
+            # accurate remediation instead of the native configured/enabled
+            # gate, which misdiagnoses relay-fronted deployments.
+            from gateway.relay import relay_fronted_platforms
+
+            if platform_name in relay_fronted_platforms():
+                msg = (
+                    f"platform '{platform_name}' is relay-fronted and has no "
+                    "live gateway transport; start the gateway (its ticker "
+                    "owns relay-fronted delivery and will fire the job on "
+                    "schedule)"
+                )
+                logger.warning("Job '%s': %s", job["id"], msg)
+                delivery_errors.append(msg)
+                continue
+            # Preserve the existing standalone delivery path, which uses the
+            # logical platform's configured credential.
             pconfig = config.platforms.get(platform)
             runtime_adapter = None
 
@@ -6821,9 +6839,43 @@ def run_job(
                             break
                     except (Exception, KeyboardInterrupt):
                         continue
+            # Verified completion booking (#93820): the run may only be
+            # recorded as cron_complete when the session's LAST message row is
+            # a real assistant reply — a plain answer or the [SILENT] sentinel
+            # (both are assistant-text rows, so both classify as 'complete').
+            # A turn that died after a tool call, mid-API-wait, or without any
+            # assistant text leaves the last row as a tool result / pending
+            # call / user prompt and must not surface as a healthy run.
+            # session_lifecycle_statuses is the existing cost-bounded
+            # classifier for exactly this shape. Only a POSITIVELY recognized
+            # pathological status (see the status vocabulary in
+            # hermes_state's session_lifecycle_statuses docstring — keep the
+            # tuple below in sync when it grows) downgrades the booking: an
+            # unknown value (newer classifier shape, test doubles) keeps the
+            # historical reason, and so does a failed probe — the booking
+            # itself is FAIL-OPEN on probe errors, because classification is
+            # best-effort metadata and must not mislabel a healthy run.
+            _end_reason = "cron_complete"
+            try:
+                _statuses = _session_db.session_lifecycle_statuses(
+                    [_final_cron_session_id]
+                )
+                _lifecycle = _statuses.get(_final_cron_session_id)
+                if _lifecycle in ("interrupted", "error", "empty"):
+                    _end_reason = "cron_incomplete_no_output"
+                    logger.warning(
+                        "Job '%s': session ended without a final assistant "
+                        "message (lifecycle=%s) — booking run as %s",
+                        job_id, _lifecycle, _end_reason,
+                    )
+            except (Exception, KeyboardInterrupt) as e:
+                logger.debug(
+                    "Job '%s': session lifecycle classification failed: %s",
+                    job_id, e,
+                )
             try:
                 _session_db.end_session(
-                    _final_cron_session_id, "cron_complete"
+                    _final_cron_session_id, _end_reason
                 )
             except (Exception, KeyboardInterrupt) as e:
                 logger.debug("Job '%s': failed to end session: %s", job_id, e)
@@ -7010,6 +7062,15 @@ def run_one_job(
     run cooperatively — agent interruption AND script process-tree kill —
     through the single fenced completion path.
     """
+    if extra_prompt is None:
+        # A gateway-forwarded manual run (`hermes cron run --prompt` /
+        # cronjob(action='run', prompt=...) on a relay-fronted target) stamps
+        # its transient context on the job via trigger_job; the ticker/Chronos
+        # fire that consumes the manual occurrence carries it here. Single-fire:
+        # mark_job_run clears the field after the run.
+        _stamped = job.get("manual_run_prompt")
+        if _stamped and job.get("manual_run_at"):
+            extra_prompt = str(_stamped)
     claim = job.get("fire_claim")
     fire_owner = str(claim.get("by") or "") if isinstance(claim, dict) else ""
     execution_token = object()

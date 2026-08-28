@@ -7814,19 +7814,18 @@ class AIAgent:
         return build_assistant_message(self, assistant_message, finish_reason)
 
     def _needs_thinking_reasoning_pad(self) -> bool:
-        """Return True when the active provider enforces reasoning_content echo-back.
+        """
+        当当前激活的提供商强制要求回显 reasoning_content 时，返回 True。
 
-        DeepSeek v4 thinking and Kimi / Moonshot thinking both reject replays
-        of assistant tool-call messages that omit ``reasoning_content`` (refs
-        #15250, #17400). Xiaomi MiMo thinking mode has the same requirement.
+        DeepSeek v4 的思考模式与 Kimi / Moonshot 的思考模式均会拒绝重放
+        缺少 ``reasoning_content`` 的助手工具调用消息（参考 #15250, #17400）。
+        小米 MiMo 的思考模式也有相同的要求。
 
-        Result cached on the AIAgent instance keyed by (provider, model,
-        base_url); invalidated whenever ``switch_model()`` /
-        ``_try_activate_fallback()`` mutate any of those. This is hot — the
-        agent loop hits ~16 invocations per turn, each of which would
-        otherwise re-run ~5 ``base_url_host_matches`` (and therefore
-        ``urlparse``) calls under it. Caching drops the per-turn cost from
-        ~5us × 16 = ~80us to <1us.
+        结果会在 AIAgent 实例上进行缓存，并以 (provider, model, base_url) 作为键；
+        每当 ``switch_model()`` / ``_try_activate_fallback()`` 修改其中任何一个属性时，缓存即告失效。
+        该方法处于热点路径（Hot path）—— Agent 循环在每轮对话中约触发 16 次调用，
+        否则每次调用都会在其底层重新运行约 5 次 ``base_url_host_matches``（从而触发 ``urlparse``）解析。
+        启用缓存后，每轮对话的耗时将从约 5μs × 16 = ~80μs 降低至 <1μs。
         """
         key = (self.provider, self.model, getattr(self, "_base_url_lower", self.base_url))
         cached = getattr(self, "_thinking_pad_cache", None)
@@ -7842,27 +7841,21 @@ class AIAgent:
         return result
 
     def _reasoning_echo_opt_in(self) -> bool:
-        """Return True when the user has opted in to ``reasoning_content``
-        echo-back for the *current* provider via config.
+        """
+        当用户在配置中为 *当前* 提供商显式开启了 ``reasoning_content`` 回显时，返回 True。
 
-        This covers custom providers and OpenAI-compatible gateways that
-        proxy thinking-mode models (e.g. a reverse proxy fronting Kimi K3
-        or GLM-5.2) but are not matched by the built-in host-based
-        ``_REASONING_ECHO_RULES`` (DeepSeek / Kimi / MiMo).
+        这适用于代理思考模式模型（例如在 Kimi K3 或 GLM-5.2 前挂载反向代理）的自定义提供商和
+        兼容 OpenAI 的网关，但它们并未被内置的基于主机的 ``_REASONING_ECHO_RULES``（如 DeepSeek / Kimi / MiMo）所匹配。
 
-        The flag is per-active-provider:
+        该标志是基于当前激活的提供商（per-active-provider）设置的：
 
-        * **Primary** — read from ``model.reasoning_echo`` in config.yaml
-          at agent init and on ``switch_model()``.
-        * **Fallback** — set by ``try_activate_fallback()`` from the
-          fallback entry's ``reasoning_echo`` field.
-        * **Restore** — ``restore_primary_runtime()`` copies the snapshot
-          saved by ``switch_model()``.
+        * **主提供商（Primary）** — 在 Agent 初始化以及执行 ``switch_model()`` 时，从 config.yaml 中的 ``model.reasoning_echo`` 读取。
+        * **降级提供商（Fallback）** — 由 ``try_activate_fallback()`` 根据降级配置项中的 ``reasoning_echo`` 字段设置。
+        * **恢复主提供商（Restore）** — ``restore_primary_runtime()`` 会还原由 ``switch_model()`` 保存的快照。
 
-        Unlike a global toggle, this flag travels with the active
-        provider, so falling back to a strict provider (Mistral, Groq,
-        Cerebras) correctly strips ``reasoning_content`` even when the
-        primary had the flag enabled.
+        与全局开关不同，该标志会随当前激活的提供商一同切换；
+        因此，即使主提供商启用了该标志，在降级到严格的提供商（如 Mistral、Groq、Cerebras）时，
+        系统仍能正确地剥离 ``reasoning_content`` 字段。
         """
         return bool(getattr(self, "_reasoning_echo_flag", False))
 
@@ -7912,13 +7905,14 @@ class AIAgent:
         )
 
     def _needs_mimo_tool_reasoning(self) -> bool:
-        """Return True when the current provider is Xiaomi MiMo thinking mode.
+        """
+        当当前提供商为小米 MiMo 思考模式时，返回 True。
 
-        MiMo thinking mode requires ``reasoning_content`` on every assistant
-        tool-call message when replaying history; omitting it causes HTTP 400.
-        Refs: https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/passing-back-reasoning_content
+        在重放历史记录时，MiMo 思考模式要求在每个助手的
+        工具调用消息中都包含 ``reasoning_content``；省略该字段会导致 HTTP 400 错误。
+        参考：https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/passing-back-reasoning_content
 
-        Rule table owner: ``agent.message_sanitization.reasoning_echo_family``.
+        规则表所有者：``agent.message_sanitization.reasoning_echo_family``。
         """
         from agent.message_sanitization import matches_reasoning_echo_family
         return matches_reasoning_echo_family(

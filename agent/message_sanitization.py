@@ -772,33 +772,36 @@ def needs_reasoning_echo(provider: Any, model: Any, base_url: Any) -> bool:
 def apply_reasoning_content_policy(
     source_msg: dict, api_msg: dict, needs_thinking_pad: bool
 ) -> None:
-    """Copy provider-facing reasoning fields onto an API replay message.
+    """将面向 Provider 的推理（reasoning）字段复制到 API 重放消息（API replay message）中。
 
-    ``needs_thinking_pad`` is the require-side flag (see
-    ``needs_reasoning_echo`` / the agent's cached
-    ``_needs_thinking_reasoning_pad``). Mutates ``api_msg`` in place.
+    `needs_thinking_pad` 是请求侧（require-side）的标志
+    （参阅 `needs_reasoning_echo` / Agent 缓存的 `_needs_thinking_reasoning_pad`）。
+    该函数会直接原地修改（Mutates） `api_msg`。
     """
     if source_msg.get("role") != "assistant":
         return
 
-    # 1. Explicit reasoning_content already set.
+    # 1. 显式设置的 reasoning_content（推理内容）。
     #
-    # When the active provider enforces the thinking-mode echo-back
-    # (DeepSeek / Kimi / MiMo), preserve it verbatim — that includes their
-    # own space-placeholder written at creation time and any valid reasoning
-    # from the same provider. Sessions persisted BEFORE #17341 have
-    # empty-string placeholders pinned at creation time; DeepSeek V4 Pro
-    # rejects those with HTTP 400, so upgrade "" → " " on replay.
+    # 当当前生效的 Provider 强制要求回传思考模式（thinking-mode echo-back）时
+    # （如 DeepSeek / Kimi / MiMo）：
+    # 逐字保留原内容 —— 这包括创建时写入的空格占位符，
+    # 以及来自同一 Provider 的任何有效推理内容。
+    # 在 #17341 之前持久化的 Session，会在创建时固定使用空字符串占位符；
+    # DeepSeek V4 Pro 会对这些空字符串返回 HTTP 400 报错，
+    # 因此在重放（replay）时需将 "" 升级为 " "。
     #
-    # When the active provider does NOT enforce echo-back, strip the field
-    # entirely. Strict OpenAI-compatible providers (Mistral, Cerebras, Groq,
-    # SambaNova, …) reject ANY reasoning_content key in input messages with
-    # HTTP 400/422 ("Extra inputs are not permitted"), even an empty string
-    # or a single-space pad. This is the cross-provider fallback case: a
-    # reasoning primary (DeepSeek/Kimi/MiMo) pads history with " ", then a
-    # fallback to a strict provider replays that pad and 422s. Stripping
-    # here covers the rebuild path; ``reapply_reasoning_echo`` covers the
-    # already-built api_messages path. Refs #45655.
+    # 当当前生效的 Provider 未强制要求回传时，直接彻底移除该字段。
+    # 严格遵循 OpenAI 兼容标准的 Provider（如 Mistral、Cerebras、Groq、
+    # SambaNova 等）会拒绝输入消息中出现的任何 reasoning_content 键，
+    # 并返回 HTTP 400/422 报错（“Extra inputs are not permitted”），
+    # 哪怕值为空字符串或单个空格占位符也是如此。
+    # 这是跨 Provider 回退（fallback）的典型场景：
+    # 主推理模型（DeepSeek/Kimi/MiMo）在历史记录中写入了 " " 占位符，
+    # 随后回退至严格标准 Provider 时重放了该占位符，从而触发 422 报错。
+    # 在此处移除该字段覆盖了重建路径；
+    # 而 ``reapply_reasoning_echo`` 则覆盖了已建好的 api_messages 路径。
+    # 参见 Issues #45655。
     existing = source_msg.get("reasoning_content")
     if isinstance(existing, str):
         if not needs_thinking_pad:
@@ -809,17 +812,18 @@ def apply_reasoning_content_policy(
             api_msg["reasoning_content"] = existing
         return
 
-    # 2. Cross-provider poisoned history (#15748): on DeepSeek/Kimi,
-    # if the source turn has tool_calls AND a 'reasoning' field but no
-    # 'reasoning_content' key, the 'reasoning' text was written by a
-    # prior provider (e.g. MiniMax) — DeepSeek's own _build_assistant_message
-    # pins reasoning_content at creation time for tool-call turns, so the
-    # shape (reasoning set, reasoning_content absent, tool_calls present)
-    # is unreachable from same-provider DeepSeek history after this fix.
-    # Inject a single space to satisfy the API without leaking another
-    # provider's chain of thought to DeepSeek/Kimi. Space (not "")
-    # because DeepSeek V4 Pro rejects empty-string reasoning_content
-    # in thinking mode (refs #17341).
+    # 2. 跨 Provider 污染的历史记录（#15748）：在 DeepSeek/Kimi 上，
+    # 如果源轮次（source turn）包含 tool_calls 和 'reasoning' 字段，
+    # 但缺少 'reasoning_content' 键，
+    # 则说明 'reasoning' 文本是由先前的 Provider（例如 MiniMax）写入的 ——
+    # 在此修复之后，DeepSeek 自身的 _build_assistant_message
+    # 会在创建时为包含工具调用的轮次固定设置 reasoning_content，
+    # 因此这种结构（已设置 reasoning、缺少 reasoning_content、存在 tool_calls）
+    # 在来自同一 Provider 的 DeepSeek 历史记录中是不可能出现的。
+    # 此处注入单个空格以满足 API 要求，
+    # 同时避免将其他 Provider 的思维链泄漏给 DeepSeek/Kimi。
+    # 使用空格（而非 ""）是因为 DeepSeek V4 Pro 在思考模式下
+    # 会拒绝空字符串格式的 reasoning_content（参见 #17341）。
     normalized_reasoning = source_msg.get("reasoning")
     if (
         needs_thinking_pad
@@ -830,12 +834,12 @@ def apply_reasoning_content_policy(
         api_msg["reasoning_content"] = " "
         return
 
-    # 3. Healthy session: promote 'reasoning' field to 'reasoning_content'
-    # for providers that use the internal 'reasoning' key.
-    # This must happen before the unconditional empty-string fallback so
-    # genuine reasoning content is not overwritten (#15812 regression in
-    # PR #15478). Only promote for providers that enforce echo-back —
-    # strict providers reject the field (refs #45655).
+    # 3. 健康的 Session：对于使用内部 'reasoning' 键的 Provider，
+    # 将 'reasoning' 字段提升（promote）为 'reasoning_content'。
+    # 此操作必须在“无条件回退为空字符串”的逻辑之前执行，
+    # 以防止真正的推理内容被覆盖（PR #15478 导致的 #15812 回归问题）。
+    # 仅对强制要求回传（echo-back）的 Provider 进行提升 ——
+    # 严格遵循标准的 Provider 会拒绝该字段（参见 #45655）。
     if isinstance(normalized_reasoning, str) and normalized_reasoning:
         if needs_thinking_pad:
             api_msg["reasoning_content"] = normalized_reasoning
@@ -843,51 +847,49 @@ def apply_reasoning_content_policy(
             api_msg.pop("reasoning_content", None)
         return
 
-    # 4. DeepSeek / Kimi thinking mode: all assistant messages need
-    # reasoning_content. Inject a single space to satisfy the provider's
-    # requirement when no explicit reasoning content is present. Covers
-    # both tool-call turns (already-poisoned history with no reasoning
-    # at all) and plain text turns. Space (not "") because DeepSeek V4
-    # Pro tightened validation and rejects empty string with HTTP 400
-    # ("The reasoning content in the thinking mode must be passed back
-    # to the API"). Refs #17341.
+    # 4. DeepSeek / Kimi 思考模式：所有 assistant 消息都需要
+    # reasoning_content。当没有显式的推理内容存在时，
+    # 注入单个空格以满足该 Provider 的要求。
+    # 这涵盖了工具调用轮次（完全没有推理内容的受污染历史）
+    # 以及纯文本轮次。
+    # 使用空格（而非 ""）是因为 DeepSeek V4 Pro 加强了校验，
+    # 会对比空字符串返回 HTTP 400 报错
+    # （“The reasoning content in the thinking mode must be passed back to the API”）。
+    # 参见 Issues #17341。
     if needs_thinking_pad:
         api_msg["reasoning_content"] = " "
         return
 
-    # 5. reasoning_content was present but not a string (e.g. None after
-    # context compaction).  Don't pass null to the API.
+    # 5. reasoning_content 字段存在，但值不是字符串
+    # （例如：在上下文压缩后变成了 None）。
+    # 切勿将 null（空值）传递给 API。
     api_msg.pop("reasoning_content", None)
 
 
 def reapply_reasoning_echo(api_messages: list, needs_thinking_pad: bool) -> int:
-    """Re-pad (or strip) assistant turns' reasoning_content for the active provider.
+    """
+    针对当前激活的提供商，重新填充（或剥离）助手（assistant）轮次的 reasoning_content 字段。
 
-    ``api_messages`` is built once, before the retry loop, while the *primary*
-    provider is active.  A mid-conversation fallback can then switch providers,
-    so the reasoning fields baked into ``api_messages`` are shaped for the
-    *prior* provider and must be reconciled against the *current* one:
+    ``api_messages`` 在进入重试循环之前、*主*提供商处于激活状态时已构建完成一次。
+    后续在对话中途发生的降级切换（Fallback）可能会更改提供商，
+    因此硬编码在 ``api_messages`` 中的推理字段是针对*先前*提供商格式化的，必须与*当前*提供商进行协调调整：
 
-    * Switching TO a require-side provider (DeepSeek / Kimi / MiMo thinking
-      mode): assistant turns built when the prior provider did NOT need the
-      echo-back go out without ``reasoning_content`` and the new provider
-      rejects them with HTTP 400 ("The reasoning_content in the thinking mode
-      must be passed back").  Re-apply the pad.
+    * 切换**到**有强制要求的提供商（DeepSeek / Kimi / MiMo 的思考模式）：
+      在先前提供商不需要回显时所构建的助手轮次，发出时会缺少 ``reasoning_content``，
+      新提供商会以 HTTP 400 错误拒绝它们（“思考模式下的 reasoning_content 必须传回”）。
+      此时需要重新应用填充。
 
-    * Switching TO a strict provider that rejects the field (Mistral,
-      Cerebras, Groq, SambaNova, …): assistant turns built under a reasoning
-      primary carry a ``reasoning_content`` pad (often a single space ``" "``),
-      and the strict provider rejects it with HTTP 400/422 ("Extra inputs are
-      not permitted").  Strip the field.  This is the exact cross-provider
-      fallback bug from #45655 — a DeepSeek primary pads history with ``" "``,
-      the request falls back to Mistral, and Mistral 422s on the stale pad.
+    * 切换**到**拒绝该字段的严格提供商（Mistral、Cerebras、Groq、SambaNova 等）：
+      在基于推理模型的主提供商下构建的助手轮次会带有 ``reasoning_content`` 填充（通常为单个空格 ``" "``），
+      严格的提供商会以 HTTP 400/422 错误拒绝它（“不允许有额外的输入字段”）。
+      此时需要剥离该字段。
+      这正是 #45655 中遇到的跨提供商降级 Bug —— DeepSeek 主提供商用 ``" "`` 填充历史记录，
+      请求降级至 Mistral，而 Mistral 对该过期的填充返回了 422 错误。
 
-    Calling this immediately before building the request kwargs reconciles the
-    fields against the *current* provider.  It is idempotent and safe to call
-    every iteration; it covers every fallback path.
+    在构建请求 kwargs 之前立即调用此函数，可以使这些字段与*当前*提供商保持一致。
+    该函数具有幂等性，在每次迭代中调用都是安全的，且能够覆盖所有降级路径。
 
-    Returns the number of assistant turns whose reasoning_content was added or
-    removed.
+    返回被添加或移除 reasoning_content 的助手轮次数目。
     """
     changed = 0
     for api_msg in api_messages:

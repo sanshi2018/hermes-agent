@@ -4189,33 +4189,29 @@ def copy_reasoning_content_for_api(agent, source_msg: dict, api_msg: dict) -> No
 
 
 def reapply_reasoning_echo_for_provider(agent, api_messages: list) -> int:
-    """Re-pad (or strip) assistant turns' reasoning_content for the active provider.
+    """
+    针对当前激活的提供商，重新填充（或剥离）助手（assistant）轮次的 reasoning_content 字段。
 
-    ``api_messages`` is built once, before the retry loop, while the *primary*
-    provider is active.  A mid-conversation fallback can then switch providers,
-    so the reasoning fields baked into ``api_messages`` are shaped for the
-    *prior* provider and must be reconciled against the *current* one:
+    ``api_messages`` 在进入重试循环之前、*主*提供商处于激活状态时已构建完成一次。
+    后续在对话中途发生的降级切换（Fallback）可能会更改提供商，
+    因此硬编码在 ``api_messages`` 中的推理字段是针对*先前*提供商格式化的，必须与*当前*提供商进行协调调整：
 
-    * Switching TO a require-side provider (DeepSeek / Kimi / MiMo thinking
-      mode): assistant turns built when the prior provider did NOT need the
-      echo-back go out without ``reasoning_content`` and the new provider
-      rejects them with HTTP 400 ("The reasoning_content in the thinking mode
-      must be passed back").  Re-apply the pad.
+    * 切换**到**有强制要求的提供商（DeepSeek / Kimi / MiMo 的思考模式）：
+      在先前提供商不需要回显时所构建的助手轮次，发出时会缺少 ``reasoning_content``，
+      新提供商会以 HTTP 400 错误拒绝它们（“思考模式下的 reasoning_content 必须传回”）。
+      此时需要重新应用填充。
 
-    * Switching TO a strict provider that rejects the field (Mistral,
-      Cerebras, Groq, SambaNova, …): assistant turns built under a reasoning
-      primary carry a ``reasoning_content`` pad (often a single space ``" "``),
-      and the strict provider rejects it with HTTP 400/422 ("Extra inputs are
-      not permitted").  Strip the field.  This is the exact cross-provider
-      fallback bug from #45655 — a DeepSeek primary pads history with ``" "``,
-      the request falls back to Mistral, and Mistral 422s on the stale pad.
+    * 切换**到**拒绝该字段的严格提供商（Mistral、Cerebras、Groq、SambaNova 等）：
+      在基于推理模型的主提供商下构建的助手轮次会带有 ``reasoning_content`` 填充（通常为单个空格 ``" "``），
+      严格的提供商会以 HTTP 400/422 错误拒绝它（“不允许有额外的输入字段”）。
+      此时需要剥离该字段。
+      这正是 #45655 中遇到的跨提供商降级 Bug —— DeepSeek 主提供商用 ``" "`` 填充历史记录，
+      请求降级至 Mistral，而 Mistral 对该过期的填充返回了 422 错误。
 
-    Calling this immediately before building the request kwargs reconciles the
-    fields against the *current* provider.  It is idempotent and safe to call
-    every iteration; it covers every fallback path.
+    在构建请求 kwargs 之前立即调用此函数，可以使这些字段与*当前*提供商保持一致。
+    该函数具有幂等性，在每次迭代中调用都是安全的，且能够覆盖所有降级路径。
 
-    Returns the number of assistant turns whose reasoning_content was added or
-    removed.
+    返回被添加或移除 reasoning_content 的助手轮次数目。
     """
     from agent.message_sanitization import reapply_reasoning_echo
 

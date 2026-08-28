@@ -803,38 +803,33 @@ def _run_references_parallel(
     agent: Any = None,
     late_accounting_sink: Any = None,
 ) -> list[tuple[str, str, Any]]:
-    """Fan out all reference models in parallel, returning outputs in order.
+    """
+    并行分发（Fan out）所有参考模型，并按顺序返回输出结果。
 
-    Like ``delegate_task``'s batch mode, every reference is dispatched at once
-    and we block until all of them finish before handing the joined results to
-    the aggregator. Output order matches ``reference_models`` so the
-    ``Reference {idx}`` labelling stays stable. MoA presets that reference
-    another MoA preset are skipped here (recursion guard) with a labelled note.
+    类似于 ``delegate_task`` 的批处理模式，所有参考模型都会被同时调度分发；
+    我们会一直阻塞等待，直到它们全部执行完毕，才将合并后的结果传递给聚合器（aggregator）。
+    输出顺序与 ``reference_models`` 保持一致，以保证 ``Reference {idx}`` 的标签编号保持稳定。
+    如果某个 MoA 预设引用了另一个 MoA 预设，此处会触发递归保护并跳过该项，同时附带一条带标签的提示说明。
 
-    If ``progress_callback`` is provided it is invoked as each reference
-    completes: ``progress_callback(refs_done, refs_total, label)``. The total
-    matches ``len(reference_models)`` so listeners can render a status-bar
-    progress like ``MOA: 2/3 refs done``. Best-effort — failures are logged
-    but never break the fan-out (display must never block a turn).
+    如果提供了 ``progress_callback``，每当一个参考模型完成时就会被调用：
+    ``progress_callback(refs_done, refs_total, label)``。
+    总量（refs_total）与 ``len(reference_models)`` 一致，以便监听者渲染类似 ``MOA: 2/3 refs done`` 的状态栏进度。
+    该回调采用尽力而为（Best-effort）机制 —— 其内部失败仅会被记录到日志中，绝不会打断分发流程（界面显示决不能阻塞轮次执行）。
 
-    Each element is ``(label, text, accounting)`` where accounting is a
-    ``_RefAccounting`` object (zeroed for skipped/failed/interrupted
-    references).
+    每个元素均为 ``(label, text, accounting)`` 元组，
+    其中 accounting 是一个 ``_RefAccounting`` 对象（对于被跳过、失败或被打断的参考模型，该对象会被置零）。
 
-    When *agent* is given, the fan-out is interruptible: waiting for the
-    batch is broken into ``_REFERENCE_POLL_INTERVAL_S``-second polls (instead
-    of one blocking ``future.result()`` per reference) so a user interrupt
-    mid-turn can abort the wait — mirroring the same interrupt check
-    ``agent.tool_executor`` already applies to its own concurrent tool
-    batch. This does not add or change any per-reference *timeout* (that is
-    ``reference_timeout`` / ``auxiliary.moa_reference.timeout``, resolved
-    elsewhere) — it only lets the caller stop waiting early. References
-    already in flight cannot be forcibly killed (``call_llm`` is a blocking
-    HTTP call with no interrupt hook of its own, same limitation
-    tool_executor has for tools without an interrupt check); an interrupted
-    reference's own timeout still reaps its thread independently. *agent* is
-    optional and defaults to ``None``, preserving the uninterruptible
-    blocking behavior for any caller that doesn't pass it.
+    当传入 *agent* 参数时，分发过程变为可打断模式：
+    等待批处理的过程会被拆分为间隔为 ``_REFERENCE_POLL_INTERVAL_S`` 秒的多次轮询
+    （而非对每个参考模型进行单一的阻塞式 ``future.result()`` 调用），
+    以便用户在轮次中途进行打断时能够中止等待 —— 这与 ``agent.tool_executor`` 对其自身并发工具批处理应用的打断检查机制完全一致。
+    这不会添加或改变任何单个参考模型的*超时时间*
+    （超时时间由 ``reference_timeout`` / ``auxiliary.moa_reference.timeout`` 在其他地方解析决定），
+    它仅允许调用方提前停止等待。
+    已经在运行中的参考模型无法被强制杀死
+    （``call_llm`` 是一个阻塞式的 HTTP 调用，自身没有打断 Hook，这与 tool_executor 对不带打断检查的工具所面临的限制相同）；
+    被打断的参考模型自身的超时机制仍会独立回收其线程。
+    *agent* 为可选参数，默认值为 ``None``，未传入该参数的调用方将继续保留不可打断的阻塞行为。
     """
     from agent.usage_pricing import CanonicalUsage
 
@@ -1438,29 +1433,25 @@ def _completed_response_as_stream_chunk(response: Any) -> Any:
 
 
 def _attach_reference_guidance(agg_messages: list[dict[str, Any]], guidance: str) -> None:
-    """Attach the per-turn reference block at the END of the aggregator prompt.
+    """
+    在聚合器提示词（Aggregator Prompt）的末尾追加单轮参考块（Per-turn Reference Block）。
 
-    The reference text differs on every tool-loop iteration. In an agentic loop
-    the most recent ``user`` message is the *original task* sitting near the TOP
-    of the context (everything after it is assistant/tool turns), so merging the
-    turn-varying reference block into it diverges the prompt prefix early — the
-    server's KV cache cannot be reused and the entire conversation re-prefills on
-    every step (full prefill each tool call, dominating latency on long contexts).
+    参考文本在每一次工具循环迭代中都不尽相同。
+    在 Agent 循环中，最新的 ``user`` 消息是位于上下文顶部的*原始任务*（其后的所有内容均为助手/工具的交互轮次）。
+    因此，如果将随着轮次变化的参考块合并到该初始消息中，会导致提示词的前缀过早发生偏离 ——
+    服务端的 KV 缓存（KV Cache）将无法复用，整段对话在每一步都需要重新进行完整的预填充（每次工具调用都重新预填充，这在长上下文场景下会成为延迟的主要瓶颈）。
 
-    Appending at the very end keeps the ``[system][task][tool-history]`` prefix
-    stable and cache-reusable (only the new block re-prefills), and gives the
-    aggregator the references with recency. Merge into the last message only when
-    it is already a trailing ``user`` turn (plain chat — still at the end).
+    追加在最末尾可以保持 ``[system][task][tool-history]`` 前缀的稳定性和可复用性（仅需对新增的块进行预填充），
+    同时也让聚合器能够利用参考信息的时效性（Recency）。
+    仅当最后一条消息本身就是尾部的 ``user`` 轮次时（普通对话 —— 依然位于末尾），才合并入其中。
 
-    A trailing user turn's content may be a STRING or a LIST of content parts —
-    Anthropic prompt-cache decoration (which runs before the MoA facade)
-    converts string content to ``[{"type": "text", ..., "cache_control": ...}]``,
-    and multimodal turns are lists natively. Both shapes are merged in place:
-    appending a new text part AFTER the cache_control-marked part keeps the
-    cached prefix byte-stable (the marker still terminates it) while the
-    turn-varying guidance rides outside the cached span. Appending a SEPARATE
-    user message here instead would produce two consecutive user turns —
-    strict providers reject that.
+    尾部 user 轮次的内容形态可能是一个字符串（STRING），也可能是一个由内容片段构成的列表（LIST）——
+    Anthropic 的提示词缓存标记（运行在 MoA 门面层之前）会将字符串内容转换为 ``[{"type": "text", ..., "cache_control": ...}]``，
+    而多模态轮次原生就是列表形态。
+    这两种形态均会进行就地合并：
+    在带有 cache_control 标记的片段之后追加一个新的文本片段，既能保持已缓存前缀的字节级稳定（标记依然作为缓存终止符），
+    又能让随轮次变化的指导信息挂载在缓存范围之外。
+    如果在此处追加一条独立的 user 消息，则会导致产生两条连续的 user 轮次 —— 严格的 API 提供商会拒绝接收这种格式。
     """
     last = agg_messages[-1] if agg_messages else None
     if last is not None and last.get("role") == "user":

@@ -1612,18 +1612,20 @@ def _redecorate_prompt_cache_for_provider(
     moa_prepared: Optional[Dict[str, Any]] = None,
     tools_for_api: Optional[List[Dict[str, Any]]] = None,
 ) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]] | tuple[List[Dict[str, Any]], Optional[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Strip and re-apply cache_control for the *current* provider policy.
+    """为*当前* Provider 策略清理并重新应用 cache_control。
 
-    Decoration runs once per call block before the retry loop for the primary
-    provider. ``try_activate_fallback`` refreshes ``_use_prompt_caching`` /
-    ``_use_native_cache_layout`` but the nine failover ``continue`` paths reused
-    the old ``api_messages`` (#72626). Mirror ``_reapply_reasoning_echo_for_provider``
-    by reshaping at the top of each retry attempt.
+    修饰逻辑（Decoration）会在主 Provider 重试循环之前的每个调用块中运行一次。
+    `try_activate_fallback` 会刷新 `_use_prompt_caching` /
+    `_use_native_cache_layout`，但那 9 条故障转移（failover）`continue` 路径
+    之前复用了旧的 `api_messages`（#72626）。
+    因此在每次重试尝试的最顶部重新调整结构，
+    以与 `_reapply_reasoning_echo_for_provider` 的行为保持一致。
 
-    The source list is the mutated in-flight request (image shrink / ASCII /
-    reasoning_details recoveries already applied), never a pristine
-    pre-decoration snapshot. MoA guidance is peeled and rebased without
-    decoration; the acting aggregator plans its resolved destination later.
+    数据源列表是已被修改的在途请求（在途修饰包括已应用的图片缩小 /
+    ASCII 转换 / reasoning_details 恢复），
+    绝非未经修饰的原始快照。
+    MoA 指导信息会在未经修饰的情况下被剥离并重新基准化；
+    当前生效的聚合器（acting aggregator）会在后续阶段计划其解析后的最终目标。
     """
     messages: List[Dict[str, Any]] = [
         dict(m) if isinstance(m, dict) else m for m in (api_messages or [])
@@ -2939,18 +2941,17 @@ def run_conversation(
 
             try:
                 agent._reset_stream_delivery_tracking()
-                # api_messages is built once, before this retry loop, while the
-                # primary provider is active.  A mid-conversation fallback can
-                # switch to a require-side provider (DeepSeek / Kimi / MiMo) that
-                # rejects assistant turns lacking reasoning_content.  Re-apply the
-                # echo-back pad for the *current* provider here (idempotent no-op
-                # unless the active provider needs it) so the fallback request
-                # isn't sent with stale, primary-shaped reasoning fields.
+                # api_messages 在进入此重试循环之前、主提供商（Primary Provider）处于激活状态时已构建完成。
+                # 对话中途发生的降级切换（Fallback）可能会切换到要求严格的提供商（如 DeepSeek / Kimi / MiMo），
+                # 这些提供商会拒绝接收缺少 reasoning_content 的助手（assistant）轮次。
+                # 此处针对“当前”提供商重新应用推理回显填充（Reasoning Echo-back Pad）
+                # （该操作具有幂等性，除非当前激活的提供商确实需要，否则为无操作），
+                # 以确保降级请求不会带着已过期的、针对主提供商格式化的推理字段被发送出去。
                 agent._reapply_reasoning_echo_for_provider(api_messages)
-                # Same story for prompt-cache decoration (#72626): try_activate_
-                # fallback refreshes the policy flags, but the decorated list
-                # still carries the primary's breakpoints (or none). Strip and
-                # re-render for the current provider before building kwargs.
+                # 提示词缓存标记（Prompt-cache Decoration）同理（#72626）：
+                # try_activate_fallback 虽已刷新策略标识（Policy Flags），
+                # 但已标记的列表仍保留着主提供商的断点（或完全没有断点）。
+                # 在构建 kwargs 之前，需要针对当前提供商剥离并重新渲染这些标记。
                 api_messages, _moa_prepared_request, tools_for_api = (
                     _redecorate_prompt_cache_for_provider(
                         agent,

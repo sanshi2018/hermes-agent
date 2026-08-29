@@ -4,9 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="agent loop 收尾阶段">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-    </list>
+    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="gateway配置" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -120,43 +118,45 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;Git.Working.Tree.Tab.closed.by.user&quot;: &quot;closed&quot;,
-    &quot;Python.Hermes (CLI).executor&quot;: &quot;Debug&quot;,
-    &quot;Python.Hermes (Desktop Backend Debug).executor&quot;: &quot;Debug&quot;,
-    &quot;Python.Hermes (Desktop).executor&quot;: &quot;Debug&quot;,
-    &quot;Python.Hermes (TUI).executor&quot;: &quot;Debug&quot;,
-    &quot;Python.mcp_startup.executor&quot;: &quot;Debug&quot;,
-    &quot;Python.skills_tool.executor&quot;: &quot;Debug&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
-    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
-    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
-    &quot;copilot.chat.legacySessionMetadata.migrated&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;upstream-branch&quot;,
-    &quot;git.auto.fetch.suggestion.counter&quot;: &quot;3&quot;,
-    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;prettierjs.PrettierConfiguration.Package&quot;: &quot;C:\\Users\\Administrator\\PycharmProjects\\example\\hermes-agent\\node_modules\\prettier&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;http.proxy&quot;,
-    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
-    &quot;ts.external.directory.path&quot;: &quot;/Users/sanshi/PycharmProjects/hermes-agent/node_modules/typescript/lib&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Git.Working.Tree.Tab.closed.by.user": "closed",
+    "Python.Hermes (CLI).executor": "Debug",
+    "Python.Hermes (Desktop Backend Debug).executor": "Debug",
+    "Python.Hermes (Desktop).executor": "Debug",
+    "Python.Hermes (TUI).executor": "Debug",
+    "Python.gateway.executor": "Debug",
+    "Python.kanban.executor": "Debug",
+    "Python.mcp_startup.executor": "Debug",
+    "Python.skills_tool.executor": "Debug",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
+    "copilot.chat.legacySessionMetadata.migrated": "true",
+    "git-widget-placeholder": "upstream-branch",
+    "git.auto.fetch.suggestion.counter": "3",
+    "junie.onboarding.icon.badge.shown": "true",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "prettierjs.PrettierConfiguration.Package": "C:\\Users\\Administrator\\PycharmProjects\\example\\hermes-agent\\node_modules\\prettier",
+    "settings.editor.selected.configurable": "http.proxy",
+    "to.speed.mode.migration.done": "true",
+    "ts.external.directory.path": "/Users/sanshi/PycharmProjects/hermes-agent/node_modules/typescript/lib",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="C:\Users\Administrator\PycharmProjects\example\hermes-agent\plugins\platforms\HerEmail" />
     </key>
   </component>
-  <component name="RunManager" selected="Python.gateway">
+  <component name="RunManager" selected="Python.Hermes (Desktop Backend Debug)">
     <configuration name="mcp_startup" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="hermes-agent" />
       <option name="ENV_FILES" value="" />
@@ -172,7 +172,7 @@
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <option name="DEBUG_JUST_MY_CODE" value="false" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
-      <option name="RUN_TOOL" value="" />
+      <option name="RUN_TOOL" value="true" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/hermes_cli/mcp_startup.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
@@ -270,23 +270,7 @@
       <workItem from="1787812294739" duration="17822000" />
       <workItem from="1787879451094" duration="606000" />
       <workItem from="1787925930501" duration="54000" />
-      <workItem from="1787926139998" duration="9806000" />
-    </task>
-    <task id="LOCAL-00006" summary="大系统提示词构建流程">
-      <option name="closed" value="true" />
-      <created>1784284972737</created>
-      <option name="number" value="00006" />
-      <option name="presentableId" value="LOCAL-00006" />
-      <option name="project" value="LOCAL" />
-      <updated>1784284972737</updated>
-    </task>
-    <task id="LOCAL-00007" summary="conversation流程done">
-      <option name="closed" value="true" />
-      <created>1784547500609</created>
-      <option name="number" value="00007" />
-      <option name="presentableId" value="LOCAL-00007" />
-      <option name="project" value="LOCAL" />
-      <updated>1784547500609</updated>
+      <workItem from="1787926139998" duration="10449000" />
     </task>
     <task id="LOCAL-00008" summary="项目运行环境">
       <option name="closed" value="true" />
@@ -664,7 +648,23 @@
       <option name="project" value="LOCAL" />
       <updated>1787976430800</updated>
     </task>
-    <option name="localTasksCounter" value="55" />
+    <task id="LOCAL-00055" summary="配置">
+      <option name="closed" value="true" />
+      <created>1787978144599</created>
+      <option name="number" value="00055" />
+      <option name="presentableId" value="LOCAL-00055" />
+      <option name="project" value="LOCAL" />
+      <updated>1787978144599</updated>
+    </task>
+    <task id="LOCAL-00056" summary="gateway配置">
+      <option name="closed" value="true" />
+      <created>1787978460525</created>
+      <option name="number" value="00056" />
+      <option name="presentableId" value="LOCAL-00056" />
+      <option name="project" value="LOCAL" />
+      <updated>1787978460525</updated>
+    </task>
+    <option name="localTasksCounter" value="57" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -742,8 +742,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat(tools): tiered tool disclosure — always defer MCP/plugin tools, scale the listing with catalog size&#10;&#10;Tier 0: no MCP/plugin tools -&gt; everything eager (pass-through).&#10;Tier 1: deferred tools whose catalog listing fits min(threshold_pct%&#10;        of context, listing_max_tokens) -&gt; bridge + skills-style&#10;        listing, degrading to names-only over budget.&#10;Tier 2: listing over budget even names-only (Cloudflare's flat API&#10;        surface: 3,320 tools, names alone ~32K tokens) -&gt; bare bridge,&#10;        discovery through tool_search only.&#10;&#10;The old activation threshold (defer only when schemas &gt; threshold_pct&#10;of context) let mid-size catalogs ride eager and pay full schema cost;&#10;with servers like Cloudflare (~597K tokens of schema, would not even&#10;fit a 200K window) the binary gate is the wrong shape. Activation is&#10;now driven purely by deferrable-tool presence; threshold_pct is&#10;repurposed as the listing budget's context-relative leg.&#10;&#10;- AssemblyResult gains tier + listing_form for observability&#10;- listing_max_tokens default 4000 -&gt; 20000 (cap 60000) so an 830-tool&#10;  catalog keeps a names-only listing while Cloudflare-scale drops to&#10;  bare bridge&#10;- E2E verified against real captures: Linear 24 tools -&gt; tier 1 full,&#10;  Epic UE 5.8 830 tools -&gt; tier 1 names-only, Cloudflare 3,320 tools&#10;  -&gt; tier 2 (both 200K and 1M context)&#10;&#10;(cherry picked from commit 0986ac393f9dd96ae2a3196543214a542af4e7f5)" />
-    <MESSAGE value="tool 工具相关" />
     <MESSAGE value="tool search 分层式渐进式披露" />
     <MESSAGE value="mcp server部分" />
     <MESSAGE value="sandbox" />
@@ -767,7 +765,9 @@
     <MESSAGE value="gateway 走读" />
     <MESSAGE value="agent loop 流程" />
     <MESSAGE value="agent loop 收尾阶段" />
-    <option name="LAST_COMMIT_MESSAGE" value="agent loop 收尾阶段" />
+    <MESSAGE value="配置" />
+    <MESSAGE value="gateway配置" />
+    <option name="LAST_COMMIT_MESSAGE" value="gateway配置" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -888,8 +888,10 @@
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes__TUI_.coverage" NAME="Hermes (TUI) Coverage Results" MODIFIED="1784550044047" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes_Desktop.coverage" NAME="Hermes Desktop Coverage Results" MODIFIED="1787333319919" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$mcp_startup.coverage" NAME="mcp_startup Coverage Results" MODIFIED="1787333135080" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/hermes_cli" />
+    <SUITE FILE_PATH="coverage/hermes_agent$gateway.coverage" NAME="gateway Coverage Results" MODIFIED="1787978259223" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes__Desktop_.coverage" NAME="Hermes (Desktop) Coverage Results" MODIFIED="1787541997671" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes__API_Server_.coverage" NAME="Hermes (API Server) Coverage Results" MODIFIED="1787332036827" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/hermes_agent$kanban.coverage" NAME="kanban Coverage Results" MODIFIED="1787978580315" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes__CLI_.coverage" NAME="Hermes (CLI) Coverage Results" MODIFIED="1785495698435" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
   <component name="github-copilot-workspace">

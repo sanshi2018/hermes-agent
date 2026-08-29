@@ -8073,15 +8073,15 @@ def run_conversation(
                 )
 
                 _ack_mode = intent_ack_continuation_mode(agent)
-                # Said-continue-but-stopped guard (agent.stall_guards): the
-                # model ended the turn with no tool calls but its short reply
-                # TAILS with an announced next action ("Let me now…",
-                # "I will now…"). Unlike the intent-ack detector below, this
-                # fires mid-task too (after tool results), which is exactly
-                # where eval traces show the stall. It reuses the SAME bounded
-                # continuation path and counter (max 2 per turn), so the
-                # alternation-safe interim-assistant + user-nudge mechanism —
-                # not a new parallel one — carries the recovery.
+                # 说过“继续”但停下了 Guard (agent.stall_guards)：
+                # 模型在没有调用任何工具的情况下结束了当前轮次，
+                # 但其简短的回复尾部预告了下一步行动（如 "Let me now…", "I will now…"）。
+                # 与下方的意图确认 (intent-ack) 检测器不同，
+                # 该检查也会在任务执行过程中触发（即在工具返回结果之后），
+                # 这正是评估轨迹中显示出现卡顿的具体位置。
+                # 它复用了相同的有界继续路径和计数器（每轮最多 2 次），
+                # 因此，后续的恢复过程是由交替安全的 interim-assistant + user-nudge 机制来承载的，
+                # 而不是一套全新的并行机制。
                 _stall_continue_intent = (
                     bool(getattr(agent, "_stall_guards", True))
                     and agent.valid_tool_names

@@ -1112,9 +1112,26 @@ def _patch_skill(
     Requires a unique match unless replace_all is True.
     """
     if not old_string:
-        return {"success": False, "error": "old_string is required for 'patch'."}
+        # A bare "required" error is a dead end: the model cannot tell whether it
+        # omitted the arg or supplied it wrongly, so it retries blindly and often
+        # escapes to action='write_file', clobbering the whole skill file. Tell it
+        # how to recover. Upstream: NousResearch/hermes-agent#33064.
+        return {
+            "success": False,
+            "error": (
+                "old_string is required for 'patch' and must be the EXACT text currently in the "
+                "file. Read the target file first (read_file on the skill's SKILL.md, or the file "
+                "named by file_path) and copy the snippet verbatim, then retry 'patch'. "
+                "Do NOT fall back to action='write_file' — that rewrites the entire file and "
+                "destroys unrelated content."
+            ),
+        }
     if new_string is None:
         return {"success": False, "error": "new_string is required for 'patch'. Use an empty string to delete matched text."}
+    # No old_string == new_string guard here: fuzzy_find_and_replace already
+    # rejects that with "old_string and new_string are identical"
+    # (tools/fuzzy_match.py), and its error carries a file_preview this layer
+    # cannot produce. Duplicating it here would only shadow the richer message.
 
     existing = _find_skill(name)
     if not existing:
@@ -1725,16 +1742,24 @@ def _skill_manage_batch(
                 parsed = {"success": False, "error": "unparseable op result"}
             if not parsed.get("success"):
                 note = _rollback()
-                return json.dumps(
-                    {"success": False,
-                     "error": (
-                         f"operations[{i}] ({op['action']} on '{names[i]}') failed: "
-                         f"{parsed.get('error', 'unknown error')} — batch aborted, {note}."
-                     ),
-                     "failed_index": i,
-                     "completed_before_failure": i},
-                    ensure_ascii=False,
-                )
+                fail = {
+                    "success": False,
+                    "error": (
+                        f"operations[{i}] ({op['action']} on '{names[i]}') failed: "
+                        f"{parsed.get('error', 'unknown error')} — batch aborted, {note}."
+                    ),
+                    "failed_index": i,
+                    "completed_before_failure": i,
+                }
+                # Carry the failing op's teaching payload through (e.g.
+                # patch's file_preview / fuzzy-match hints): without it the
+                # model recovers blind — live A/B showed sonnet probing a
+                # file with placeholder edits for 8 turns because the batch
+                # path dropped the preview the flat path always returned.
+                for k, v in parsed.items():
+                    if k not in ("success", "error") and v is not None:
+                        fail.setdefault(k, v)
+                return json.dumps(fail, ensure_ascii=False)
             results.append({"name": names[i], "action": op["action"],
                             "file_path": op.get("file_path"),
                             "success": True})
@@ -1884,15 +1909,10 @@ def skill_manage(
         if content:
             result = _edit_skill(name, content)
         else:
-            if not old_string:
-                return tool_error(
-                    "patch needs old_string/new_string for a targeted "
-                    "replacement, or content for a full SKILL.md rewrite "
-                    "(read it first with skill_view()).",
-                    success=False,
-                )
-            if new_string is None:
-                return tool_error("new_string is required for 'patch'. Use empty string to delete matched text.", success=False)
+            # Targeted-replacement validation lives in _patch_skill so the
+            # public tool and the helper return the same actionable guidance.
+            # A bare "required" error here would shadow it and leave the
+            # model with nowhere to go but action='write_file'. #33064.
             result = _patch_skill(name, old_string, new_string, file_path, replace_all)
 
     elif action == "delete":

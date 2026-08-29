@@ -1972,14 +1972,16 @@ class AIAgent:
         )
 
     def _apply_persist_user_message_override(self, messages: List[Dict]) -> None:
-        """Rewrite the current-turn user message before persistence/return.
+        """
+        在持久化或返回之前重写当前轮次的用户消息。
 
-        Some call paths need an API-only user-message variant without letting
-        that synthetic text leak into persisted transcripts or resumed session
-        history. When an override is configured for the active turn, mutate the
-        in-memory messages list in place so both persistence and returned
-        history stay clean.  A paired timestamp override preserves the platform
-        event time as message metadata, rather than embedding it in content.
+        某些调用路径需要一种仅用于 API 请求的用户消息变体，
+        同时又不能让这种合成文本泄露到持久化的对话记录或恢复的会话历史中。
+        当为当前轮次配置了覆盖项（override）时，
+        直接在内存中修改 messages 列表，
+        以确保持久化记录和返回的历史记录都保持干净。
+        配对的时间戳覆盖项会将平台事件时间作为消息元数据保存，
+        而不是将其嵌入到消息内容中。
         """
         idx = getattr(self, "_persist_user_message_idx", None)
         override = getattr(self, "_persist_user_message_override", None)
@@ -2058,16 +2060,16 @@ class AIAgent:
             _persist_and_drain()
 
     def _drop_trailing_empty_response_scaffolding(self, messages: List[Dict]) -> None:
-        """Remove private empty-response retry/failure scaffolding from transcript tails.
+        """从对话记录末尾移除私有的“空响应重试/失败”脚手架（scaffolding）消息。
 
-        Also rewinds past any trailing tool-result / assistant(tool_calls) pair
-        that the failed iteration left hanging. Without this, the tail ends at
-        a raw ``tool`` message and the next user turn lands as
-        ``...tool, user, user`` — a protocol-invalid sequence that most
-        providers silently reject (returns empty content), causing the
-        empty-retry loop to fire forever. (issue number to be backfilled once filed)
+        同时会回退并清除因失败迭代而悬空放置的尾部“工具结果/助手(工具调用)”配对消息。
+        如果不进行此处理，对话末尾将停留在一条原始的 ``tool`` 消息上，
+        导致下一个用户轮次变成 ``...tool, user, user``——
+        这是一种违反协议规范的序列，大多数供应商会静默拒绝该请求（返回空内容），
+        从而导致“空响应重试”循环无限触发。（待提交 issue 后补上对应的 issue 编号）
+
         """
-        # Pass 1: strip the flagged scaffolding messages themselves.
+        # 第一轮处理：清理已被标记的脚手架消息本身。
         dropped_scaffolding = False
         while (
             messages
@@ -2080,12 +2082,14 @@ class AIAgent:
             messages.pop()
             dropped_scaffolding = True
 
-        # Pass 2: if we stripped scaffolding, rewind through any trailing
-        # tool-result messages plus the assistant(tool_calls) message that
-        # produced them. This preserves role alternation so the next user
-        # message follows a user or assistant message, not an orphan tool
-        # result. Only runs when scaffolding was actually present — normal
-        # conversation tails (real tool loops mid-progress) are untouched.
+        # 第二轮处理：如果之前清理了脚手架消息，
+        # 则继续向前回退，清除尾部的所有工具结果（tool-result）消息，
+        # 以及产生这些结果的 assistant(tool_calls) 消息。
+        # 这样可以保持角色交替顺序，
+        # 确保下一个用户消息跟随在 user 或 assistant 消息之后，
+        # 而不是跟在一个孤立的工具结果之后。
+        # 该操作仅在确实存在脚手架消息时才会执行——
+        # 正常的对话末尾（进行中的真实工具调用循环）不会受到影响。
         if not dropped_scaffolding:
             return
 
@@ -2097,11 +2101,11 @@ class AIAgent:
         ):
             messages.pop()
 
-        # Drop the assistant message that issued the tool calls, if the tail
-        # now ends in an assistant-with-tool_calls (the pair that owned the
-        # just-popped tool results). Without this, the tail is
-        # ``assistant(tool_calls=...)`` with no tool answers, which some
-        # providers also reject.
+        # 如果末尾现在停留在带有 tool_calls 的 assistant 消息上
+        # （即刚好属于刚才已被弹出/移除的工具结果的那对消息），
+        # 则将发出该工具调用的 assistant 消息一并丢弃。
+        # 如果不这样做，末尾就会变成只有 ``assistant(tool_calls=...)``
+        # 却没有任何工具回复，这同样会被部分供应商拒绝。
         if (
             messages
             and isinstance(messages[-1], dict)
@@ -2542,12 +2546,12 @@ class AIAgent:
 
     def _save_trajectory(self, messages: List[Dict[str, Any]], user_query: str, completed: bool):
         """
-        Save conversation trajectory to JSONL file.
-        
-        Args:
-            messages (List[Dict]): Complete message history
-            user_query (str): Original user query
-            completed (bool): Whether the conversation completed successfully
+        将对话轨迹保存至 JSONL 文件。
+
+        参数：
+            messages (List[Dict]): 完整的消息历史记录
+            user_query (str): 原始用户查询
+            completed (bool): 对话是否成功完成
         """
         if not self.save_trajectories:
             return

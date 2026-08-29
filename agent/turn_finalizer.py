@@ -46,11 +46,12 @@ def _is_pure_tool_call_tail(msg: dict) -> bool:
     return not flatten_message_text(msg.get("content")).strip()
 
 
-# Verification continuation scaffolding flags: verify-on-stop / pre_verify
-# inject a synthetic user nudge to keep the agent going one more turn.
-# These nudges must be stripped from returned/live history to avoid
-# role-alternation breaks and poisoning the resumed transcript. The
-# assistant response is real content and is not flagged. (#65919 §7)
+# 验证续写脚手架标志：verify-on-stop / pre_verify
+# 会注入一条合成的用户提示（user nudge），
+# 以促使 Agent 再多运行一个轮次。
+# 必须从返回的或实时的历史记录中剥离这些提示，
+# 以避免破坏角色交替顺序，并防止污染恢复后的对话记录。
+# Assistant 的响应属于真实内容，不会被标记。（#65919 §7）
 _VERIFICATION_CONTINUATION_FLAGS = (
     "_verification_stop_synthetic",
     "_pre_verify_synthetic",
@@ -106,11 +107,12 @@ def _record_kanban_budget_exhausted(
 
 
 def _drop_verification_continuation_scaffolding(messages) -> None:
-    """Remove verification-continuation nudge messages from *messages* in place.
+    """
+    在原对象上（in-place）从 *messages* 中移除“验证续写/提示”消息。
 
-    Only the synthetic nudges carry these flags, so this strips just the
-    nudges while preserving the real attempted-final-answer that was
-    persisted to state.db.
+    只有合成的提示消息会携带这些标记，
+    因此该操作只会剥离提示消息，
+    同时保留已持久化保存到 state.db 中的真实“最终答案尝试”。
     """
     messages[:] = [
         m for m in messages

@@ -1,13 +1,11 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Hermes (Desktop Backend Debug)" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="gateway" type="PythonConfigurationType" factoryName="Python">
     <module name="hermes-agent" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
-      <env name="PYTHONUNBUFFERED" value="1" />
-      <env name="HERMES_DASHBOARD_SESSION_TOKEN" value="hermes-desktop-pycharm-debug-9119" />
-      <env name="HERMES_DESKTOP" value="1" />
+      <env name="PYTHONPATH" value="$PROJECT_DIR$" />
     </envs>
     <option name="SDK_HOME" value="" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
@@ -18,7 +16,7 @@
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="RUN_TOOL" value="true" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/hermes_cli/main.py" />
-    <option name="PARAMETERS" value="serve --host 127.0.0.1 --port 9119" />
+    <option name="PARAMETERS" value="gateway" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

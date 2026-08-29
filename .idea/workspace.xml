@@ -156,7 +156,7 @@
       <recent name="C:\Users\Administrator\PycharmProjects\example\hermes-agent\plugins\platforms\HerEmail" />
     </key>
   </component>
-  <component name="RunManager" selected="Python.Hermes (Desktop Backend Debug)">
+  <component name="RunManager" selected="Python.gateway">
     <configuration name="mcp_startup" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="hermes-agent" />
       <option name="ENV_FILES" value="" />
@@ -208,12 +208,10 @@
       <method v="2" />
     </configuration>
     <list>
-      <item itemvalue="Python.Hermes Desktop" />
-      <item itemvalue="Python.Hermes (Desktop)" />
       <item itemvalue="Python.Hermes (Desktop Backend Debug)" />
+      <item itemvalue="Python.gateway" />
       <item itemvalue="Python.mcp_startup" />
       <item itemvalue="Python.skills_tool" />
-      <item itemvalue="Shell Script.Hermes Desktop Frontend" />
     </list>
     <recent_temporary>
       <list>

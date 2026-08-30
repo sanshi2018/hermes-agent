@@ -2969,7 +2969,13 @@ def _resolve_runtime_agent_kwargs() -> dict:
         "command": runtime.get("command"),
         "args": list(runtime.get("args") or []),
         "credential_pool": runtime.get("credential_pool"),
+        "request_overrides": dict(runtime.get("request_overrides") or {}),
         "max_tokens": max_tokens,
+        # Per-provider request_overrides (e.g. a custom_providers ``extra_body``
+        # carrying ``chat_template_kwargs``) resolved by resolve_runtime_provider().
+        # Must flow through to the per-turn route or the provider's configured
+        # request body never reaches the model on the gateway path.
+        "request_overrides": runtime.get("request_overrides"),
     }
 
 
@@ -3109,7 +3115,21 @@ def _resolve_runtime_agent_kwargs_for_provider(provider: str) -> dict:
         "command": runtime.get("command"),
         "args": list(runtime.get("args") or []),
         "credential_pool": runtime.get("credential_pool"),
+        "request_overrides": dict(runtime.get("request_overrides") or {}),
     }
+
+
+def _deep_merge_request_overrides(base: Optional[dict], override: Optional[dict]) -> dict:
+    """Merge request_overrides dicts, deep-merging nested dictionaries."""
+    from hermes_cli.config import _deep_merge
+
+    base_dict = dict(base or {})
+    override_dict = dict(override or {})
+    if not base_dict:
+        return override_dict
+    if not override_dict:
+        return base_dict
+    return _deep_merge(base_dict, override_dict)
 
 
 def _credential_pool_for_provider(provider: Optional[str]):
@@ -3167,7 +3187,9 @@ def _try_resolve_fallback_provider() -> dict | None:
                     "command": runtime.get("command"),
                     "args": list(runtime.get("args") or []),
                     "credential_pool": runtime.get("credential_pool"),
+                    "request_overrides": dict(runtime.get("request_overrides") or {}),
                     "model": entry.get("model"),
+                    "request_overrides": runtime.get("request_overrides"),
                 }
             except Exception as fb_exc:
                 logger.debug("Fallback entry %s failed: %s", entry.get("provider"), fb_exc)
@@ -5982,7 +6004,23 @@ class TurnRunner:
         agent.event_callback = ctx._event_callback_sync
         agent.reasoning_config = reasoning_config
         agent.service_tier = self._runner._service_tier
-        agent.request_overrides = turn_route.get("request_overrides") or {}
+        # Merge, never overwrite: init-time request overrides (e.g. a custom
+        # provider's extra_body merged at agent construction) must survive
+        # every reused-agent turn.  Drop only the PREVIOUS turn's routing
+        # overrides (fast-mode service_tier/speed) before layering this
+        # turn's route overrides on top, so stale per-turn values never
+        # linger while construction-time values persist.
+        request_overrides = dict(getattr(agent, "request_overrides", {}) or {})
+        previous_turn_overrides = dict(
+            getattr(agent, "_gateway_turn_request_overrides", {}) or {}
+        )
+        for key, value in previous_turn_overrides.items():
+            if request_overrides.get(key) == value:
+                request_overrides.pop(key, None)
+        turn_request_overrides = dict(turn_route.get("request_overrides") or {})
+        request_overrides.update(turn_request_overrides)
+        agent.request_overrides = request_overrides
+        agent._gateway_turn_request_overrides = turn_request_overrides
         # Must-deliver notes for THIS turn ride the current user message
         # (api_content sidecar), never the system prompt: staged by
         # _handle_message_with_agent (auto-reset note, first-contact
@@ -8310,6 +8348,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 "api_mode": override.get("api_mode"),
                 "max_tokens": override.get("max_tokens"),
                 "credential_pool": override.get("credential_pool"),
+                "request_overrides": override.get("request_overrides"),
             }
             if override_runtime.get("api_key"):
                 if override_runtime.get("credential_pool") is None:
@@ -8445,6 +8484,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         enabled and the model supports Priority Processing / Anthropic fast
         mode, attach `request_overrides` so the API call is marked
         accordingly.
+
+        Per-provider ``request_overrides`` resolved by
+        ``resolve_runtime_provider`` (e.g. a ``custom_providers`` ``extra_body``
+        carrying ``chat_template_kwargs``) are preserved here and merged *under*
+        the fast-mode overrides, so a provider's configured request body still
+        reaches the model on the gateway turn path.
         """
         from hermes_cli.models import resolve_fast_mode_overrides
 
@@ -8459,6 +8504,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             "credential_pool": runtime_kwargs.get("credential_pool"),
             "max_tokens": runtime_kwargs.get("max_tokens"),
         }
+        base_request_overrides = dict(runtime_kwargs.get("request_overrides") or {})
         route = {
             "model": model,
             "runtime": runtime,
@@ -8473,16 +8519,26 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             ),
         }
 
+        # Provider-level request_overrides (e.g. a custom_providers extra_body)
+        # resolved upstream by resolve_runtime_provider().  These were being
+        # dropped by the runtime whitelist above, so a custom provider's
+        # configured extra_body (chat_template_kwargs, etc.) never reached the
+        # model on the gateway path -- only /fast service-tier overrides did.
         service_tier = getattr(self, "_service_tier", None)
         if not service_tier:
-            route["request_overrides"] = {}
+            route["request_overrides"] = base_request_overrides
             return route
 
         try:
             overrides = resolve_fast_mode_overrides(route["model"])
         except Exception:
             overrides = None
-        route["request_overrides"] = overrides or {}
+        # Fast-mode overrides (service_tier / speed) are top-level keys and do
+        # not collide with extra_body; deep-merge them over the provider overrides.
+        route["request_overrides"] = _deep_merge_request_overrides(
+            base_request_overrides,
+            overrides or {},
+        )
         return route
 
     def _sync_session_model_from_agent(self, session_id: str, agent: Any) -> None:
@@ -17153,6 +17209,32 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         "moa": "Agent is running — wait or /stop first, then run /moa.",
     }
 
+    def _gateway_plain_command_handlers(self):
+        """Return ordinary slash handlers shared by idle and busy dispatch."""
+        return {
+            "status": self._handle_status_command,
+            "context": self._handle_context_command,
+            "restart": self._handle_restart_command,
+            "approve": self._handle_approve_command,
+            "deny": self._handle_deny_command,
+            "pause": self._handle_pause_command,
+            "agents": self._handle_agents_command,
+            "bg": self._handle_background_command,
+            "btw": self._handle_btw_command,
+            "kanban": self._handle_kanban_command,
+            "subgoal": self._handle_subgoal_command,
+            "heartbeat": self._handle_heartbeat_command,
+            "busy": self._handle_busy_command,
+            "yolo": self._handle_yolo_command,
+            "verbose": self._handle_verbose_command,
+            "footer": self._handle_footer_command,
+            "help": self._handle_help_command,
+            "commands": self._handle_commands_command,
+            "profile": self._handle_profile_command,
+            "update": self._handle_update_command,
+            "version": self._handle_version_command,
+        }
+
     async def _dispatch_busy_slash_command(
         self, event: MessageEvent, cmd_def, quick_key: str, source,
     ):
@@ -17193,27 +17275,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 return reject_text
 
         if policy in ("dispatch", "interrupt_then_dispatch"):
-            plain = {
-                "status": self._handle_status_command,
-                "context": self._handle_context_command,
-                "restart": self._handle_restart_command,
-                "approve": self._handle_approve_command,
-                "deny": self._handle_deny_command,
-                "pause": self._handle_pause_command,
-                "agents": self._handle_agents_command,
-                "background": self._handle_background_command,
-                "kanban": self._handle_kanban_command,
-                "subgoal": self._handle_subgoal_command,
-                "heartbeat": self._handle_heartbeat_command,
-                "yolo": self._handle_yolo_command,
-                "verbose": self._handle_verbose_command,
-                "footer": self._handle_footer_command,
-                "help": self._handle_help_command,
-                "commands": self._handle_commands_command,
-                "profile": self._handle_profile_command,
-                "update": self._handle_update_command,
-                "version": self._handle_version_command,
-            }.get(name)
+            plain = self._gateway_plain_command_handlers().get(name)
             if plain is not None:
                 return await plain(event)
             logger.warning(
@@ -18317,8 +18379,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     canonical = _cmd_def.name if _cmd_def else command
                     break
 
-        if canonical == "pause":
-            return await self._handle_pause_command(event)
+        plain_handler = self._gateway_plain_command_handlers().get(canonical)
+        if plain_handler is not None:
+            return await plain_handler(event)
 
         if canonical == "new":
             if await asyncio.to_thread(self._is_telegram_topic_root_lobby, source):
@@ -18339,42 +18402,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         if canonical == "topic":
             return await self._handle_topic_command(event)
         
-        if canonical == "help":
-            return await self._handle_help_command(event)
-
         if canonical == "start":
             logger.info("Ignoring /start platform ping for session %s", _quick_key)
             return ""
 
-        if canonical == "commands":
-            return await self._handle_commands_command(event)
-        
-        if canonical == "profile":
-            return await self._handle_profile_command(event)
-
         if canonical == "whoami":
             return await self._handle_whoami_command(event)
-
-        if canonical == "status":
-            return await self._handle_status_command(event)
 
         if canonical == "egress":
             from hermes_cli.proxy_cli import format_status_text
 
             return format_status_text()
 
-        if canonical == "context":
-            return await self._handle_context_command(event)
-
-        if canonical == "agents":
-            return await self._handle_agents_command(event)
-
         if canonical == "platform":
             return await self._handle_platform_command(event)
 
-        if canonical == "restart":
-            return await self._handle_restart_command(event)
-        
         if canonical == "stop":
             return await self._handle_stop_command(event)
         
@@ -18415,6 +18457,34 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             except Exception:
                 return "Could not start /learn — please try again."
 
+        if canonical == "plan":
+            # /plan: rewrite the turn to the plan-mode prompt and fall
+            # through to normal agent processing (same fall-through as /learn
+            # so role alternation is preserved). The live agent inspects the
+            # workspace with read-only tools and saves the markdown plan
+            # under .hermes/plans/ via write_file. No engine, works on any
+            # backend.
+            from agent.plan_prompt import build_plan_prompt
+
+            _plan_task = event.get_command_args().strip()
+            _ack = (
+                f"Planning: {_plan_task[:80]}{'…' if len(_plan_task) > 80 else ''}"
+                if _plan_task
+                else "Planning from this conversation's context…"
+            )
+            try:
+                adapter = self._adapter_for_source(source)
+                if adapter:
+                    _ack_meta = self._thread_metadata_for_source(source)
+                    await adapter.send(str(source.chat_id), _ack, metadata=_ack_meta)
+            except Exception:
+                logger.debug("plan ack send failed", exc_info=True)
+            try:
+                event.text = build_plan_prompt(_plan_task)
+                # fall through to agent processing
+            except Exception:
+                return "Could not start /plan — please try again."
+
         if canonical == "init":
             # /init: rewrite the turn to a guidance-laden prompt and fall
             # through to normal agent processing (same fall-through as /learn
@@ -18446,15 +18516,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         if canonical == "fast":
             return await self._handle_fast_command(event)
 
-        if canonical == "verbose":
-            return await self._handle_verbose_command(event)
-
-        if canonical == "footer":
-            return await self._handle_footer_command(event)
-
-        if canonical == "yolo":
-            return await self._handle_yolo_command(event)
-
         if canonical == "approvals":
             return await self._handle_approvals_command(event)
 
@@ -18466,9 +18527,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
 
         if canonical == "personality":
             return await self._handle_personality_command(event)
-
-        if canonical == "kanban":
-            return await self._handle_kanban_command(event)
 
         if canonical == "suggestions":
             return await self._handle_suggestions_command(event)
@@ -18554,18 +18612,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         if canonical == "bundles":
             return await self._handle_bundles_command(event)
 
-        if canonical == "approve":
-            return await self._handle_approve_command(event)
-
-        if canonical == "deny":
-            return await self._handle_deny_command(event)
-
-        if canonical == "update":
-            return await self._handle_update_command(event)
-
-        if canonical == "version":
-            return await self._handle_version_command(event)
-
         if canonical == "debug":
             return await self._handle_debug_command(event)
 
@@ -18586,9 +18632,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
 
         if canonical == "diff":
             return await self._handle_diff_command(event)
-
-        if canonical == "background":
-            return await self._handle_background_command(event)
 
         if canonical == "queue":
             queue_payload = event.get_command_args().strip()
@@ -18620,8 +18663,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         if canonical == "loop":
             return await self._handle_loop_command(event)
 
-        if canonical == "heartbeat":
-            return await self._handle_heartbeat_command(event)
         if canonical == "refine":
             return await self._handle_refine_command(event)
         if canonical == "review":
@@ -18662,9 +18703,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 event._moa_disable_after_turn = True
             except Exception:
                 return "Failed to prepare MoA turn."
-
-        if canonical == "subgoal":
-            return await self._handle_subgoal_command(event)
 
         if canonical == "voice":
             return await self._handle_voice_command(event)
@@ -27455,6 +27493,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 override["api_key"] = runtime.get("api_key")
                 override["api_mode"] = runtime.get("api_mode")
                 override["credential_pool"] = runtime.get("credential_pool")
+                override["request_overrides"] = dict(
+                    runtime.get("request_overrides") or {}
+                )
                 if not override.get("base_url"):
                     override["base_url"] = runtime.get("base_url")
             except Exception:
@@ -27489,6 +27530,16 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             val = override.get(key)
             if val is not None:
                 runtime_kwargs[key] = val
+        # request_overrides reflects the switched-to provider; apply whenever
+        # the override recorded it (even as None) so switching to a provider
+        # without configured overrides clears a stale value left by the
+        # default provider's runtime resolution.
+        if "request_overrides" in override:
+            override_request_overrides = override.get("request_overrides")
+            if isinstance(override_request_overrides, dict) and override_request_overrides:
+                runtime_kwargs["request_overrides"] = dict(override_request_overrides)
+            else:
+                runtime_kwargs["request_overrides"] = override_request_overrides
         if (
             runtime_kwargs.get("api_key")
             and runtime_kwargs.get("credential_pool") is None

@@ -6275,7 +6275,7 @@ class BasePlatformAdapter(ABC):
                     return
 
                 # Other bypass commands (/approve, /deny, /status,
-                # /background, /restart) just need direct dispatch — they
+                # /bg, /restart) just need direct dispatch — they
                 # don't cancel the running task.
                 logger.debug(
                     "[%s] Command '/%s' bypassing active-session guard for %s",

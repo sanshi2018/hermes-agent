@@ -1,37 +1,37 @@
-"""Kanban decomposer — fan a triage task out into a graph of child tasks.
+"""看板分解器——将分诊任务（triage task）展开为子任务图。
 
-Invoked by ``hermes kanban decompose [task_id | --all]`` and the
-auto-decompose path in the gateway dispatcher loop. Reads the user's
-profile roster (with descriptions) and asks the auxiliary LLM to
-return a task graph in JSON. Then atomically creates the children,
-links them under the root, and flips the root ``triage -> todo``.
+由 ``hermes kanban decompose [task_id | --all]`` 以及网关调度器循环中的
+自动分解路径调用。读取用户的配置文件列表（包含描述信息），
+并请求辅助 LLM 返回 JSON 格式的任务图。
+随后原子化地创建子任务，将其链接到根任务下方，
+并将根任务的状态翻转为 ``triage -> todo``。
 
-The root task stays alive and becomes the parent of every leaf child,
-so when the whole graph completes the root wakes back up — its
-assignee (the orchestrator profile) gets a chance to judge completion
-and add more tasks if the work isn't done yet.
+根任务保持活动状态，并成为所有叶子子任务的父任务，
+因此当整个任务图完成时，根任务会被重新唤醒——
+其被指派者（协调器配置文件）有机会对完成情况做出评估，
+并在工作尚未完成时添加更多任务。
 
-Design notes
+设计说明
 ------------
 
-* Mirrors the shape of ``hermes_cli/kanban_specify.py``: lazy aux
-  client import inside the function, lenient response parse, never
-  raises on expected failure modes.
+* 结构与 ``hermes_cli/kanban_specify.py`` 保持一致：
+  在函数内部按需延迟导入辅助客户端（lazy aux client import），
+  使用宽松的响应解析，且绝不会在预期的失败模式下抛出异常。
 
-* The system prompt sees the *configured* profile roster — names plus
-  descriptions plus the default fallback. Profiles without a
-  description are still listed (with a note) so the decomposer can
-  match on name as a fallback, but the user has an obvious incentive
-  to describe them.
+* 系统提示词可以感知已配置的配置文件列表——
+  包含名称、描述以及默认兜底选项。
+  没有描述的配置文件仍会被列出（带有注释），
+  以便分解器可以匹配名称作为兜底手段，
+  但用户有动力去为其补充描述。
 
-* ``fanout=false`` collapses to the same effect as ``kanban specify``:
-  we tighten the body and flip ``triage -> todo`` as a single task,
-  no children created. This makes ``decompose`` a strict superset of
-  ``specify`` from the user's perspective.
+* 当 ``fanout=false`` 时，效果收缩为与 ``kanban specify`` 相同：
+  我们完善正文内容，并将单个任务的状态从 ``triage -> todo`` 进行翻转，
+  不创建任何子任务。这使得从用户的角度来看，
+  ``decompose`` 成为 ``specify`` 的严格超集。
 
-* If the LLM picks an assignee that doesn't exist as a profile, we
-  rewrite it to the configured ``default_assignee`` (or the default
-  profile if unset). A child task NEVER ends up with ``assignee=None``.
+* 如果 LLM 选择了一个作为配置文件并不存在的被指派者，
+  我们会将其改写为配置的 ``default_assignee``（若未设置则使用默认配置文件）。
+  子任务绝不会出现 ``assignee=None`` 的情况。
 """
 
 from __future__ import annotations
@@ -49,75 +49,74 @@ from hermes_cli import profiles as profiles_mod
 logger = logging.getLogger(__name__)
 
 
-_SYSTEM_PROMPT = """You are the Kanban decomposer for the Hermes Agent board.
+_SYSTEM_PROMPT = """你是 Hermes Agent 看板的“看板分解器”（Kanban decomposer）。
 
-A user dropped a rough idea into the Triage column. Your job is to break it
-into a small graph of concrete child tasks and route each one to the best-
-matching profile from the available roster.
+用户在“分诊”（Triage）列中提交了一个粗略的想法。
+你的职责是将其拆解为一个由具体子任务构成的轻量任务图，
+并将每个子任务分发给可用列表中最匹配的配置文件（Profile）。
 
-You will be given:
-  - The original task title and body
-  - The list of available profiles (each with name + description)
-  - The fallback "default_assignee" used when no profile fits
+你将接收到以下信息：
+  - 原始任务的标题与正文
+  - 可用配置文件列表（每个包含名称和描述）
+  - 当没有配置文件匹配时所使用的兜底“默认被指派者”（default_assignee）
 
-Output a single JSON object with this exact shape:
+请输出符合以下严格格式的单个 JSON 对象：
 
   {
     "fanout": true,
-    "rationale": "<one sentence on why this decomposition>",
+    "rationale": "<用一句话说明为什么这样拆解>",
     "tasks": [
       {
-        "title": "<concrete task title, imperative voice, <= 80 chars>",
-        "body":  "<detailed spec for the worker on this child task>",
-        "assignee": "<profile name from the roster, or null for default>",
-        "parents": [<int>, ...]
+        "title": "<具体的任务标题，使用祈使句，不超过 80 个字符>",
+        "body":  "<针对该子任务执行者的详细规范说明>",
+        "assignee": "<来自列表的配置文件名称，若无匹配则填 null 以使用默认值>",
+        "parents": [<整数>, ...]
       },
       ...
     ]
   }
 
-Rules:
-  - "parents" is a list of INDICES (0-based) into this same "tasks" list,
-    expressing actual data dependencies. Tasks with no parents run in
-    PARALLEL. Tasks with parents wait until every parent completes.
-  - Prefer parallelism. If two tasks can be done independently, give
-    them no parents so the dispatcher fans them out at once.
-  - Use 2-6 tasks for normal work. Don't create 20 tiny tasks. Don't
-    cram everything into 1 task.
-  - Pick assignees from the roster by matching the task to the profile's
-    DESCRIPTION (not just the name). When nothing matches well, use null
-    and the system will route to the default_assignee.
-  - Each child task body is what a fresh worker will read with no other
-    context — be specific about goal, approach, and acceptance criteria.
+规则：
+  - "parents" 是当前 "tasks" 列表中任务索引（从 0 开始）的数组，
+    用于表达真实的数据依赖关系。没有父任务的任务将并行执行。
+    带有父任务的任务将等待所有父任务完成后再执行。
+  - 优先考虑并行性。如果两个任务可以独立完成，
+    请不要为其设置父任务，以便调度器能够同时分发它们。
+  - 对于常规工作，建议创建 2-6 个任务。切勿创建 20 个极小任务，
+    也不要把所有内容强行塞进 1 个任务中。
+  - 通过将任务与配置文件的“描述”（而不仅仅是名称）进行匹配，
+    从列表中挑选被指派者。当没有良好匹配时，使用 null，
+    系统将其路由至 default_assignee。
+  - 每个子任务的正文都是新执行者在没有其他上下文的情况下阅读的内容——
+    请务必对目标、实现方法和验收标准做出具体说明。
 
-When the task is genuinely a single unit of work (no useful decomposition),
-return:
+当该任务确实是一个不可分割的工作单元（无法进行有意义的拆解）时，
+请返回：
 
   {
     "fanout": false,
-    "rationale": "<one sentence>",
-    "title": "<tightened title>",
-    "body":  "<concrete spec for a single worker>",
-    "assignee": "<profile name from the roster, or null for default>"
+    "rationale": "<一句话说明>",
+    "title": "<完善精简后的标题>",
+    "body":  "<针对单个执行者的具体规范说明>",
+    "assignee": "<来自列表的配置文件名称，若无匹配则填 null 以使用默认值>"
   }
 
-In that case the task stays as one work item, just with a tightened spec and
-a concrete assignee. If no profile fits, use null and the system will route to
-the default_assignee.
+在此情况下，任务仍将保持为单个工作项，仅补充精简后的规范说明
+和具体的被指派者。若没有合适的配置文件，填 null，系统将路由至 default_assignee。
 
-No preamble, no closing remarks, no code fences. Output only the JSON object.
+请勿输出前言、结语或代码块标记（code fences）。仅输出 JSON 对象。
 """
 
 
-_USER_TEMPLATE = """Task id: {task_id}
-Title: {title}
-Body:
+_USER_TEMPLATE = """任务 ID：{task_id}
+标题：{title}
+正文：
 {body}
 
-Available profiles (assignees you may pick from):
+可用配置文件（可供挑选的被指派者）：
 {roster}
 
-Default assignee (used when no profile fits a task): {default_assignee}
+默认被指派者（当没有配置文件匹配任务时使用）：{default_assignee}
 """
 
 

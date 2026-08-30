@@ -1,30 +1,31 @@
-"""Kanban tools — structured tool-call surface for worker + orchestrator agents.
+"""看板工具 —— 面向 Worker 与 Orchestrator Agent 的结构化工具调用接口。
 
-These tools are registered into the model's schema when the agent is
-running under the dispatcher (env var ``HERMES_KANBAN_TASK`` set) or when
-the active profile explicitly enables the ``kanban`` toolset for
-orchestrator work. A normal ``hermes chat`` session still sees **zero**
-kanban tools in its schema unless configured.
+当 Agent 在分发器下运行（设置了环境变量 ``HERMES_KANBAN_TASK``）
+或当前活动 Profile 为编排（Orchestrator）工作显式启用了 ``kanban`` 工具集时，
+这些工具会被注册到模型的 Schema 中。
+正常的 ``hermes chat`` 会话在未进行专门配置前，
+其 Schema 中依然包含 **0 个** 看板工具。
 
-Why tools instead of just shelling out to ``hermes kanban``?
+为什么使用工具而不是直接调用 ``hermes kanban`` 命令行？
 
-1. **Backend portability.** A worker whose terminal tool points at Docker
-   / Modal / Singularity / SSH would run ``hermes kanban complete …``
-   inside the container, where ``hermes`` isn't installed and the DB
-   isn't mounted. Tools run in the agent's Python process, so they
-   always reach ``~/.hermes/kanban.db`` regardless of terminal backend.
+1. **后端可移植性。** 如果 Worker 的终端工具指向 Docker / Modal /
+   Singularity / SSH，在容器内部运行 ``hermes kanban complete …``
+   时会因未安装 ``hermes`` 且未挂载数据库而失败。
+   而工具运行在 Agent 的 Python 进程中，因此无论终端后端是什么，
+   它们都能始终访问 ``~/.hermes/kanban.db``。
 
-2. **No shell-quoting footguns.** Passing ``--metadata '{"x": [...]}'``
-   through shlex+argparse is fragile. Structured tool args skip it.
+2. **避免 Shell 引用陷阱。** 通过 shlex+argparse 传递
+   ``--metadata '{"x": [...]}'`` 非常脆弱。
+   结构化的工具参数可以绕过这一问题。
 
-3. **Better errors.** Tool-call failures return structured JSON the
-   model can reason about, not stderr strings it has to parse.
+3. **更友好的错误反馈。** 工具调用失败会返回模型可理解的结构化 JSON，
+   而非需要模型去解析的 stderr 字符串。
 
-Humans continue to use the CLI (``hermes kanban …``), the dashboard
-(``hermes dashboard``), and the slash command (``/kanban …``) — all
-three bypass the agent entirely. The tools are for dispatcher-spawned
-worker handoffs and for configured orchestrator profiles that route work
-through the board.
+人类用户将继续使用 CLI（``hermes kanban …``）、
+仪表盘（``hermes dashboard``）以及斜杠命令（``/kanban …``）
+—— 这三者完全绕过了 Agent。
+而这些工具则专用于由分发器派生的 Worker 进行交接，
+以及用于配置了通过看板路由工作的编排 Profile。
 """
 from __future__ import annotations
 
@@ -1692,9 +1693,15 @@ def _board_schema_prop() -> dict[str, str]:
     only has to land in one place.
     """
     return {"type": "string", "description": _DESC_BOARD}
-
 KANBAN_SHOW_SCHEMA = {
     "name": "kanban_show",
+    # "description": (
+    #     "读取任务的完整状态 —— 标题、正文、被分配者、父任务交接信息、"
+    #     "你在此任务上的历史尝试（若有）、注释讨论串以及近期事件。"
+    #     "在开始工作之前（尤其是重试时），可使用此工具对自己进行（重新）定位。"
+    #     "返回结果中包含一个预先格式化好的 ``worker_context`` 字符串，"
+    #     "适合原封不动地引入你的推理过程（reasoning）中。"
+    # ),
     "description": (
         "Read a task's full state — title, body, assignee, parent task "
         "handoffs, your prior attempts on this task if any, comments, "
@@ -1950,6 +1957,13 @@ KANBAN_REQUEST_REVIEW_SCHEMA = {
 
 KANBAN_REQUEST_CHANGES_SCHEMA = {
     "name": "kanban_request_changes",
+    # "description": (
+    #     "评审员裁决：将当前的评审运行退回给原实现者，并附上具体所需的修改要求。"
+    #     "此操作会关闭当前的评审运行，重新应用父任务依赖门禁，"
+    #     "并在不计入阻塞循环计数的情况下将任务重新入队。"
+    #     "仅限在从 review（评审）列认领的任务中使用；"
+    #     "对于真正的外部阻塞，请使用 kanban_block。"
+    # ),
     "description": (
         "Reviewer verdict: return the current review run to the original "
         "implementer with concrete required changes. This closes the review "
@@ -2132,175 +2146,159 @@ KANBAN_ATTACHMENTS_SCHEMA = {
 KANBAN_CREATE_SCHEMA = {
     "name": "kanban_create",
     "description": (
-        "Create a new kanban task, optionally as a child of the current "
-        "one (pass the current task id in ``parents``). Used by "
-        "orchestrator workers to fan out — decompose work into child "
-        "tasks with specific assignees, link them into a pipeline, "
-        "then complete your own task. The dispatcher picks up the new "
-        "tasks on its next tick and spawns the assigned profiles."
+        "创建一个新的看板任务，可选择将其作为当前任务的子任务"
+        "（在 ``parents`` 中传入当前任务的 ID）。"
+        "供编排 Worker 用于任务扇出（fan out）—— 将工作分解为具有特定分配者的子任务，"
+        "将其链接入流水线，然后完成你自己的任务。"
+        "分发器会在下一个 Tick（周期）中拾取新任务并派生指定的 Profile。"
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "title": {
                 "type": "string",
-                "description": "Short task title (required).",
+                "description": "简短的任务标题（必填）。",
             },
             "assignee": {
                 "type": "string",
                 "description": (
-                    "Profile name that should execute this task "
-                    "(e.g. 'researcher-a', 'reviewer', 'writer'). "
-                    "Required — tasks without an assignee are never "
-                    "dispatched."
+                    "应该执行此任务的 Profile 名称"
+                    "（例如 'researcher-a'、'reviewer'、'writer'）。"
+                    "必填 —— 未指定分配者的任务绝不会被分发。"
                 ),
             },
             "body": {
                 "type": "string",
                 "description": (
-                    "Opening post: full spec, acceptance criteria, "
-                    "links. The assigned worker reads this as part of "
-                    "its context."
+                    "开篇帖子：完整的规范说明、验收标准、链接。"
+                    "被分配的 Worker 会将其作为其上下文的一部分进行读取。"
                 ),
             },
             "parents": {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "Parent task ids. The new task stays in 'todo' "
-                    "until every parent reaches 'done'; then it "
-                    "auto-promotes to 'ready'. Typical fan-in: list "
-                    "all the researcher task ids when creating a "
-                    "synthesizer task."
+                    "父任务 ID 列表。新任务将保持在 'todo' 状态，"
+                    "直到每个父任务都达到 'done' 状态；随后它会自动提升为 'ready'。"
+                    "典型扇入（fan-in）场景：创建综合汇总（synthesizer）任务时，"
+                    "列出所有研究员（researcher）任务的 ID。"
                 ),
             },
             "tenant": {
                 "type": "string",
                 "description": (
-                    "Optional namespace for multi-project isolation. "
-                    "Defaults to HERMES_TENANT env if set."
+                    "用于多项目隔离的可选命名空间。"
+                    "如果设置了 HERMES_TENANT 环境变量，则默认为该环境变量的值。"
                 ),
             },
             "priority": {
                 "type": "integer",
                 "description": (
-                    "Dispatcher tiebreaker. Higher = picked sooner "
-                    "when multiple ready tasks share an assignee."
+                    "分发器打平项（优先级）。当多个处于 ready 状态的任务"
+                    "共享同一个分配者时，数值越高越先被拾取。"
                 ),
             },
             "workspace_kind": {
                 "type": "string",
                 "enum": ["scratch", "dir", "worktree"],
                 "description": (
-                    "Workspace flavor: 'scratch' (fresh tmp dir, "
-                    "default), 'dir' (shared directory, requires "
-                    "absolute workspace_path), 'worktree' (git worktree)."
+                    "工作区类型：'scratch'（全新的临时目录，默认值）、"
+                    "'dir'（共享目录，需要提供绝对路径 workspace_path）、"
+                    "'worktree'（Git worktree）。"
                 ),
             },
             "workspace_path": {
                 "type": "string",
                 "description": (
-                    "Absolute path for 'dir' or 'worktree' workspace. "
-                    "Relative paths are rejected at dispatch."
+                    "'dir' 或 'worktree' 类型工作区的绝对路径。"
+                    "相对路径将在分发时被拒绝。"
                 ),
             },
             "project": {
                 "type": "string",
                 "description": (
-                    "Optional project id or slug to link the task to. When "
-                    "set, the task becomes a git worktree under the project's "
-                    "primary repo with a deterministic branch (project slug + "
-                    "task id), instead of a random branch."
+                    "用于关联该任务的可选项目 ID 或 Slug。"
+                    "设置后，任务将在项目的为主仓库下生成一个带有确定性分支名称"
+                    "（项目 Slug + 任务 ID）的 Git worktree，而不是随机分支。"
                 ),
             },
             "triage": {
                 "type": "boolean",
                 "description": (
-                    "If true, task lands in 'triage' instead of 'todo' "
-                    "— a specifier profile is expected to flesh out "
-                    "the body before work starts."
+                    "如果为 true，任务将进入 'triage'（分拣）状态而非 'todo'"
+                    "—— 期望在工作开始前由 Specifier Profile 来充实正文内容。"
                 ),
             },
             "idempotency_key": {
                 "type": "string",
                 "description": (
-                    "If a non-archived task with this key already "
-                    "exists, return that task's id instead of creating "
-                    "a duplicate. Useful for retry-safe automation."
+                    "如果已存在带有此 Key 的未归档任务，"
+                    "则返回该任务的 ID 而不是创建重复任务。"
+                    "适用于支持重试安全的自动化流程。"
                 ),
             },
             "max_runtime_seconds": {
                 "type": "integer",
                 "description": (
-                    "Per-task runtime cap. When exceeded, the "
-                    "dispatcher SIGTERMs the worker and re-queues the "
-                    "task with outcome='timed_out'."
+                    "单个任务的运行时间上限。当超过此时间时，"
+                    "分发器会对 Worker 发送 SIGTERM 信号，"
+                    "并将任务以 outcome='timed_out' 重新入队。"
                 ),
             },
             "initial_status": {
                 "type": "string",
                 "enum": ["running", "blocked"],
                 "description": (
-                    "Initial card status. Use 'blocked' for tasks that "
-                    "require immediate human ops (R3 gate) to skip the "
-                    "brief running-to-blocked transition. Defaults to "
-                    "'running', which preserves the usual dispatch path."
+                    "卡片的初始状态。对于需要立即进行人工运维干预（R3 门禁）的任务，"
+                    "使用 'blocked' 可以跳过简短的 running-to-blocked 转换过程。"
+                    "默认为 'running'，保持常规的分发路径。"
                 ),
             },
             "skills": {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "Skill names to force-load into the dispatched "
-                    "worker. The kanban lifecycle is already injected "
-                    "automatically; use this to pin a task to a specialist "
-                    "context — e.g. ['translation'] for a translation "
-                    "task, ['github-code-review'] for a reviewer task. "
-                    "The names must match skills installed on the "
-                    "assignee's profile."
+                    "要强制加载到被分发 Worker 中的 Skill 名称列表。"
+                    "看板生命周期已自动注入；使用此参数可将任务绑定到特定的专家上下文"
+                    "—— 例如翻译任务使用 ['translation']，"
+                    "评审任务使用 ['github-code-review']。"
+                    "这些名称必须与被分配者 Profile 上已安装的 Skill 相匹配。"
                 ),
             },
             "goal_mode": {
                 "type": "boolean",
                 "description": (
-                    "Run the dispatched worker in a goal loop. When true, "
-                    "after each turn an auxiliary judge checks the worker's "
-                    "response against this card's title/body; if the work "
-                    "isn't done and budget remains, the worker keeps going "
-                    "in the same session until the judge agrees it's "
-                    "complete (or the goal-turn budget is exhausted, which "
-                    "blocks the task for human review). Use this for "
-                    "open-ended cards where one shot rarely finishes the "
-                    "work. Defaults to false (classic single-shot worker)."
+                    "在 Goal Loop 模式下运行被分发的 Worker。"
+                    "当为 true 时，每次 Turn（轮次）结束后，辅助裁判会根据此卡片的标题/正文"
+                    "检查 Worker 的回复；如果工作尚未完成且仍有预算，"
+                    "Worker 将在同一个会话中继续执行，直到裁判同意其已完成"
+                    "（或 Goal Turn 预算耗尽，从而阻塞任务等待人工评审）。"
                 ),
             },
             "goal_max_turns": {
                 "type": "integer",
                 "description": (
-                    "Turn budget for goal_mode workers. Caps how many "
-                    "continuation turns the worker may take before the task "
-                    "is blocked for review. Ignored unless goal_mode is "
-                    "true. Defaults to the goal-engine default (20)."
+                    "Goal 模式 Worker 的 Turn 预算上限。"
+                    "限制了在任务被阻塞等待评审之前，Worker 最多可以进行的后续 Turn 次数。"
+                    "除非 goal_mode 为 true，否则将被忽略。"
+                    "默认为 Goal Engine 的默认值 (20)。"
                 ),
             },
             "model": {
                 "type": "string",
                 "description": (
-                    "Pin the dispatched worker to this model instead of "
-                    "the assignee profile's configured model. Use the "
-                    "exact model name the target provider expects. Omit "
-                    "to use the profile default."
+                    "将被分发的 Worker 锁定到此模型，"
+                    "而非使用被分配者 Profile 所配置的模型。"
+                    "请使用目标提供商所预期的确切模型名称。省略则使用 Profile 默认值。"
                 ),
             },
             "provider": {
                 "type": "string",
                 "description": (
-                    "Provider the 'model' belongs to (e.g. 'openrouter', "
-                    "'anthropic', 'nous'). Set this whenever the model "
-                    "is not from the assignee profile's configured "
-                    "provider — a model name alone is resolved against "
-                    "the profile's provider and will fail if it belongs "
-                    "to a different one. Requires 'model'."
+                    "'model' 所属的提供商（例如 'openrouter'、'anthropic'、'nous'）。"
+                    "只要模型不属于被分配者 Profile 配置的提供商，就必须设置此项"
+                    "—— 因为单独的模型名称会根据 Profile 的提供商进行解析，"
+                    "如果它属于不同的提供商则会导致失败。需要同时指定 'model'。"
                 ),
             },
             "board": _board_schema_prop(),
@@ -2332,6 +2330,12 @@ KANBAN_UNBLOCK_SCHEMA = {
 
 KANBAN_LINK_SCHEMA = {
     "name": "kanban_link",
+    # "description": (
+    #     "在两个任务均已存在的情况下，添加一条 父→子 依赖边。"
+    #     "在所有父任务均处于 'done' 状态之前，"
+    #     "子任务不会提升为 'ready' 状态。"
+    #     "禁止循环依赖与自链接（将被拒绝）。"
+    # ),
     "description": (
         "Add a parent→child dependency edge after both tasks already "
         "exist. The child won't promote to 'ready' until all parents "

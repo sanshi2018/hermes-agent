@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="gateway" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="dashboard" type="PythonConfigurationType" factoryName="Python">
     <module name="hermes-agent" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
@@ -17,7 +17,7 @@
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="RUN_TOOL" value="true" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/hermes_cli/main.py" />
-    <option name="PARAMETERS" value="gateway" />
+    <option name="PARAMETERS" value="dashboard" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

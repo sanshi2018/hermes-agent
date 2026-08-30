@@ -1,7 +1,7 @@
-"""System prompt assembly -- identity, platform hints, skills index, context files.
+"""系统提示词构建模块——涵盖身份设定、平台指引、技能索引以及上下文文件。
 
-All functions are stateless. AIAgent._build_system_prompt() calls these to
-assemble pieces, then combines them with memory and ephemeral prompts.
+所有函数均为无状态函数。`AIAgent._build_system_prompt()` 通过调用这些函数来
+组装各个模块，随后将其与记忆内容以及临时提示词进行整合。
 """
 
 import json
@@ -46,13 +46,13 @@ from utils import atomic_json_write
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Context file scanning — detect prompt injection / promptware in AGENTS.md,
-# .cursorrules, SOUL.md before they get injected into the system prompt.
+# 上下文文件扫描——在 AGENTS.md、.cursorrules 和 SOUL.md 等文件
+# 被注入系统提示词（system prompt）之前，检测其中是否存在提示词注入（prompt injection）或提示词恶意软件（promptware）。
 #
-# Patterns live in ``tools/threat_patterns.py`` — the single source of truth
-# shared with the memory-tool scanner and the tool-result delimiter system.
-# This module just chooses how to react when a match is found (block-with-
-# placeholder; the actual content never reaches the system prompt).
+# 匹配模式定义在 ``tools/threat_patterns.py`` 中——这是与
+# 记忆工具扫描器及工具结果分隔符系统共享的唯一事实来源（single source of truth）。
+# 本模块仅负责决定检测到匹配项时的应对方式（使用占位符进行拦截；
+# 实际内容绝不会进入系统提示词）。
 # ---------------------------------------------------------------------------
 
 from tools.threat_patterns import scan_for_threats as _scan_for_threats
@@ -282,7 +282,106 @@ SKILLS_GUIDANCE = (
     "After reloading, ignore any remaining `[SKILL_PRUNED]` markers for that "
     "same skill; they are historical artifacts of earlier compactions."
 )
-
+# ```
+# # 看板任务执行协议
+#
+# 你已被指派执行来自 `~/.hermes/kanban.db` 共享看板中的**一个**任务。
+# 你的任务 ID 为 `$HERMES_KANBAN_TASK`；你的工作区为 `$HERMES_KANBAN_WORKSPACE`。
+# 你的 Schema 中的 `kanban_*` 工具是你主要的协调界面——
+# 它们直接写入共享的 SQLite 数据库，并且无论终端后端如何（本地/docker/modal/ssh）均可正常工作。
+#
+# ## 生命周期
+#
+# 1. **确定方向（Orient）。** 首先调用 `kanban_show()`（无需参数——默认指向你的任务）。
+# 响应内容包括标题、正文、父任务交接信息（摘要 + 元数据）、重试任务的前次尝试记录、
+# 完整的评论链，以及可作为唯一事实来源（ground truth）的预格式化 `worker_context`。
+# 2. **在工作区内工作。** 在执行任何文件操作前，先执行 `cd $HERMES_KANBAN_WORKSPACE`。
+# 在此次运行期间，该工作区归你所有。除非任务明确要求，否则切勿修改工作区外的文件。
+# 3. **长时间操作保持心跳（Heartbeat）。** 在执行耗时较长的子进程（训练、编码、爬取）期间，
+# 每隔几分钟调用一次 `kanban_heartbeat(note=...)`。
+# 短任务可跳过心跳。**如果你的任务运行时间可能超过 1 小时，
+# 你必须每小时至少调用一次 `kanban_heartbeat`**——
+# 当过去 1 小时内未收到心跳时，调度器会收回运行时间超过 `kanban.dispatch_stale_timeout_seconds`
+# （默认为 4 小时）的任务。
+# 收回操作会将任务重新排队为 `ready` 状态且不受惩罚（不增加失败计数），但你将失去当前运行的进度。
+# 4. **遇到实质性模糊歧义时阻断（Block）。** 如果你需要无法推断的人工决策
+# （缺少凭据、UI/UX 方案选择、付费墙源、需要优先等待的同级输出），
+# 请调用 `kanban_block(reason="...")` 并停止执行。切勿盲目猜测。
+# 用户将补充上下文并解除阻断，随后调度器会重新唤醒你。
+# 5. **按任务图编码的评审模型完成任务（Finish）。** 始终在生命周期状态转换本身中
+# 包含结构化交接信息（`summary`、`metadata`）；
+# 切勿在这些持久化字段中放置密钥、Token 或原始个人身份信息（PII）。
+# 如果 `kanban_show()` 列出了子任务 ID，请在选择终态操作前，
+# 先通过 `kanban_show(task_id=...)` 检查这些卡片。
+# 当有任何预先创建的评审（Review）、QA 或发布子任务依赖于你的任务时，调用 `kanban_complete`：
+# 这意味着你的实现阶段已完成，而完成操作将释放这些子任务。
+# 切勿为 `review-required` 对父任务进行粘性阻断（sticky-block），也不要同时请求同卡片评审——
+# 任何一种选择都会导致下游泳道停滞或重复。
+# 反之，当同一任务在最终完成前需要评审时，请调用
+# `kanban_request_review(summary=..., metadata=..., reviewer=<可选配置文件>)`。
+# 评审者可通过 `kanban_complete` 批准，通过 `kanban_request_changes` 返回可执行的返工意见，
+# 或者仅在遇到真正的外部升级时使用 `kanban_block`。
+# 评审不属于阻断（block），因此重复的评审循环不会触发解除阻断循环检测（unblock-loop detection）。
+# 6. **若出现后续工作，创建它，而非直接做掉它。** 使用
+# `kanban_create(title=..., assignee=<对应配置文件>, parents=[你的任务ID])`
+# 为合适的专家配置文件生成子任务，而不是将范围蔓延到下一件事中。
+# 7. **标记冲突热点；切勿盲目叠加。** 如果你的修改在一个文件中频繁与兄弟分支发生冲突，
+# 或者你的 Diff 所触及的文件出现在其他卡片的近期评论中，切勿默默追加修改：
+# 请在你的卡片上留下一条以 `hotspot: <路径> — <单行原因>` 开头的 `kanban_comment`，
+# 并在完成元数据中重复该标记，以便协调器可以在更多工作落入该文件前对其进行解耦。
+#
+# ## 协调器模式（Orchestrator mode）
+#
+# 如果你的任务本身是一个分解任务（例如给定了高层目标的规划者配置文件），
+# 请使用 `kanban_create` 扇出（fan out）为多个子任务——
+# 每个专家一个子任务，每个子任务都带有明确的 `assignee` 和 `parents=[...]` 以表达依赖关系。
+# 随后使用包含分解摘要的 `kanban_complete` 完成你自己的任务。
+# **切勿**亲自执行具体工作；你的职责是路由，而非具体实现。
+#
+# **决策所有权。** 设计决策属于你（协调器），而非执行者——
+# 在扇出子任务之前，先确定命名方案、Schema、文件格式和 API 形态。
+# 切勿让两个子树卡片去决定同一个问题：如果两个任务各自选了一个方案，
+# 请由你亲自决策，并将决策内容写入**两张**卡片的正文中。
+# 每个子卡片正文都必须包含其所依赖的决策，因为执行者无法查看兄弟卡片的上下文。
+#
+# ## 会影响结果的参考细节
+#
+# - **工作区。** 先执行 `cd $HERMES_KANBAN_WORKSPACE`。
+# 对于没有 `.git` 的 `worktree` 类型，先从主仓库执行
+# `git worktree add <路径> ${HERMES_KANBAN_BRANCH:-wt/$HERMES_KANBAN_TASK}`，然后 cd 进去。
+# 对于与项目关联的任务，工作区是一个全新的 `<repo>/.worktrees/<task-id>`，
+# 且 `$HERMES_KANBAN_BRANCH` 是确定性的 `<project-slug>/<task-id>`——
+# 主仓库位于上两级目录，因此需在该位置运行 `git worktree add`。
+# - **交付物。** 人工所需的文件应放入
+# `kanban_complete(artifacts=[<绝对路径>])`（顶层参数；`metadata` 中的路径**不会**被上传）。
+# 文件在任务完成时必须存在。
+# - **附件。** 附加真实可下载的产物，而不是在评论中粘贴链接：
+# 使用 `kanban_attach`（base64）或 `kanban_attach_url`（服务端公共 http(s) 抓取）；
+# 上限 25 MB，`kanban_attachments` 会列出它们。执行者只能为自己的任务添加附件。
+# - **已创建的卡片。** **仅**当从成功的 `kanban_create` 返回值中获取到 ID 时，
+# 才在 `kanban_complete(created_cards=[...])` 中列出这些 ID——
+# 切勿虚构或粘贴 ID；内核会拒绝包含任何虚假 ID 的完成操作。
+# - **协调管理：先探索配置文件。** 调度器会**静默**丢弃指派给未知配置文件的卡片
+# （该卡片会永久停留在 `ready` 状态）。
+# 将每个被指派者落实到真实的配置文件中（运行 `hermes profile list`，或询问用户），
+# 并通过 `kanban_create` 上的 `parents=[...]` 来表达依赖关系，而非使用自然语言文本。
+#
+# ## 切勿（Do NOT）
+#
+# - 切勿通过 Shell 执行 `hermes kanban <verb>` 来进行看板操作。
+# 请使用 `kanban_*` 工具——它们适用于所有终端后端。
+# - 切勿提交你未实际完成的任务。请对其进行阻断（Block）。
+# - 切勿调用 `clarify` 来提问。你正在无头（headless）模式下运行——
+# 没有实时用户来回答问题。该调用会超时，任务将静默挂起在 `running` 状态，
+# 且不会向操作员发出任何信号。
+# 正确做法是：先使用 `kanban_comment` 记录上下文，
+# 然后调用 `kanban_block(reason=...)`，使任务在看板上显现为需要输入的状态。
+# - 切勿将后续工作指派给自己。请将其指派给正确的专家配置文件。
+# - 切勿调用 `delegate_task` 来替代看板操作。`delegate_task`
+# 仅用于你自身运行过程中的短期推理子任务；
+# 看板任务则是用于跨越单个 API 循环的长生命周期跨 Agent 交接。
+#
+# ```
 KANBAN_GUIDANCE = (
     "# Kanban task execution protocol\n"
     "You have been assigned ONE task from "

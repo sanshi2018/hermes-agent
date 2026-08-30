@@ -1,71 +1,62 @@
-"""SQLite-backed Kanban board for multi-profile, multi-project collaboration.
+"""
+基于 SQLite 的看板系统，用于多 Profile、多项目的协作。
 
-In a fresh install the board lives at ``<root>/kanban.db`` where
-``<root>`` is the **shared Hermes root** (the parent of any active
-profile). Profiles intentionally collapse onto a shared board: it IS
-the cross-profile coordination primitive. A worker spawned with
-``hermes -p <profile>`` joins the same board as the dispatcher that
-claimed the task. The same applies to ``<root>/kanban/workspaces/`` and
-``<root>/kanban/logs/``.
+在全新安装时，看板存放在 ``<root>/kanban.db`` 中，
+其中 ``<root>`` 是**共享的 Hermes 根目录**（任何活动 Profile 的父目录）。
+Profile 故意收拢折叠到一个共享看板上：它**就是**跨 Profile 的协作原语。
+通过 ``hermes -p <profile>`` 派生的 Worker，
+会加入与领取该任务的 Dispatcher 相同的看板。
+这同样适用于 ``<root>/kanban/workspaces/`` 与 ``<root>/kanban/logs/``。
 
-**Multiple boards (projects):** users can create additional boards to
-separate unrelated streams of work (e.g. one per project / repo / domain).
-Each board is a directory under ``<root>/kanban/boards/<slug>/`` with
-its own ``kanban.db``, ``workspaces/``, and ``logs/``. All boards share
-the profile's Hermes home but are otherwise isolated: a worker spawned
-for a task on board ``atm10-server`` sees only that board's tasks,
-cannot enumerate other boards, and its dispatcher ticks don't touch
-other boards' DBs.
+**多看板（多项目）：** 用户可以创建额外的看板，
+以隔离无关的工作流（例如每个项目 / 仓库 / 领域使用一个看板）。
+每个看板都是 ``<root>/kanban/boards/<slug>/`` 下的一个目录，
+拥有各自独立的 ``kanban.db``、``workspaces/`` 与 ``logs/``。
+所有看板共享 Profile 的 Hermes 主目录，但在其他方面互相隔离：
+为 ``atm10-server`` 看板上的任务所派生的 Worker 只能看到该看板的任务，
+无法列出其他看板，且其 Dispatcher 的心跳 (tick) 不会触及其他看板的数据库。
 
-The first (and for single-project users, only) board is ``default``.
-For back-compat its on-disk DB is ``<root>/kanban.db`` (not
-``boards/default/kanban.db``), so installs that predate the boards
-feature keep working with zero migration. See :func:`kanban_db_path`.
+首个看板（对于单项目用户也是唯一的看板）是 ``default``。
+为了向下兼容，其在磁盘上的数据库路径为 ``<root>/kanban.db``
+（而非 ``boards/default/kanban.db``），
+因此在看板功能引入之前的安装无需任何迁移即可继续运行。
+详见 :func:`kanban_db_path`。
 
-Board resolution order (highest precedence first, all optional):
+看板解析顺序（优先级从高到低，均为可选）：
 
-* ``board=`` argument passed directly to :func:`connect` / :func:`init_db`
-  (explicit — used by the CLI ``--board`` flag and the dashboard
-  ``?board=...`` query param).
-* ``HERMES_KANBAN_BOARD`` env var (used by the dispatcher to pin workers
-  to the board their task lives on — workers cannot see other boards).
-* ``HERMES_KANBAN_DB`` env var (pins the DB file path directly — legacy
-  override still honoured; highest precedence when the file path itself
-  is what the caller wants to force).
-* ``<root>/kanban/current`` — a one-line text file holding the slug of
-  the "currently selected" board. Written by ``hermes kanban boards
-  switch <slug>``. When absent, the active board is ``default``.
+* 直接传递给 :func:`connect` / :func:`init_db` 的 ``board=`` 参数
+  （显式指定 —— 由 CLI 的 ``--board`` 标志及 Dashboard 的 ``?board=...`` 查询参数使用）。
+* ``HERMES_KANBAN_BOARD`` 环境变量
+  （由 Dispatcher 用于将 Worker 绑定到其任务所在的看板 —— Worker 无法看到其他看板）。
+* ``HERMES_KANBAN_DB`` 环境变量
+  （直接绑定数据库文件路径 —— 仍保留对旧版覆盖方式的支持；当调用方希望强行指定文件路径本身时，该项优先级最高）。
+* ``<root>/kanban/current`` —— 保存“当前已选择”看板 slug 的单行文本文件。
+  由 ``hermes kanban boards switch <slug>`` 写入。
+  若该文件不存在，则当前活动看板默认为 ``default``。
 
-In standard installs ``<root>`` is ``~/.hermes``. In Docker / custom
-deployments where ``HERMES_HOME`` points outside ``~/.hermes`` (e.g.
-``/opt/hermes``), ``<root>`` is ``HERMES_HOME``. Legacy env-var
-overrides still work:
+在标准安装中，``<root>`` 为 ``~/.hermes``。
+在 Docker 或自定义部署中，若 ``HERMES_HOME`` 指向 ``~/.hermes`` 之外的路径（例如 ``/opt/hermes``），
+则 ``<root>`` 即为 ``HERMES_HOME``。旧版环境变量覆盖方式依然生效：
 
-* ``HERMES_KANBAN_DB`` — pin the database file path directly.
-* ``HERMES_KANBAN_WORKSPACES_ROOT`` — pin the workspaces root directly.
-* ``HERMES_KANBAN_HOME`` — pin the umbrella root that anchors kanban
-  paths. Useful for tests and unusual deployments.
+* ``HERMES_KANBAN_DB`` —— 直接绑定数据库文件路径。
+* ``HERMES_KANBAN_WORKSPACES_ROOT`` —— 直接绑定工作区根目录。
+* ``HERMES_KANBAN_HOME`` —— 绑定作为看板路径锚点的伞状根目录 (umbrella root)。常用于测试与特殊部署。
 
-The dispatcher injects ``HERMES_KANBAN_DB``,
-``HERMES_KANBAN_WORKSPACES_ROOT``, and ``HERMES_KANBAN_BOARD`` into
-worker subprocess env so workers converge on the exact DB the
-dispatcher used to claim their task — even under unusual symlink or
-Docker layouts.
+Dispatcher 会将 ``HERMES_KANBAN_DB``、
+``HERMES_KANBAN_WORKSPACES_ROOT`` 与 ``HERMES_KANBAN_BOARD``
+注入到 Worker 子进程的环境变量中，
+以确保 Worker 能够精准收敛到 Dispatcher 领取其任务时所使用的同一个数据库 —— 即使在特殊的软链接或 Docker 布局下也是如此。
 
-Schema is intentionally small: tasks, task_links, task_comments,
-task_events.  The ``workspace_kind`` field decouples coordination from git
-worktrees so that research / ops / digital-twin workloads work alongside
-coding workloads.  See ``docs/hermes-kanban-v1-spec.pdf`` for the full
-design specification.
+数据库 Schema 设计得足够精简：tasks, task_links, task_comments, task_events。
+``workspace_kind`` 字段将协作机制与 Git Worktree 解耦，
+从而使研究 / 运维 / 数字孪生 (digital-twin) 等工作负载能够与编码工作负载协同运行。
+完整的设计规范请参阅 ``docs/hermes-kanban-v1-spec.pdf``。
 
-Concurrency strategy: WAL mode + ``BEGIN IMMEDIATE`` for write
-transactions + compare-and-swap (CAS) updates on ``tasks.status`` and
-``tasks.claim_lock``.  SQLite serializes writers via its WAL lock, so at
-most one claimer can win any given task.  Losers observe zero affected
-rows and move on -- no retry loops, no distributed-lock machinery.
-The CAS coordination is **per-board** — each board is a separate DB,
-so multi-board installs get the same atomicity guarantees without any
-new locking.
+并发策略：WAL 模式 + 写事务采用 ``BEGIN IMMEDIATE`` + 对 ``tasks.status`` 和 ``tasks.claim_lock`` 进行比较并交换 (CAS) 更新。
+SQLite 通过其 WAL 锁将写操作串行化，因此对于任意给定的任务，最多只有一个竞领者 (claimer) 能胜出。
+失败者会观察到受影响行数为零并直接继续 —— 无需重试循环，无需分布式锁机制。
+CAS 协作是**基于单个看板**的 —— 每个看板都是一个独立的数据库，
+因此多看板安装能在不需要任何新锁机制的前提下，获得相同的原子性保证。
 """
 
 from __future__ import annotations
@@ -1344,27 +1335,29 @@ CREATE TABLE IF NOT EXISTS tasks (
     workspace_kind       TEXT NOT NULL DEFAULT 'scratch',
     workspace_path       TEXT,
     branch_name          TEXT,
-    -- Optional link to a first-class Project (hermes_cli/projects_db). When set,
-    -- the task's worktree is anchored under the project's primary repo with a
-    -- deterministic branch name instead of a random wt/<task-id> fallback.
+    -- 可选关联至一级项目（hermes_cli/projects_db）。当设置此项时，
+    -- 任务的 worktree 会锚定在该项目的主仓库下，
+    -- 并使用确定的分支名称，
+    -- 而不是退而使用随机的 wt/<task-id> 名称。
     project_id           TEXT,
     claim_lock           TEXT,
     claim_expires        INTEGER,
     tenant               TEXT,
     result               TEXT,
     idempotency_key      TEXT,
-    -- Unified consecutive-failure counter. Incremented on spawn
-    -- failure, timeout, or crash; reset only on successful completion.
-    -- The circuit breaker in _record_task_failure trips when this
-    -- exceeds DEFAULT_FAILURE_LIMIT consecutive non-successes.
+    -- 统一的连续失败计数器。在派生（spawn）失败、
+    -- 超时或崩溃时递增；仅在成功完成时重置。
+    -- 当该值超过 DEFAULT_FAILURE_LIMIT 次连续非成功状态时，
+    -- _record_task_failure 中的熔断器（circuit breaker）将被触发。
     consecutive_failures INTEGER NOT NULL DEFAULT 0,
     worker_pid           INTEGER,
     -- Short excerpt of the most recent failure's error text.
     last_failure_error   TEXT,
     max_runtime_seconds  INTEGER,
     last_heartbeat_at    INTEGER,
-    -- Pointer into task_runs for the currently-active run (NULL if no
-    -- run is in-flight). Denormalised for cheap reads.
+    -- 指向 task_runs 中当前活动运行（run）的指针
+    -- （若没有正在进行的运行，则为 NULL）。
+    -- 此处进行了反范式化处理，以提高读取效率。
     current_run_id       INTEGER,
     -- Forward-compat for v2 workflow routing. In v1 the kernel writes
     -- these when the task is opted into a template but otherwise ignores
@@ -1448,13 +1441,13 @@ CREATE TABLE IF NOT EXISTS task_events (
     created_at INTEGER NOT NULL
 );
 
--- Historical attempt record. Each time the dispatcher claims a task, a
--- new row is created here; claim state, PID, heartbeat, runtime cap,
--- and structured summary all live on the run, not the task. Multiple
--- rows per task id when the task was retried after crash/timeout/block.
--- v2 of the kanban schema will use ``step_key`` to drive per-stage
--- workflow routing; in v1 the column is nullable and unused (kernel
--- ignores it).
+-- 历史尝试记录。每次分发器（dispatcher）认领一个任务时，
+-- 都会在此处创建一条新记录；认领状态、PID、心跳、运行时间上限
+-- 以及结构化摘要均保存在单次运行（run）上，而非任务（task）本身。
+-- 当任务在崩溃、超时或阻塞后进行重试时，
+-- 同一个任务 ID 会对应多行记录。
+-- 看板 Schema 的 v2 版本将使用 ``step_key`` 来驱动各阶段的
+-- 工作流路由；在 v1 版本中该列允许为空且未被使用（内核会忽略它）。
 CREATE TABLE IF NOT EXISTS task_runs (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id             TEXT NOT NULL,
@@ -1477,12 +1470,12 @@ CREATE TABLE IF NOT EXISTS task_runs (
     error               TEXT
 );
 
--- Files attached to a task (PDFs, images, source documents). The blob
--- lives on disk under ``attachments_root(board)/<task_id>/<stored_name>``;
--- this row carries metadata + the absolute ``stored_path`` so the
--- dashboard can list/download and ``build_worker_context`` can surface
--- the absolute path to the worker (which has full file-tool access). See
--- #35338.
+-- 附加到任务的文件（PDF、图片、源文档等）。二进制文件（blob）
+-- 保存在磁盘上的 ``attachments_root(board)/<task_id>/<stored_name>`` 路径下；
+-- 本行记录包含元数据以及绝对路径 ``stored_path``，
+-- 以便控制台（dashboard）能够列出/下载文件，
+-- 同时也让 ``build_worker_context`` 能将绝对路径暴露给 Worker
+-- （Worker 拥有完全的文件工具访问权限）。参见 #35338。
 CREATE TABLE IF NOT EXISTS task_attachments (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id      TEXT NOT NULL,
@@ -1494,10 +1487,10 @@ CREATE TABLE IF NOT EXISTS task_attachments (
     created_at   INTEGER NOT NULL
 );
 
--- Subscription from a gateway source (platform + chat + thread) to a
--- task. The gateway's kanban-notifier watcher tails task_events and
--- pushes ``completed`` / ``blocked`` / ``spawn_auto_blocked`` events to
--- the original requester so human-in-the-loop workflows close the loop.
+-- 从网关源（平台 + 聊天 + 线程）到任务的订阅关系。
+-- 网关的 kanban-notifier 监听器会追踪 task_events，
+-- 并将 ``completed``、``blocked`` 以及 ``spawn_auto_blocked`` 事件
+-- 推送给原始请求者，从而让人工介入 (human-in-the-loop) 的工作流形成闭环。
 CREATE TABLE IF NOT EXISTS kanban_notify_subs (
     task_id       TEXT NOT NULL,
     platform      TEXT NOT NULL,
@@ -2340,23 +2333,23 @@ def connect(
     *,
     board: Optional[str] = None,
 ) -> sqlite3.Connection:
-    """Open (and initialize if needed) the kanban DB.
+    """打开（并在需要时初始化）看板数据库。
 
-    WAL mode is enabled on every connection; it's a no-op after the first
-    time but keeps the code robust if the DB file is ever re-created.
+    每个连接都会启用 WAL 模式；在首次启用后，后续重复设置虽然是空操作 (no-op)，
+    但可以在数据库文件被重新创建时保证代码的健壮性。
 
-    The first connection to a given path auto-runs :func:`init_db` so
-    fresh installs and test harnesses that construct `connect()`
-    directly don't have to remember a separate init step. Subsequent
-    connections skip the schema check via a module-level path cache.
+    对指定路径的首次连接会自动运行 :func:`init_db`，
+    因此全新安装以及直接调用 `connect()` 的测试套件
+    无需专门记住并执行单独的初始化步骤。
+    后续连接将通过模块级的路径缓存跳过 Schema 检查。
 
-    Path resolution:
+    路径解析策略：
 
-    * ``db_path`` explicit → used as-is (legacy callers, tests).
-    * ``board`` explicit → resolves to that board's DB.
-    * Neither → :func:`kanban_db_path` resolves via
-      ``HERMES_KANBAN_DB`` env → ``HERMES_KANBAN_BOARD`` env →
-      ``<root>/kanban/current`` → ``default``.
+    * 显式传入 ``db_path`` → 直接按原样使用（用于旧版调用方及测试）。
+    * 显式传入 ``board`` → 解析为该看板对应的数据库。
+    * 均未指定 → 通过 :func:`kanban_db_path` 进行解析，
+      顺序为：环境变量 ``HERMES_KANBAN_DB`` → 环境变量 ``HERMES_KANBAN_BOARD`` →
+      文件 ``<root>/kanban/current`` → 默认值 ``default``。
     """
     if db_path is not None:
         path = db_path
@@ -2364,16 +2357,17 @@ def connect(
         path = kanban_db_path(board=board)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Fast path: once THIS process has initialized this path, the expensive
-    # first-open work (header validation, integrity probe, schema + additive
-    # migrations) is already done and cached in _INITIALIZED_PATHS. Acquiring
-    # the cross-process init lock on every connect is what let a single stalled
-    # holder (e.g. an external `hermes kanban list` mid-integrity-probe) block
-    # the long-lived gateway dispatcher's next-tick connect() forever — an
-    # unbounded flock with no timeout, no LOCK_NB, no recovery (#36644). On the
-    # steady-state path there is nothing for the cross-process lock to protect
-    # (no schema/migration writes run), so skip it entirely and just open the
-    # connection with WAL/pragmas under the cheap in-process _INIT_LOCK.
+    # 快速路径：一旦“当前进程”完成了对此路径的初始化，
+    # 耗时的首次打开工作（请求头校验、完整性探测、Schema 以及增量迁移）
+    # 就已经完成，并被缓存到了 _INITIALIZED_PATHS 中。
+    # 过去在每次连接时都去获取跨进程初始化锁，
+    # 会导致单次卡顿的持有者（例如外部执行 `hermes kanban list` 正处于完整性探测中）
+    # 永久阻塞长期运行的 Gateway Dispatcher 的下一次心跳 connect() ——
+    # 这是一种没有超时机制、没有 LOCK_NB、且无法自动恢复的无界 flock 锁（#36644）。
+    # 在稳态路径下，跨进程锁没有任何需要保护的内容
+    # （不会发生 Schema/迁移写操作），因此可以完全跳过它，
+    # 只需在开销极低 populated 的进程内 _INIT_LOCK 保护下，
+    # 直接打开带 WAL/pragmas 的连接即可。
     resolved = str(path.resolve())
     if resolved in _INITIALIZED_PATHS:
         conn = _sqlite_connect(path)
@@ -2514,15 +2508,15 @@ def init_db(
     *,
     board: Optional[str] = None,
 ) -> Path:
-    """Create the schema if it doesn't exist; return the path used.
+    """如果数据库 Schema 不存在则进行创建；返回所使用的路径。
 
-    Kept as a public entry point so CLI ``hermes kanban init`` and the
-    daemon have something explicit to call. Unlike :func:`connect`'s
-    first-time auto-init (which caches by path), ``init_db`` always
-    re-runs the migration pass. Callers that know the on-disk schema
-    may have drifted — tests that write legacy event kinds directly,
-    external tools that upgrade an old DB file — can call this to
-    force re-migration.
+    保留该函数作为公共入口，以便 CLI 命令 ``hermes kanban init``
+    和后台守护进程（daemon）有明确的接口进行调用。
+    与 :func:`connect` 首次打开时的自动初始化（根据路径进行缓存）不同，
+    ``init_db`` 总是会重新运行迁移逻辑。
+    对于明确知道磁盘上的 Schema 可能已发生偏离的调用方
+    ——例如直接写入旧版事件类型的测试，或升级旧数据库文件的外部工具
+    ——可以调用此函数来强制重新执行迁移。
     """
     if db_path is not None:
         path = db_path
@@ -3053,26 +3047,26 @@ def _execute_boundary_with_retry(conn: sqlite3.Connection, sql: str) -> None:
 
 @contextlib.contextmanager
 def write_txn(conn: sqlite3.Connection, *, allow_nested: bool = False):
-    """Context manager for an IMMEDIATE write transaction.
+    """针对 IMMEDIATE 写事务的上下文管理器。
 
-    Use for any multi-statement write (creating a task + link, claiming a
-    task + recording an event, etc.). A claim CAS inside this context is
-    atomic -- at most one concurrent writer can succeed.
+    适用于任何多语句的写入操作（例如：创建任务 + 链接、
+    认领任务 + 记录事件等）。在此上下文内的认领 CAS 机制
+    是具有原子性的 —— 最多只有一个并发写入者能够成功。
 
-    Nesting is an explicit opt-in: a caller already inside a transaction
-    gets a loud ``RuntimeError`` unless it passes ``allow_nested=True``,
-    in which case a SQLite savepoint is used instead of a second
-    ``BEGIN IMMEDIATE``. Only composition primitives that graph builders
-    deliberately run under one outer commit (``create_task``,
-    ``add_comment``) opt in — helpers with post-commit side effects
-    (``complete_task`` & co.) must never run under an open outer
-    transaction, because their side effects (workspace cleanup, ready
-    recomputation, failure-counter clears) would fire while the outer
-    transaction can still roll back.
+    嵌套需要显式授权：如果调用方已处于某个事务中，
+    除非传入 ``allow_nested=True``，否则会抛出明确的 ``RuntimeError``。
+    当允许嵌套时，系统会使用 SQLite 的 savepoint（保存点）
+    来替代第二次 ``BEGIN IMMEDIATE``。
+    仅有那些图构建器（graph builder）有意在同一个外部提交下运行的
+    组合原语（如 ``create_task``、``add_comment``）才会显式开启此项 ————
+    包含提交后侧效应（post-commit side effects）的辅助函数
+    （如 ``complete_task`` 及相关函数）绝对不能在处于开启状态的外部事务中运行，
+    因为一旦外部事务发生回滚，它们的侧效应
+    （如工作区清理、Ready 状态重新计算、失败计数器清零）就已经提前触发了。
 
-    The explicit ROLLBACK on exception is wrapped in try/except so that
-    a SQLite auto-rollback (which leaves no active transaction) does not
-    shadow the original exception with a spurious rollback error.
+    发生异常时的显式 ROLLBACK（回滚）被包裹在 try/except 块中，
+    这样可以避免 SQLite 的自动回滚（这会导致不再存在活动事务）
+    产生无意义的回滚错误，进而掩盖原始的异常信息。
     """
     _assert_not_delegated_child_mutation()
     if getattr(conn, "in_transaction", False):
@@ -3195,44 +3189,40 @@ def create_task(
     project_id: Optional[str] = None,
     project_source_task_id: Optional[str] = None,
 ) -> str:
-    """Create a new task and optionally link it under parent tasks.
+    """创建一个新任务，并可选地将其链接到父任务之下。
 
-    Returns the new task id.  Status is ``ready`` when there are no
-    parents (or all parents already ``done``), otherwise ``todo``.
-    If ``triage=True``, status is forced to ``triage`` regardless of
-    parents — a specifier/triager is expected to promote the task to
-    ``todo`` once the spec is fleshed out.
+    返回新任务的 ID。当没有父任务（或所有父任务已处于 ``done`` 状态）时，
+    状态为 ``ready``，否则为 ``todo``。
+    若 ``triage=True``，则无论父任务状态如何，状态均会被强制设为 ``triage``
+    —— 期望由规范制定者/分拣员（specifier/triager）在完善规范后再将其提升为 ``todo``。
 
-    If ``idempotency_key`` is provided and a non-archived task with the
-    same key already exists, returns the existing task's id instead of
-    creating a duplicate. Useful for retried webhooks / automation that
-    should not double-write.
+    如果提供了 ``idempotency_key`` 且已存在具有相同 Key 的未归档任务，
+    则返回现有的任务 ID，而不是创建重复任务。
+    这对于重试的 Webhook 或不应重复写入的自动化流程非常有用。
 
-    ``max_runtime_seconds`` caps how long a worker may run before the
-    dispatcher SIGTERMs (then SIGKILLs after a grace window) and
-    re-queues the task. ``None`` means no cap (default).
+    ``max_runtime_seconds`` 限制了 Worker 在被 Dispatcher 发送 SIGTERM
+    （随后在宽限期后发送 SIGKILL）并重新入队该任务之前可以运行的最长时间。
+    ``None`` 表示无限制（默认值）。
 
-    ``skills`` is an optional list of skill names to force-load into
-    the worker when dispatched. Stored as JSON; the dispatcher passes
-    each name to ``hermes --skills ...``. Use this to pin a task to a
-    specialist skill (e.g. ``skills=["translation"]`` so the worker loads the
-    translation skill regardless of the profile's default config).
+    ``skills`` 是一个可选的技能名称列表，用于在分发时强行加载到 Worker 中。
+    以 JSON 形式存储；Dispatcher 会将每个名称传递给 ``hermes --skills ...``。
+    可利用此项将任务绑定到特定的专业技能
+    （例如 ``skills=["translation"]``，以便 Worker 无论 Profile 的默认配置如何都会加载翻译技能）。
 
-    ``model_override`` / ``provider_override`` pin the worker to a specific
-    model (and optionally its provider) without touching the profile's
-    config — passed to the worker as ``-m <model> [--provider <name>]``.
-    ``provider_override`` requires ``model_override``.
+    ``model_override`` / ``provider_override`` 用于将 Worker 绑定到特定的模型
+    （以及可选的提供商），而无需修改 Profile 的配置
+    —— 作为 ``-m <model> [--provider <name>]`` 传递给 Worker。
+    设置 ``provider_override`` 时必须同时指定 ``model_override``。
 
-    ``reasoning_effort`` pins the worker's thinking depth for this task
-    (``minimal``…``ultra``, or ``none`` to disable thinking), passed as
-    ``--reasoning <level>``. It is independent of ``model_override``: a task
-    can run the profile's own model at a different depth.
+    ``reasoning_effort`` 用于绑定该任务中 Worker 的思考深度
+    （``minimal``…``ultra``，或使用 ``none`` 来禁用思考），
+    作为 ``--reasoning <level>`` 传递。它独立于 ``model_override``：
+    任务可以在 Profile 自有的模型上以不同的思考深度运行。
 
-    ``project_source_task_id`` is an internal cross-profile fallback for a
-    worker-created child. When the active profile cannot resolve ``project_id``
-    in its own projects.db, a matching canonical project-linked task in this
-    board can supply the repo and branch convention. Its literal worktree is
-    never reused; the new task still gets its own task-id-keyed path.
+    ``project_source_task_id`` 是一个内部的跨 Profile 退避机制，用于 Worker 创建的子任务。
+    当活动 Profile 无法在其自有的 projects.db 中解析 ``project_id`` 时，
+    当前看板中相匹配的规范级（canonical）项目关联任务可以提供仓库和分支约定。
+    其字面上的 worktree 绝不会被复用；新任务依然会拥有以其自身 task-id 为键的独占路径。
     """
     model_override = (model_override or "").strip() or None
     provider_override = (provider_override or "").strip() or None
@@ -3542,10 +3532,10 @@ def create_task(
                         "INSERT OR IGNORE INTO task_links (parent_id, child_id) VALUES (?, ?)",
                         (pid, task_id),
                     )
-                # Notify-sub inheritance (ACK-edge: the originating channel
-                # still hears about a child that BLOCKs, not just the final
-                # fan-in) is handled by the single-owner helper below —
-                # _inherit_notify_subs copies every routing/delivery column.
+                # 通知订阅的继承（确认边 ACK-edge：发起调用的原始频道
+                # 仍会收到子任务阻塞 BLOCK 的通知，而不仅仅是最终的
+                # 扇入 fan-in 状态）由下方单所有者（single-owner）辅助函数统一处理 ——
+                # _inherit_notify_subs 会复制所有的路由与投递列。
                 _append_event(
                     conn,
                     task_id,
@@ -3595,19 +3585,20 @@ def _inherit_notify_subs(
     *,
     created_at: Optional[int] = None,
 ) -> None:
-    """Copy gateway notification subscriptions from parent tasks to a child.
+    """将网关通知订阅从父任务复制到子任务。
 
-    The inherited subscription starts caught up to the child's current event
-    cursor. This makes manual `link_tasks(parent, existing_child)` safe: the
-    parent chat receives future child terminal events without replaying the
-    child's pre-link history.
+    继承的订阅将从子任务当前的事件游标（event cursor）开始追赶。
+    这使得手动的 `link_tasks(parent, existing_child)` 变得安全：
+    父聊天会接收子任务未来的终态事件，
+    而无需重放子任务在关联前的历史事件。
 
-    Copies EVERY routing/delivery column (chat_type, user_id_alt,
-    delivery_mode, delivery_metadata included) — this helper is the single
-    owner of subscription inheritance for create_task, link_tasks, and triage
-    decomposition. Omitting columns here silently degrades routing: a
-    DM-originated child completion falls back to chat_type='group' and wakes
-    a fresh group-scoped session instead of the originating DM (issue #73030).
+    复制所有的路由/投递列
+    （包括 chat_type、user_id_alt、delivery_mode、delivery_metadata）
+    —— 该辅助函数是 create_task、link_tasks 和 triage 分解中
+    订阅继承关系的唯一所有者（single owner）。
+    在此处遗漏列会导致路由隐蔽地降级：
+    例如在私聊（DM）中发起的子任务完成时，会退化为 chat_type='group'，
+    从而唤醒一个新的群组级会话，而非原始的私聊会话（issue #73030）。
     """
     parent_ids = tuple(dict.fromkeys(p for p in parents if p))
     if not parent_ids:
@@ -3869,11 +3860,11 @@ def link_tasks(conn: sqlite3.Connection, parent_id: str, child_id: str) -> None:
 
 
 def _would_cycle(conn: sqlite3.Connection, parent_id: str, child_id: str) -> bool:
-    """Return True if adding parent->child creates a cycle.
+    """如果添加 parent->child 会创建环路，则返回 True。
 
-    A cycle exists iff ``parent_id`` is already a descendant of
-    ``child_id`` via existing parent->child links.  We walk downward
-    from ``child_id`` and check whether we reach ``parent_id``.
+    当且仅当 ``parent_id`` 已经通过现有的 parent->child 链接
+    成为 ``child_id`` 的后代时，才存在环路。
+    我们从 ``child_id`` 开始向下遍历，并检查是否能到达 ``parent_id``。
     """
     seen = set()
     stack = [child_id]
@@ -4316,12 +4307,11 @@ def _append_event(
     *,
     run_id: Optional[int] = None,
 ) -> None:
-    """Record an event row.  Called from within an already-open txn.
+    """记录一行事件。需在已开启的事务中调用。
 
-    ``run_id`` is optional: pass the current run id so UIs can group
-    events by attempt. For events that aren't scoped to a single run
-    (task created/edited/archived, dependency promotion) leave it None
-    and the row carries NULL.
+    ``run_id`` 为可选参数：传入当前运行 ID，以便 UI 能够按尝试记录对事件进行分组。
+    对于不局限于单次运行的事件（如任务创建/编辑/归档、依赖提升），
+    保持其为 None 即可，对应的数据行将存入 NULL。
     """
     now = int(time.time())
     pl = json.dumps(payload, ensure_ascii=False) if payload else None
@@ -4521,33 +4511,32 @@ def _resume_status_from_events(conn: sqlite3.Connection, task_id: str) -> str:
 def recompute_ready(
     conn: sqlite3.Connection, failure_limit: int = None,
 ) -> int:
-    """Promote ``todo`` tasks to ``ready`` when all parents are ``done`` or ``archived``.
+    """当所有父任务均处于 ``done`` 或 ``archived`` 状态时，
+    将 ``todo`` 状态的任务提升（promote）为 ``ready``。
 
-    Returns the number of tasks promoted.  Opens its own IMMEDIATE txn, so it
-    MUST be called OUTSIDE any open write transaction (plain ``write_txn``
-    raises on nesting); call it after the enclosing txn commits.
+    返回被提升的任务数量。该函数会开启独立的 IMMEDIATE 事务，
+    因此**必须**在任何已开启的写事务之外调用
+    （普通的 ``write_txn`` 在发生嵌套时会抛出异常）；
+    请在包含它的外层事务提交后再调用此函数。
 
-    ``blocked`` tasks are also considered for promotion (so a task
-    blocked purely by a parent dependency unblocks itself when the
-    parent completes), *except* in two cases:
+    处于 ``blocked`` 状态的任务也会被纳入提升范围
+    （以便纯粹因父任务依赖而阻塞的任务可以在父任务完成时自动解除阻塞），
+    但存在以下两种例外情况：
 
-    1. The most recent block event was a worker-initiated
-       ``kanban_block`` — those stay blocked until an explicit
-       ``kanban_unblock`` (#28712).
+    1. 最近一次阻塞事件是由 Worker 触发的 ``kanban_block``
+       —— 这些任务将保持阻塞状态，直到显式调用 ``kanban_unblock``（#28712）。
 
-    2. The task's ``consecutive_failures`` has reached the effective
-       failure limit.  This prevents infinite retry loops when a task
-       repeatedly exhausts its iteration budget: without this guard the
-       counter would reset on every recovery cycle and the circuit
-       breaker could never trip (#35072).
+    2. 任务的 ``consecutive_failures``（连续失败次数）已达到生效的失败上限。
+       这可以防止当任务反复耗尽其迭代配额时陷入无限重试循环：
+       若没有该防护，计数器会在每个恢复周期重置，
+       导致熔断机制永远无法被触发（#35072）。
 
-    The effective failure limit resolves in the same order as the
-    circuit breaker in ``_record_task_failure`` so the two never
-    disagree about when a task is permanently blocked:
+    生效的失败上限解析顺序与 ``_record_task_failure`` 中的熔断器一致，
+    以确保两者在判定任务是否永久阻塞时绝不发生冲突：
 
-      1. per-task ``max_retries`` if set
-      2. caller-supplied ``failure_limit`` (the dispatcher passes the
-         ``kanban.failure_limit`` config value through ``dispatch_once``)
+      1. 单个任务设置的 ``max_retries``（若已指定）
+      2. 调用方提供的 ``failure_limit``
+         （Dispatcher 会通过 ``dispatch_once`` 传递 ``kanban.failure_limit`` 配置值）
       3. ``DEFAULT_FAILURE_LIMIT``
     """
     if failure_limit is None:
@@ -4615,7 +4604,7 @@ def recompute_ready(
 # ---------------------------------------------------------------------------
 
 def _parents_satisfied(conn: sqlite3.Connection, task_id: str) -> bool:
-    """Return whether every direct parent is terminal for dependency gating."""
+    """返回是否每个直接父任务都已处于用于依赖把关（dependency gating）的终态。"""
     return conn.execute(
         "SELECT 1 FROM task_links l "
         "JOIN tasks p ON p.id = l.parent_id "
@@ -4641,14 +4630,16 @@ def claim_task(
     lock = claimer or _claimer_id()
     expires = now + _resolve_claim_ttl_seconds(ttl_seconds)
     with write_txn(conn):
-        # Structural invariant: never transition ready -> running while any
-        # parent is not yet 'done'. This is the single enforcement point
-        # regardless of which writer (create_task, link_tasks, unblock_task,
-        # release_stale_claims, manual SQL) set status='ready'. If a racy
-        # writer promoted a task with undone parents, demote it back to
-        # 'todo' here — recompute_ready will re-promote when the parents
-        # actually finish. See RCA at
-        # kanban/boards/cookai/workspaces/t_a6acd07d/root-cause.md.
+        # 结构不变性（Structural invariant）：当存在任何尚未处于 'done' 状态的
+        # 父任务时，绝对不能将任务状态从 ready 变更为 running。
+        # 无论是由哪个写入方（create_task、link_tasks、unblock_task、
+        # release_stale_claims 或手动 SQL）将状态设为 'ready'，
+        # 此处都是唯一的强制校验点。
+        # 如果由于竞态条件导致某个写入方提升了父任务未完成的任务，
+        # 则在此处将其重新降级为 'todo' ——
+        # 当父任务真正完成时，recompute_ready 会再次将其提升。
+        # 详见根因分析报告：
+        # kanban/boards/cookai/workspaces/t_a6acd07d/root-cause.md。
         undone = conn.execute(
             "SELECT 1 FROM task_links l "
             "JOIN tasks p ON p.id = l.parent_id "
@@ -4754,16 +4745,16 @@ def claim_review_task(
     ttl_seconds: Optional[int] = None,
     claimer: Optional[str] = None,
 ) -> Optional[Task]:
-    """Atomically transition ``review -> running``.
+    """原子化地将状态从 ``review`` 转换为 ``running``。
 
-    Returns the claimed ``Task`` on success, ``None`` if the task was
-    already claimed (or is not in ``review`` status).
+    成功时返回被认领的 ``Task``，
+    如果任务已被认领（或不处于 ``review`` 状态）则返回 ``None``。
 
-    Parent dependencies are re-checked because a previously completed parent
-    may have been reopened while this task waited in review.
+    由于先前已完成的父任务可能在该任务处于 review 等待状态时被重新打开，
+    因此会在此重新检查父任务的依赖关系。
 
-    Creates a new run entry so the review agent's lifecycle is tracked
-    independently from the original worker run.
+    创建一个新的运行（run）条目，
+    以便将 Review Agent 的生命周期与原始 Worker 的运行分离开来，进行独立追踪。
     """
     now = int(time.time())
     lock = claimer or _claimer_id()
@@ -4931,10 +4922,10 @@ def heartbeat_claim(
     ttl_seconds: Optional[int] = None,
     claimer: Optional[str] = None,
 ) -> bool:
-    """Extend a running claim.  Returns True if we still own it.
+    """延长正在进行中的认领（claim）时效。若我们仍拥有该认领则返回 True。
 
-    Workers that know they'll exceed 15 minutes should call this every
-    few minutes to keep ownership.
+    预估运行时间将超过 15 分钟的 Worker
+    应当每隔几分钟调用一次此函数，以维持其所有权。
     """
     expires = int(time.time()) + _resolve_claim_ttl_seconds(ttl_seconds)
     lock = claimer or _claimer_id()
@@ -4960,30 +4951,29 @@ def release_stale_claims(
     *,
     signal_fn=None,
 ) -> int:
-    """Reset any ``running`` task whose claim has expired.
+    """重置任何认领已过期的 ``running`` 状态任务。
 
-    A stale-by-TTL claim whose host-local worker PID is still alive is
-    *extended* (with a ``claim_extended`` event) instead of being
-    reclaimed. Reclaiming a live worker mid-flight produces the spawn-
-    then-immediately-reclaim loop seen on slow models that spend longer
-    than ``DEFAULT_CLAIM_TTL_SECONDS`` inside a single tool-free LLM
-    call (#23025): no tool calls means no ``kanban_heartbeat``, even
-    though the subprocess is healthy.
+    对于按 TTL 判定为过期、但其宿主本地 Worker PID 依然存活的认领，
+    系统会对其进行**延长**（并触发 ``claim_extended`` 事件），而不是直接回收。
+    在中途回收存活的 Worker 会导致“刚启动即被回收”的循环，
+    这常见于在不调用工具的单次 LLM 调用中耗时超过
+    ``DEFAULT_CLAIM_TTL_SECONDS`` 的慢速模型（#23025）：
+    没有工具调用意味着没有触发 ``kanban_heartbeat``，即使子进程处于健康状态。
 
-    Backstop (#29747 gap 3): if the worker's PID is still alive but its
-    ``last_heartbeat_at`` is stale by more than
-    ``DEFAULT_CLAIM_HEARTBEAT_MAX_STALE_SECONDS`` (1h), the worker has
-    been making no observable progress and we reclaim anyway — even if
-    ``_pid_alive`` is still true. This catches the wedged-in-a-logic-loop
-    case where the process is technically running but accomplishing
-    nothing. ``_touch_activity`` (run_agent.py) bridges chunk-level
-    liveness into ``last_heartbeat_at`` via #31752, so any genuinely
-    active worker keeps its heartbeat fresh as a side effect of normal
-    API traffic. ``enforce_max_runtime`` and ``detect_crashed_workers``
-    remain the upper bounds for genuinely wedged or dead workers.
+    兜底机制（#29747 缺陷 3）：如果 Worker 的 PID 依然存活，
+    但其 ``last_heartbeat_at`` 的过期时间已超过
+    ``DEFAULT_CLAIM_HEARTBEAT_MAX_STALE_SECONDS``（1 小时），
+    则表明该 Worker 未取得任何可观测的进展，
+    此时无论 ``_pid_alive`` 是否仍为 True，我们都会强制回收该任务。
+    这能捕获进程在技术上仍在运行但陷入逻辑死循环、未产生任何实际效果的情况。
+    借助 #31752，``_touch_activity`` (run_agent.py) 会将 Chunk 级别的活跃状态
+    桥接到 ``last_heartbeat_at`` 中，因此任何真正活跃的 Worker
+    都会在正常 API 交互的过程中顺便维持其心跳的新鲜度。
+    对于真正卡死或已死亡的 Worker，``enforce_max_runtime``
+    与 ``detect_crashed_workers`` 依然作为最终的上限把关。
 
-    Returns the number of stale claims actually reclaimed (live-pid
-    extensions don't count). Safe to call often.
+    返回实际被回收的过期认领数量（存活 PID 的延长操作不计入在内）。
+    频繁调用该函数是安全的。
     """
     now = int(time.time())
     reclaimed = 0
@@ -5229,25 +5219,26 @@ def _verify_created_cards(
     completing_task_id: str,
     claimed_ids: Iterable[str],
 ) -> tuple[list[str], list[str]]:
-    """Partition ``claimed_ids`` into (verified, phantom).
+    """将 ``claimed_ids`` 拆分为 (verified, phantom) 两组。
 
-    A card is "verified" iff a row exists in ``tasks`` AND at least one
-    of the following holds:
+    当且仅当 ``tasks`` 表中存在对应行，
+    且满足以下至少一个条件时，卡片才会被认定为“已验证 (verified)”：
 
-    * ``created_by`` matches the completing task's ``assignee`` profile
-      (the common case: worker A spawns a card via ``kanban_create``,
-      which stamps ``created_by=A``).
-    * ``created_by`` matches the completing task's id (edge case where
-      a worker passed its own task id as the ``created_by`` value).
-    * The card is linked as a ``task_links.child`` of the completing
-      task — i.e. the worker explicitly called ``kanban_create`` with
-      ``parents=[<current_task>]``. This accepts cards created through
-      the dashboard/CLI by a different principal but then attached to
-      the completing task by the worker.
+    * ``created_by`` 与完成任务的 ``assignee`` Profile 匹配
+      （常见情况：Worker A 通过 ``kanban_create`` 创建卡片，
+      系统标记 ``created_by=A``）。
+    * ``created_by`` 与完成任务自身的 ID 匹配
+      （边缘情况：Worker 将自己的任务 ID 作为 ``created_by`` 值传入）。
+    * 该卡片被链接为完成任务的 ``task_links.child``
+      —— 即 Worker 显式调用 ``kanban_create``
+      并传入了 ``parents=[<current_task>]``。
+      这允许接收由其他主体通过 Dashboard/CLI 创建、
+      但随后被 Worker 挂载到完成任务旗下的卡片。
 
-    ``phantom`` returns ids that either don't exist at all, or exist
-    but don't satisfy any of the three trust conditions. The caller
-    decides what to do with each bucket; this helper never mutates.
+    ``phantom`` 会返回完全不存在、
+    或者虽存在但不满足上述三种信任条件中任意一种的 ID。
+    调用方自行决定如何处理这两个分类；
+    本辅助函数绝不会进行任何写修改。
     """
     claimed = [str(x).strip() for x in (claimed_ids or []) if str(x).strip()]
     if not claimed:
@@ -5371,37 +5362,36 @@ def complete_task(
     expected_run_id: Optional[int] = None,
     fire_lifecycle_hook: bool = True,
 ) -> bool:
-    """Transition ``running|ready|blocked|review -> done`` and record ``result``.
+    """将状态由 ``running|ready|blocked|review -> done``，并记录 ``result``。
 
-    Accepts a task that is merely ``ready`` too, so a manual CLI
-    completion (``hermes kanban complete <id>``) works without requiring
-    a claim/start/complete sequence. ``review`` is accepted so a human
-    (or reviewer) can approve a task parked in the review lane by
-    :func:`request_review` — even when it has no active run
-    (``current_run_id IS NULL``), the handoff fields are preserved via
-    :func:`_synthesize_ended_run`.
+    该函数同样接受仅处于 ``ready`` 状态的任务，因此手动通过 CLI
+    完成任务（``hermes kanban complete <id>``）时，
+    无需执行完整的“认领/开始/完成”序列。
+    接受 ``review`` 状态，以便人工（或审核员）能够批准由
+    :func:`request_review` 停留在 review 泳道中的任务
+    —— 即使该任务当前没有活动中的运行 (``current_run_id IS NULL``)，
+    其交接字段也会通过 :func:`_synthesize_ended_run` 予以保留。
 
-    ``summary`` and ``metadata`` are stored on the closing run (if any)
-    and surfaced to downstream children via :func:`build_worker_context`.
-    When ``summary`` is omitted we fall back to ``result`` so single-run
-    callers do not have to pass both. ``metadata`` is a free-form dict
-    (e.g. ``{"changed_files": [...], "tests_run": [...]}``) — workers
-    are encouraged to use it for structured handoff facts.
+    ``summary`` 与 ``metadata`` 会保存在本次结束的运行记录（若存在）上，
+    并由 :func:`build_worker_context` 提供给下游的子任务。
+    当省略 ``summary`` 时，系统会退而使用 ``result`` 的内容，
+    因此单次运行的调用方无需同时传递这两者。
+    ``metadata`` 为自定义格式的字典
+    （例如 ``{"changed_files": [...], "tests_run": [...]}``）
+    —— 鼓励 Worker 使用它来传递结构化的交接事实。
 
-    ``created_cards`` is an optional list of task ids the completing
-    worker claims to have created. Each id is verified against
-    ``tasks.created_by``. If any id is phantom (does not exist or was
-    not created by this worker's assignee profile), completion is blocked
-    with a ``HallucinatedCardsError`` and a
-    ``completion_blocked_hallucination`` event is emitted so the rejected
-    attempt is auditable. When all ids verify, they are recorded on the
-    ``completed`` event payload.
+    ``created_cards`` 为可选参数，包含完成任务的 Worker 声称已创建的任务 ID 列表。
+    其中的每个 ID 都会对照 ``tasks.created_by`` 进行校验。
+    如果存在虚假 ID（不存在或并非由该 Worker 对应的 Profile 所创建），
+    任务的完成操作将被阻塞并抛出 ``HallucinatedCardsError``，
+    同时触发 ``completion_blocked_hallucination`` 事件，以便对被拒绝的尝试进行审计。
+    当所有 ID 均通过校验后，它们将被记录在 ``completed`` 事件的 Payload 中。
 
-    After a successful completion, ``summary`` and ``result`` are scanned
-    for prose references like ``t_deadbeefcafe`` that do not resolve.
-    Any suspected phantom references are recorded as a
-    ``suspected_hallucinated_references`` event. This pass is advisory
-    and never blocks.
+    成功完成后，系统会对 ``summary`` 与 ``result`` 进行扫描，
+    排查是否存在无法解析的文本引用（如 ``t_deadbeefcafe``）。
+    任何怀疑为虚构的引用都会被记录为
+    ``suspected_hallucinated_references`` 事件。
+    此扫描过程仅作为建议参考，绝不会阻塞任务流程。
     """
     now = int(time.time())
     # Fail before validating cards or staging artifacts; re-check inside the
@@ -5409,11 +5399,11 @@ def complete_task(
     if not _parents_satisfied(conn, task_id):
         return False
 
-    # Gate: verify created_cards BEFORE the main write txn. A rejected
-    # completion still needs an auditable event, so we emit it in a
-    # tiny dedicated txn, then raise. The caller is responsible for
-    # surfacing HallucinatedCardsError to the worker; this function
-    # never mutates task state on a phantom-card rejection.
+    # 关卡校验：在执行主要写事务之前验证 created_cards。
+    # 被拒绝的完成操作仍需生成可审计的事件，
+    # 因此我们在一个微型专用事务中触发该事件，然后抛出异常。
+    # 调用方负责将 HallucinatedCardsError 暴露给 Worker；
+    # 在虚假卡片被拒绝时，本函数绝不会修改任务状态。
     if created_cards:
         verified_cards, phantom_cards = _verify_created_cards(
             conn, task_id, created_cards
@@ -5440,9 +5430,9 @@ def complete_task(
         conn, task_id, metadata, summary=summary, result=result,
     )
     with write_txn(conn):
-        # Parent completion is a hard invariant even for direct human review
-        # approval. A parent may have been reopened after this task entered
-        # ``review`` or ``running``.
+        # 即使是人工直接批准 Review，父任务已完成也是一项硬性不变条件。
+        # 在该任务进入 ``review`` 或 ``running`` 状态之后，
+        # 其父任务可能已被重新打开。
         if not _parents_satisfied(conn, task_id):
             return False
         prior = conn.execute(
@@ -6262,32 +6252,31 @@ def block_task(
     kind: Optional[str] = None,
     expected_run_id: Optional[int] = None,
 ) -> bool:
-    """Transition ``running``/``ready`` → ``blocked`` (or route elsewhere).
+    """将状态由 ``running``/``ready`` → ``blocked``（或路由至其他状态）。
 
-    ``kind`` (one of :data:`VALID_BLOCK_KINDS`, or ``None`` for a legacy
-    un-typed block) drives routing instead of every block landing in one
-    undifferentiated ``blocked`` bucket:
+    ``kind``（:data:`VALID_BLOCK_KINDS` 中的一种，或设为 ``None`` 表示未分类的旧版阻塞）
+    用于驱动路由逻辑，而不是将所有阻塞都无差别地塞进同一个 ``blocked`` 桶中：
 
-    * ``dependency`` — the task is only waiting on another task. It does NOT
-      sit in ``blocked`` (where a cron would keep "unblocking" it); it goes to
-      ``todo`` so the existing parent-gating / ``recompute_ready`` machinery
-      promotes it automatically once its parents finish. No human, no cron, no
-      retry storm. This is Dale's "Type 2 — dependency blocked".
+    * ``dependency`` —— 任务仅在等待另一个任务。它**不会**停留在 ``blocked`` 状态
+      （防止定时任务 cron 不断地对其执行“解除阻塞”）；它会进入 ``todo`` 状态，
+      以便现有的父任务把关 / ``recompute_ready`` 机制能在其父任务全部完成后自动将其提升。
+      无需人工介入，无需 cron 定时任务，也不会引发重试风暴。
+      这就是 Dale 所说的“类型 2 —— 依赖阻塞 (dependency blocked)”。
 
-    * ``needs_input`` / ``capability`` / ``None`` — "truly blocked" (Dale's
-      "Type 1"). Lands in ``blocked`` for a human. BUT: each time such a task
-      is re-blocked for the SAME kind after having been unblocked, the
-      unblock-loop counter (``block_recurrences``) increments. When it reaches
-      :data:`BLOCK_RECURRENCE_LIMIT`, the task is routed to ``triage`` instead
-      of ``blocked`` — breaking the cron-unblock ↔ worker-re-block loop and
-      forcing a human-in-the-loop triage decision.
+    * ``needs_input`` / ``capability`` / ``None`` —— “真正被阻塞”（Dale 的“类型 1”）。
+      会进入 ``blocked`` 状态等待人工处理。但是：每当此类任务在解除阻塞后，
+      因**相同**的类型再次被阻塞时，解除阻塞循环计数器 (``block_recurrences``)
+      就会递增。当达到 :data:`BLOCK_RECURRENCE_LIMIT` 上限时，
+      任务会被路由至 ``triage``（分拣）状态而非 ``blocked``
+      —— 从而打破“cron 解除阻塞 ↔ Worker 重新阻塞”的无限循环，
+      强行触发人工介入 (human-in-the-loop) 的分拣决策。
 
-    * ``transient`` — treated like a generic block for routing, but a worker
-      can use it to signal "this might clear on its own"; it still participates
-      in the loop breaker so a forever-flaky task eventually escalates.
+    * ``transient`` —— 在路由上视同普通阻塞，但 Worker 可以利用它来发出信号
+      “该状态可能自行恢复”；它依然会参与循环打破机制（loop breaker），
+      因此对于持续不稳定的任务最终依然会进行升级处理。
 
-    Returns True on any successful transition (to ``blocked``, ``todo``, or
-    ``triage``), False when the task wasn't in a blockable state.
+    在成功完成任意状态转换（转换为 ``blocked``、``todo`` 或 ``triage``）时返回 True；
+    当任务不处于可被阻塞的状态时返回 False。
     """
     if kind is not None and kind not in VALID_BLOCK_KINDS:
         raise ValueError(
@@ -6509,24 +6498,22 @@ def request_review(
     force: bool = False,
     with_reason: bool = False,
 ):
-    """Transition implementation work into the first-class review phase.
+    """将实现阶段的工作转入一级评审 (review) 阶段。
 
-    Unlike :func:`block_task`, this transition never touches block recurrence
-    accounting.  The current implementer and resolved reviewer are recorded on
-    the event so an autonomous reviewer can route requested changes back to the
-    right profile.  Supplying ``reviewer`` reassigns the task before it is
-    exposed to the review dispatcher.  On re-review, omitting it reuses the
-    reviewer provenance persisted by the latest ``changes_requested`` event.
+    与 :func:`block_task` 不同，此状态转换绝不会影响阻塞循环复发 (block recurrence) 计数。
+    当前的实现者与确定的评审者会被记录在事件中，
+    以便自动化评审员 (autonomous reviewer) 能够将修改要求精准路由回正确的 Profile。
+    传入 ``reviewer`` 会在该任务暴露给评审分发器 (review dispatcher) 之前对其进行重新分配。
+    在重新评审时，若省略该参数，则会复用由最近一次 ``changes_requested`` 事件所持久化的评审者归属记录。
 
-    When the task is ``running`` under a live claim, a caller that supplies no
-    ``expected_run_id`` must pass ``force=True`` (explicit human/CLI override)
-    — otherwise the request is refused instead of silently clearing the live
-    worker's ``claim_lock``/``worker_pid``. Workers prove ownership by passing
-    their own run id as ``expected_run_id`` (unchanged).
+    当任务处于带有活动认领的 ``running`` 状态下时，
+    未提供 ``expected_run_id`` 的调用方必须显式传入 ``force=True``（用于人工/CLI 显式覆盖）
+    —— 否则该请求将被拒绝，以防止在无意中清除活跃 Worker 的 ``claim_lock``/``worker_pid``。
+    Worker 通过将自己的运行 ID 作为 ``expected_run_id`` 传入来证明其所有权（行为保持不变）。
 
-    Returns ``bool`` by default. With ``with_reason=True`` returns
-    ``(ok, reason)`` mirroring :func:`request_changes` — ``reason`` is a
-    diagnostic string on failure, ``None`` on success.
+    默认返回 ``bool``。设置 ``with_reason=True`` 时将返回 ``(ok, reason)``
+    （与 :func:`request_changes` 保持一致）
+    —— ``reason`` 在失败时为诊断字符串，在成功时为 ``None``。
     """
 
     def _ret(ok: bool, reason: Optional[str] = None):
@@ -6667,13 +6654,14 @@ def request_changes(
     reason: str,
     expected_run_id: Optional[int] = None,
 ) -> tuple[bool, Optional[str]]:
-    """Finish an active review run and route the task back for rework.
+    """结束一个活动中的评审运行（review run），并将任务退回重新改写。
 
-    The transition is valid only for a run claimed from ``review``.  It closes
-    that reviewer run, restores the implementer recorded by the latest
-    ``review_requested`` event, reapplies parent gating, and emits an auditable
-    ``changes_requested`` event.  The second tuple item is the implementer on
-    success or a diagnostic reason on failure.
+    该状态转换仅对从 ``review`` 状态认领的运行有效。
+    它会关闭当前的评审员运行，恢复由最近一次
+    ``review_requested`` 事件所记录的实现者，
+    重新应用父任务门禁校验，并发出可审计的
+    ``changes_requested`` 事件。
+    元组的第二个元素在成功时为实现者，在失败时为诊断原因。
     """
     reason = str(redact_review_value(reason or "")).strip()
     if not reason:
@@ -6899,14 +6887,14 @@ def _landing_status_after_parents(conn: sqlite3.Connection, task_id: str) -> str
 
 
 def unblock_task(conn: sqlite3.Connection, task_id: str) -> bool:
-    """Transition ``blocked``/``scheduled`` to its safe resumable phase.
+    """将状态从 ``blocked``/``scheduled`` 转换为可安全的恢复运行阶段。
 
-    Defensively closes any stale ``current_run_id`` pointer before flipping
-    status. In the common path (``block_task`` closed the run already) this
-    is a no-op. If a future or external write left the pointer dangling,
-    the leaked run is closed as ``reclaimed`` inside the same txn so the
-    runs invariant (``current_run_id IS NULL`` ⇔ run row in terminal
-    state) holds for the rest of this function's lifetime.
+    在切状态之前，防御性地关闭任何失效的 ``current_run_id`` 指针。
+    在常见路径下（``block_task`` 已关闭了运行），这是一个空操作（no-op）。
+    如果未来的操作或外部写入导致该指针悬空，
+    泄漏的运行记录将在同一个事务内被关闭并标为 ``reclaimed``，
+    从而确保在当前函数的剩余生命周期内，
+    始终满足运行不变量关系（``current_run_id IS NULL`` ⇔ 运行记录行处于终态）。
     """
     now = int(time.time())
     with write_txn(conn):
@@ -8564,27 +8552,26 @@ def detect_stale_running(
     stale_timeout_seconds: int = 0,
     signal_fn=None,
 ) -> list[str]:
-    """Reclaim ``running`` tasks that show no progress (heartbeat) within the
-    staleness window.
+    """回收在过期时间窗口内没有任何进展（心跳）的 ``running`` 状态任务。
 
-    A task is considered stale when BOTH of these hold:
+    当且仅当满足以下**两项**条件时，任务会被视为已过期：
 
-    1. It has been running for longer than ``stale_timeout_seconds``
-       (measured from the active run's ``started_at``, falling back to
-       ``tasks.started_at`` on older runs).
-    2. Its ``last_heartbeat_at`` is older than
-       ``_STALE_HEARTBEAT_GAP_SECONDS`` (or NULL — never sent a heartbeat).
+    1. 它的运行时间已超过 ``stale_timeout_seconds``
+       （从活动运行的 ``started_at`` 开始计算；对于较旧的运行记录，退而使用 ``tasks.started_at``）。
+    2. 它的 ``last_heartbeat_at`` 早于 ``_STALE_HEARTBEAT_GAP_SECONDS``
+       （或者为 NULL —— 即从未发送过心跳）。
 
-    On reclaim the task is restored to its source phase, the run is closed with
-    ``outcome='stale'``, and the host-local worker (if still running) is
-    terminated.
+    在回收时，任务会被恢复至其源阶段，
+    运行记录会被关闭并标记为 ``outcome='stale'``，
+    同时宿主本地的 Worker（如果仍在运行）会被终止。
 
-    Only considers ``status='running'`` tasks. Blocked tasks are never
-    candidates.  Returns the list of reclaimed task IDs.
+    该操作仅针对 ``status='running'`` 的任务。
+    处于 Blocked 状态的任务绝不会成为回收对象。
+    返回被回收的任务 ID 列表。
 
-    ``stale_timeout_seconds=0`` disables the check entirely (returns ``[]``
-    immediately).  ``signal_fn`` is a test hook; defaults to ``os.kill``
-    on POSIX.
+    设置 ``stale_timeout_seconds=0`` 会完全禁用此项检查
+    （立即返回 ``[]``）。
+    ``signal_fn`` 为测试钩子；在 POSIX 系统上默认使用 ``os.kill``。
     """
     if stale_timeout_seconds <= 0:
         return []
@@ -8691,26 +8678,26 @@ def detect_stale_running(
 def reconcile_orphaned_running(
     conn: sqlite3.Connection,
 ) -> list[str]:
-    """Reconcile ``running`` cards whose claim bookkeeping is broken.
+    """对认领簿记（claim bookkeeping）存在异常的 ``running`` 卡片进行状态重对账（Reconcile）。
 
-    Tracked-state vs. reality divergence: a task can sit in
-    ``status='running'`` with ``claim_lock IS NULL`` or ``claim_expires IS
-    NULL`` (crash mid-claim, manual SQL, DB restore). None of the other
-    recovery paths ever touch such a card — ``release_stale_claims``
-    requires a non-NULL ``claim_expires``, ``detect_crashed_workers``
-    requires a host-local claim_lock + worker_pid, and
-    ``detect_stale_running`` is disabled by default — so the card shows
-    Running forever (a zombie).
+    追踪状态与实际情况的偏差：任务可能处于 ``status='running'``，
+    但其 ``claim_lock IS NULL`` 或 ``claim_expires IS NULL``
+    （例如认领中途崩溃、手动执行 SQL 修改或数据库还原）。
+    其他任何恢复路径都无法处理此类卡片
+    —— ``release_stale_claims`` 要求 ``claim_expires`` 非空，
+    ``detect_crashed_workers`` 要求存在本机的 claim_lock + worker_pid，
+    而 ``detect_stale_running`` 默认禁用 ——
+    导致该卡片会永久显示为 Running 状态（成为僵尸卡片）。
 
-    This pass finds those orphans, requeues them to ``ready`` with an
-    explanatory comment, closes any leaked run, and appends a
-    ``reconciled`` event. If the orphan row still records a live PID on
-    this host, requeueing is deferred to a later tick so we never spawn a
-    duplicate beside a possibly-alive worker.
+    本清理过程会找出这些孤儿任务，并附带一条解释性注释将其重新入队至 ``ready``，
+    关闭任何泄漏的运行（run），并追加一个 ``reconciled`` 事件。
+    如果孤儿任务行中依然记录了当前主机上的活跃 PID，
+    则重新入队操作将推迟到后续的 Tick（周期）中，
+    以确保绝对不会在一个可能存活的 Worker 旁重复派发新任务。
 
-    Returns the list of reconciled task ids. Safe to call every tick.
+    返回已被重对账的任务 ID 列表。每个 Tick 调用均是安全的。
 
-    Idea from openai/symphony's tracker reconciliation (Apache-2.0).
+    思路借鉴自 openai/symphony 的 Tracker 重对账机制（基于 Apache-2.0 协议）。
     """
     now = int(time.time())
     reconciled: list[str] = []
@@ -8861,32 +8848,31 @@ def _protocol_violation_streak(conn: sqlite3.Connection, task_id: str) -> int:
 
 
 def detect_crashed_workers(conn: sqlite3.Connection) -> list[str]:
-    """Reclaim ``running`` tasks whose worker PID is no longer alive.
+    """回收其 Worker PID 已不再存活的 ``running`` 状态任务。
 
-    Appends a ``crashed`` event and restores the task's source phase.
-    Different from ``release_stale_claims``: this checks liveness
-    immediately rather than waiting for the claim TTL.
+    追加一个 ``crashed`` 事件，并将任务恢复至其源阶段。
+    与 ``release_stale_claims`` 不同：本函数会立即检查进程存活力，
+    而不是等待认领 TTL 到期。
 
-    Only considers tasks claimed by *this host* — PIDs from other hosts
-    are meaningless here. The host-local check is enough because
-    ``_default_spawn`` always runs the worker on the same host as the
-    dispatcher (the whole design is single-host).
+    仅处理由**当前宿主主机**认领的任务 —— 其他主机的 PID 在此处没有意义。
+    仅检查本地主机就已足够，因为 ``_default_spawn`` 总是将 Worker
+    运行在与 Dispatcher 相同的主机上（整个系统架构均为单主机设计）。
 
-    When the reap registry shows the worker exited cleanly (rc=0) but
-    the task was still ``running`` in the DB, treat it as a protocol
-    violation (worker answered conversationally without calling
-    ``kanban_complete`` / ``kanban_block``) and trip the circuit breaker
-    on the first occurrence — retrying a worker whose CLI keeps
-    returning 0 without a terminal transition just loops forever.
+    当回收注册表（reap registry）显示 Worker 已正常退出（rc=0），
+    但任务在数据库中依然处于 ``running`` 状态时，系统会将其视为协议违规
+    （Worker 仅进行了对话式回复，而未调用 ``kanban_complete`` / ``kanban_block``），
+    并在首次发生时触发熔断机制 —— 重新尝试一个 CLI 不断返回 0
+    但未产生终态转换的 Worker 只会陷入无限循环。
 
-    When the reap registry shows the worker exited with the rate-limit
-    sentinel (``KANBAN_RATE_LIMIT_EXIT_CODE``), the worker bailed on a
-    provider quota wall, NOT a task failure. Such tasks are released back
-    to its source phase WITHOUT counting a failure (so a long quota window can't
-    trip the breaker) and stamped with a quota-blocker error so
-    ``check_respawn_guard`` defers their respawn until the window clears.
-    The ids are returned via the ``_last_rate_limited`` function attribute
-    (the public return stays the crashed-only ``list[str]``).
+    当回收注册表显示 Worker 因速率限制哨兵值
+    （``KANBAN_RATE_LIMIT_EXIT_CODE``）而退出时，
+    表明 Worker 是卡在提供商的配额配额墙上，而非发生了任务失败。
+    此类任务会被释放回其源阶段且**不计入失败次数**
+    （这样漫长的配额等待窗口就不会触发熔断器），
+    同时被打上配额阻塞错误标签，以便 ``check_respawn_guard``
+    能将其重新派发推迟到配额窗口解除之后。
+    这些 ID 会通过 ``_last_rate_limited`` 函数属性返回
+    （公开的返回值保持为仅包含崩溃任务的 ``list[str]``）。
     """
     crashed: list[str] = []
     rate_limited: list[str] = []
@@ -9172,48 +9158,44 @@ def _record_task_failure(
     end_run: bool = False,
     event_payload_extra: Optional[dict] = None,
 ) -> bool:
-    """Record a non-success outcome (spawn_failed / crashed / timed_out)
-    and maybe trip the circuit breaker.
+    """记录非成功结果（spawn_failed / crashed / timed_out），
+    并在必要时触发熔断机制。
 
-    Unified replacement for the old spawn-only ``_record_spawn_failure``.
-    Every path that ends a task with a non-success outcome funnels
-    through here so the ``consecutive_failures`` counter and the
-    auto-block threshold stay consistent.
+    作为原先仅用于生成失败的 ``_record_spawn_failure`` 的统一替代方案。
+    所有以非成功结果结束任务的路径都会汇集至此处，
+    以确保 ``consecutive_failures`` 计数器与自动阻塞阈值保持一致。
 
-    Returns True when the task was auto-blocked (counter reached
-    ``failure_limit``), False when it was just updated in place.
+    当任务被自动阻塞（计数器达到 ``failure_limit``）时返回 True；
+    若仅是在原位更新，则返回 False。
 
-    Modes:
+    运行模式：
 
-    * ``release_claim=True, end_run=True`` — spawn-failure path.
-      Caller has a running task with an open run; this transitions
-      it back to its source phase (or ``blocked`` when the breaker trips),
-      releases the claim, and closes the run with ``outcome=<outcome>``.
+    * ``release_claim=True, end_run=True`` —— 生成失败路径。
+      调用方拥有一个带有开启状态运行（run）的处于运行中的任务；
+      此模式会将其转换回源阶段（或在熔断器触发时转换为 ``blocked``），
+      释放认领状态，并将运行记录以 ``outcome=<outcome>`` 的结果关闭。
 
-    * ``release_claim=False, end_run=False`` — timeout/crash path.
-      Caller has ALREADY restored the task's source phase and closed the
-      run with the appropriate outcome. This just increments the
-      counter; if the breaker trips, the task is re-transitioned
-      into ``blocked`` and a ``gave_up`` event is emitted.
+    * ``release_claim=False, end_run=False`` —— 超时/崩溃路径。
+      调用方**已经**恢复了任务的源阶段，
+      并以对应的结果关闭了运行记录。
+      此模式仅递增计数器；如果触发了熔断器，
+      任务会被重新转换为 ``blocked`` 状态，并触发 ``gave_up`` 事件。
 
-    ``event_payload_extra`` merges into the ``gave_up`` event payload
-    when the breaker trips, so callers can include outcome-specific
-    context (e.g. pid on crash, elapsed on timeout).
+    当熔断器触发时，``event_payload_extra`` 会合并入 ``gave_up`` 事件的 Payload 中，
+    以便调用方能够包含特定结果的上下文信息（例如崩溃时的 PID、超时耗时）。
 
-    Resolution order for the effective threshold:
-      1. per-task ``max_retries`` if set (nothing else overrides)
-      2. caller-supplied ``failure_limit`` (gateway passes the config
-         value from ``kanban.failure_limit``; tests pass fixed values)
+    生效阈值的解析顺序：
+      1. 单个任务设置的 ``max_retries``（若已指定，没有任何其他设置可以覆盖它）
+      2. 调用方提供的 ``failure_limit``
+         （网关传来自 ``kanban.failure_limit`` 的配置值；测试传入固定值）
       3. ``DEFAULT_FAILURE_LIMIT``
 
-    ``force_trip=True`` trips the breaker unconditionally, skipping the
-    counter-vs-threshold comparison (the resolution order above is then
-    only reported in the ``gave_up`` payload, not re-evaluated). Callers
-    use it when they have already applied their own bounded-retry policy
-    — e.g. the clean-exit protocol-violation streak in
-    ``detect_crashed_workers``, which resolves the per-task
-    ``max_retries`` override against the violation streak itself. The
-    failure is still counted into ``consecutive_failures``.
+    设置 ``force_trip=True`` 会无条件触发熔断器，
+    跳过计数器与阈值的比较（上述解析顺序仅会在 ``gave_up`` Payload 中体现，
+    而不会被再次评估）。当调用方已经应用了自己的有界重试策略时会使用它
+    —— 例如在 ``detect_crashed_workers`` 中对正常退出的协议违规连续次数的处理，
+    该处理会将单个任务的 ``max_retries`` 覆盖项与违规连续次数本身进行解析比对。
+    该失败仍会被计入 ``consecutive_failures``。
     """
     if failure_limit is None:
         failure_limit = DEFAULT_FAILURE_LIMIT
@@ -9831,20 +9813,19 @@ def dispatch_once(
     max_in_progress_per_profile: Optional[int] = None,
     reconcile_orphans: bool = True,
 ) -> DispatchResult:
-    """Run one dispatcher tick under the board's single-writer lock.
+    """在看板的单写入者锁（single-writer lock）保护下运行一次分发器 Tick。
 
-    Thin wrapper around :func:`_dispatch_once_locked`. It acquires a
-    non-blocking, board-scoped dispatch lock (issue #35240) so that two
-    dispatchers pointed at the same ``kanban.db`` — e.g. the service-
-    managed gateway and a shell-spawned orphan that escaped the service
-    cgroup — can never run a reclaim/spawn/write tick concurrently and
-    race on WAL frames. The losing dispatcher returns an empty
-    ``DispatchResult`` with ``skipped_locked=True`` and does no DB writes;
-    the holder is already making progress on the same board.
+    该函数是对 :func:`_dispatch_once_locked` 的轻量封装。
+    它会获取一个非阻塞的、看板作用域的分发锁（issue #35240），
+    从而使得指向同一个 ``kanban.db`` 的两个分发器
+    —— 例如由服务管理的网关，以及从服务 cgroup 中逃逸、
+    由 Shell 派生的孤儿进程 —— 绝不会同时运行
+    回收/生成/写入 Tick 并在 WAL 帧上产生竞态条件。
+    未竞争到锁的分发器会返回一个 ``skipped_locked=True`` 的空 ``DispatchResult``，
+    且不进行任何数据库写入；因为持有锁的分发器已经在同一个看板上推进行程。
 
-    The lock is keyed off the board's resolved DB path, so unrelated
-    boards tick in parallel. See :func:`_dispatch_tick_lock` for the
-    cross-process / cross-platform mechanics.
+    该锁以看板解析后的数据库路径作为键，因此互不相关的看板可以并行运行 Tick。
+    关于跨进程/跨平台机制，请参阅 :func:`_dispatch_tick_lock`。
     """
     try:
         db_path = kanban_db_path(board=board)
@@ -9913,43 +9894,44 @@ def _dispatch_once_locked(
     max_in_progress_per_profile: Optional[int] = None,
     reconcile_orphans: bool = True,
 ) -> DispatchResult:
-    """Run one dispatcher tick.
+    """运行一次分发器 Tick（调度周期）。
 
-    Steps:
-      1. Reclaim stale running tasks (TTL expired).
-      2. Reclaim stale running tasks (no recent heartbeat).
-      3. Reclaim crashed running tasks (host-local PID no longer alive).
-      3. Promote todo -> ready where all parents are done.
-      4. For each ready task with an assignee, atomically claim and call
-         ``spawn_fn(task, workspace_path, board) -> Optional[int]``. The
-         return value (if any) is recorded as ``worker_pid`` so subsequent
-         ticks can detect crashes before the TTL expires.
+    步骤：
+      1. 回收过期的运行中任务（TTL 到期）。
+      2. 回收停滞的运行中任务（近期无心跳）。
+      3. 回收崩溃的运行中任务（本机 PID 已不再存活）。
+      3. 当所有父任务均已完成时，将任务从 todo 提升为 ready。
+      4. 对于每个带有分配对象的 ready 状态任务，原子化地认领并调用
+         ``spawn_fn(task, workspace_path, board) -> Optional[int]``。
+         返回值（若存在）会被记录为 ``worker_pid``，
+         以便后续 Tick 可以在 TTL 到期之前检测出崩溃。
 
-    Spawn failures are counted per-task. After ``failure_limit`` consecutive
-    failures the task is auto-blocked with the last error as its reason —
-    prevents the dispatcher from thrashing forever on an unfixable task.
+    派发失败会在单个任务层面上进行计数。
+    在连续失败达到 ``failure_limit`` 次后，
+    任务将被自动阻塞，并将最后一次错误作为其原因
+    —— 这可以防止分发器在无法修复的任务上无限次地无效重试。
 
-    ``max_spawn`` is a **live concurrency cap**, not a per-tick spawn budget:
-    it counts tasks already in ``status='running'`` plus this tick's spawns
-    against the limit. So ``max_spawn=4`` means "at most 4 workers running
-    at any time across the whole board" — matching the gateway's stated
-    intent ("limit concurrent kanban tasks"). With a per-tick interpretation
-    a 60-second tick interval could grow concurrency by N every minute on a
-    busy board and accumulate without bound.
+    ``max_spawn`` 是一个**动态并发上限**，而非单个 Tick 的派发预算：
+    它会将已处于 ``status='running'`` 状态的任务数
+    加上本轮 Tick 派发的任务数共同与限制值进行比对。
+    因此 ``max_spawn=4`` 意味着“整个看板在任何时候最多只有 4 个 Worker 在运行”
+    —— 这与网关预期的设计意图（“限制看板并发任务数”）保持一致。
+    若理解为单个 Tick 的预算，在繁忙的看板上，以 60 秒为间隔的 Tick
+    会导致并发量每分钟增加 N 个，进而发生无节制的堆积。
 
-    ``max_in_progress`` is a **host-level** concurrency cap (OOF-30): it
-    counts running tasks on every active board — not just this one — plus
-    this tick's spawns. Workers are OS processes sharing one machine's
-    memory, so a per-board interpretation would multiply the cap by the
-    number of active boards. ``max_spawn`` retains its historical per-board
-    semantics.
+    ``max_in_progress`` 是一个**主机级别**的并发上限（OOF-30）：
+    它会统计每个活动看板（而不单是当前看板）上正在运行的任务数，
+    再加上本轮 Tick 派发的任务数。
+    因为 Worker 是共享同一台机器内存的操作系统进程，
+    如果将其理解为看板级别，并发上限就会乘以活动看板的数量。
+    ``max_spawn`` 则依然保留其原有的看板级语义。
 
-    ``spawn_fn`` defaults to ``_default_spawn``. Tests pass a stub.
-    ``board`` pins workspace/log/db resolution for this tick to a specific
-    board. When omitted, the current-board resolution chain is used.
+    ``spawn_fn`` 默认使用 ``_default_spawn``。测试时会传入存根（stub）。
+    ``board`` 用于将本轮 Tick 的工作区/日志/数据库解析绑定到特定的看板。
+    当省略该参数时，使用当前看板的解析链。
     """
-    # Reap zombie children from previously spawned workers. See
-    # reap_worker_zombies() for the full rationale.
+    # 清理（Reap）此前派发的 Worker 所留下的僵尸子进程。
+    # 完整原由请参阅 reap_worker_zombies()。
     reap_worker_zombies()
 
     result = DispatchResult()
@@ -11013,27 +10995,25 @@ def run_daemon(
 # ---------------------------------------------------------------------------
 
 def build_worker_context(conn: sqlite3.Connection, task_id: str) -> str:
-    """Return the full text a worker should read to understand its task.
+    """返回 Worker 为理解其任务所应读取的完整文本。
 
-    Order:
-      1. Task title (mandatory).
-      2. Task body (optional opening post, capped at 8 KB).
-      3. Prior attempts on THIS task (most recent ``_CTX_MAX_PRIOR_ATTEMPTS``
-         shown; older attempts collapsed into a one-line summary).
-         Each attempt's ``summary`` / ``error`` / ``metadata`` capped at
-         ``_CTX_MAX_FIELD_BYTES`` each.
-      4. Structured handoff results of every done parent task. Prefers
-         ``run.summary`` / ``run.metadata`` when the parent was executed
-         via a run; falls back to ``task.result`` for older data. Same
-         per-field cap.
-      5. Cross-task role history for the assignee (most recent 5
-         completed runs on other tasks).
-      6. Comment thread (most recent ``_CTX_MAX_COMMENTS`` shown, older
-         collapsed).
+    顺序：
+      1. 任务标题（必选）。
+      2. 任务正文（可选的开篇帖子，上限为 8 KB）。
+      3. **当前任务**的先前尝试（显示最近的 ``_CTX_MAX_PRIOR_ATTEMPTS`` 次；
+         更早的尝试将折叠为单行摘要）。
+         每次尝试的 ``summary`` / ``error`` / ``metadata``
+         单项上限均为 ``_CTX_MAX_FIELD_BYTES``。
+      4. 每个已完成父任务的结构化交接结果。当父任务是通过一次运行（run）
+         执行时，优先选用 ``run.summary`` / ``run.metadata``；
+         对于较旧的数据则退而选用 ``task.result``。单项字段上限相同。
+      5. 被分配者（assignee）跨任务的角色历史记录
+         （在其他任务上最近完成的 5 次运行）。
+      6. 注释/评论讨论串（显示最近的 ``_CTX_MAX_COMMENTS`` 条，更早的折叠）。
 
-    All caps exist so worker prompts stay bounded even on pathological
-    boards (retry-heavy tasks, comment storms). The per-field char cap
-    prevents a single 1 MB summary from dominating context.
+    设置所有上限旨在确保即使在极端的看板状况下（频繁重试的任务、评论风暴），
+    Worker 的提示词（prompt）依然维持在限定范围内。
+    单项字段的字符上限可防止单个 1 MB 的摘要占用绝大部分上下文。
     """
     task = get_task(conn, task_id)
     if not task:

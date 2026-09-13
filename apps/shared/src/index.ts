@@ -47,17 +47,70 @@ export {
   DATA_URL_READ_MIN_MAX_MB
 } from './data-url-read-max'
 export {
-  type ConnectionState,
-  type GatewayClientOptions,
+  type ApprovalRequestPayload,
+  BACKEND_EVENT_NAMES,
+  type BackendGatewayEventMap,
+  type BackendGatewayEventName,
+  type ClarifyQuestion,
+  type ClarifyRequestPayload,
+  type ClientLocalGatewayEventMap,
+  type ErrorPayload,
+  type ErrorSurface,
   type GatewayEvent,
+  type GatewayEventMap,
   type GatewayEventName,
+  type GatewayReadyPayload,
+  type GatewayTranscriptMessage,
+  type McpSetupRequestPayload,
+  type MessageCompletePayload,
+  type MessageInterimPayload,
+  type ModelCapabilities,
+  type ModelOptionProvider,
+  type ModelOptionsResponse,
+  type ModelPricing,
+  type NotificationShowPayload,
+  type RequestExpirePayload,
+  type SecretRequestPayload,
+  type SessionInflightTurn,
+  type SessionListItem,
+  type SessionListResponse,
+  type SessionReclaimedPayload,
+  type SessionResumeResponse,
+  type SessionUsagePayload,
+  type StatusUpdatePayload,
+  type StreamDeltaPayload,
+  type SubagentEventPayload,
+  type SubagentStatus,
+  type TodoStatePayload,
+  type ToolCompletePayload,
+  type ToolStartPayload,
+  type Usage,
+  type VaultUnlockRequestPayload,
+  type WakeDetectedPayload
+} from './gateway-events'
+export {
+  DEFAULT_HEARTBEAT_DEADLINE_MS,
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
   type GatewayRequestId,
+  JSON_RPC_METHOD_NOT_FOUND,
+  jsonRpcErrorFromFrame,
   type JsonRpcErrorPayload,
   type JsonRpcFrame,
-  JsonRpcGatewayClient,
   JsonRpcGatewayError,
+  JsonRpcRequestChannel,
+  type JsonRpcRequestChannelOptions,
+  type JsonRpcTransport,
+  wireFrameText
+} from './json-rpc-channel'
+export {
+  type ConnectionState,
+  type GatewayClientOptions,
+  GatewayEventHub,
+  isGatewayWebSocketUrl,
+  JsonRpcGatewayClient,
   type WebSocketLike
 } from './json-rpc-gateway'
+export { reconnectBackoffDelayMs, type ReconnectBackoffOptions } from './reconnect-backoff'
 export { skillInvocationText } from './skill-scaffold'
 export {
   type HermesSkin,

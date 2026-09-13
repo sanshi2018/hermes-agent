@@ -8,7 +8,10 @@
     "./billing": "./src/billing-types.ts",
     "./billing-policy": "./src/billing-policy.ts",
     "./charge-settlement": "./src/charge-settlement.ts",
-    "./skin": "./src/skin.ts"
+    "./gateway-events": "./src/gateway-events.ts",
+    "./skin": "./src/skin.ts",
+    "./json-rpc-channel": "./src/json-rpc-channel.ts",
+    "./reconnect-backoff": "./src/reconnect-backoff.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

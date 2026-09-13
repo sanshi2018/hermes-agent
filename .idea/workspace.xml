@@ -4,14 +4,9 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="gateway配置">
-      <change afterPath="$PROJECT_DIR$/.run/dashboard.run.xml" afterDir="false" />
+    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="kanban done">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.run/gateway.run.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.run/gateway.run.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/agent/prompt_builder.py" beforeDir="false" afterPath="$PROJECT_DIR$/agent/prompt_builder.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hermes_cli/kanban_db.py" beforeDir="false" afterPath="$PROJECT_DIR$/hermes_cli/kanban_db.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hermes_cli/kanban_decompose.py" beforeDir="false" afterPath="$PROJECT_DIR$/hermes_cli/kanban_decompose.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/kanban_tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/kanban_tools.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/computer_use/cua_backend.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/computer_use/cua_backend.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -280,15 +275,8 @@
       <workItem from="1787879451094" duration="606000" />
       <workItem from="1787925930501" duration="54000" />
       <workItem from="1787926139998" duration="23273000" />
-      <workItem from="1788067851554" duration="10584000" />
-    </task>
-    <task id="LOCAL-00009" summary="debug配置">
-      <option name="closed" value="true" />
-      <created>1784550691829</created>
-      <option name="number" value="00009" />
-      <option name="presentableId" value="LOCAL-00009" />
-      <option name="project" value="LOCAL" />
-      <updated>1784550691829</updated>
+      <workItem from="1788067851554" duration="11931000" />
+      <workItem from="1789116830305" duration="10939000" />
     </task>
     <task id="LOCAL-00010" summary="api service启动">
       <option name="closed" value="true" />
@@ -674,7 +662,15 @@
       <option name="project" value="LOCAL" />
       <updated>1787978715405</updated>
     </task>
-    <option name="localTasksCounter" value="58" />
+    <task id="LOCAL-00058" summary="kanban done">
+      <option name="closed" value="true" />
+      <created>1788108873388</created>
+      <option name="number" value="00058" />
+      <option name="presentableId" value="LOCAL-00058" />
+      <option name="project" value="LOCAL" />
+      <updated>1788108873388</updated>
+    </task>
+    <option name="localTasksCounter" value="59" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -752,7 +748,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="tool search 分层式渐进式披露" />
     <MESSAGE value="mcp server部分" />
     <MESSAGE value="sandbox" />
     <MESSAGE value="调用sandbox也是通过tool工具来实现" />
@@ -777,89 +772,60 @@
     <MESSAGE value="agent loop 收尾阶段" />
     <MESSAGE value="配置" />
     <MESSAGE value="gateway配置" />
-    <option name="LAST_COMMIT_MESSAGE" value="gateway配置" />
+    <MESSAGE value="kanban done" />
+    <option name="LAST_COMMIT_MESSAGE" value="kanban done" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
       <breakpoints>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
-          <line>1958</line>
+          <line>1610</line>
           <option name="timeStamp" value="2" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
-          <line>2081</line>
-          <option name="timeStamp" value="3" />
-        </line-breakpoint>
-        <line-breakpoint suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
-          <line>2425</line>
-          <option name="timeStamp" value="4" />
-        </line-breakpoint>
-        <line-breakpoint suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
-          <line>2735</line>
-          <option name="timeStamp" value="5" />
-        </line-breakpoint>
-        <line-breakpoint suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
-          <line>2998</line>
-          <option name="timeStamp" value="11" />
-        </line-breakpoint>
-        <line-breakpoint suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/agent/conversation_loop.py</url>
-          <line>3322</line>
-          <option name="timeStamp" value="13" />
-        </line-breakpoint>
-        <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/agent/tool_executor.py</url>
-          <line>1966</line>
+          <line>1449</line>
           <option name="timeStamp" value="17" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/model_tools.py</url>
-          <line>509</line>
+          <line>337</line>
           <option name="timeStamp" value="19" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/agent/tool_executor.py</url>
-          <line>2081</line>
+          <line>1471</line>
           <option name="timeStamp" value="20" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/agent/tool_executor.py</url>
-          <line>2083</line>
+          <line>1472</line>
           <option name="timeStamp" value="21" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tools/skills_tool.py</url>
-          <line>1958</line>
+          <line>594</line>
           <option name="timeStamp" value="25" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
-          <line>7822</line>
+          <line>635</line>
           <option name="timeStamp" value="32" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
-          <line>7827</line>
-          <option name="timeStamp" value="35" />
-        </line-breakpoint>
-        <line-breakpoint suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
-          <line>7725</line>
+          <line>624</line>
           <option name="timeStamp" value="36" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
-          <line>3910</line>
+          <line>400</line>
           <option name="timeStamp" value="38" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
-          <line>7142</line>
+          <line>610</line>
           <option name="timeStamp" value="39" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
@@ -869,7 +835,7 @@
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tools/mcp_tool.py</url>
-          <line>3279</line>
+          <line>394</line>
           <option name="timeStamp" value="44" />
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
@@ -879,7 +845,7 @@
         </line-breakpoint>
         <line-breakpoint suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tui_gateway/methods_prompt.py</url>
-          <line>357</line>
+          <line>545</line>
           <option name="timeStamp" value="59" />
         </line-breakpoint>
       </breakpoints>

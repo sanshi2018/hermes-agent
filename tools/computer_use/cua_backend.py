@@ -1,10 +1,71 @@
-"""Cua-driver backend (macOS, Windows, Linux): MCP over stdio to `cua-driver`. The async `mcp` SDK runs on a
-background loop (``cua_backend_session``); the same tool surface works on all three platforms, and per-host gaps
-(no DISPLAY, missing AT-SPI, TCC) surface via `hermes computer-use doctor` instead of failing silently. Install
-with `hermes computer-use install`. The macOS path uses private SkyLight SPIs that can break on OS updates.
-Siblings: ``cua_backend_driver`` (binary/contract/update), ``cua_backend_capture`` + ``cua_backend_input``
-(mixins), ``cua_backend_parse``, ``cua_backend_session`` (bridge + session + CLI fallback), ``cua_backend_daemon``
-(private daemon + macOS app identity). Siblings look this module's config/policy helpers up lazily."""
+"""Cua-driver 后端（macOS、Windows、Linux）。
+
+通过 stdio 使用 MCP 协议与 `cua-driver` 进行通信。
+Python 的 `mcp` SDK 是异步的，
+因此我们在后台线程中运行一个专用的 asyncio 事件循环，
+并通过它来编排整合同步调用。
+
+相同的 `cua-driver call <tool>` 接口层（包括 click, type_text, hotkey, drag,
+scroll, screenshot, launch_app, list_apps, list_windows, get_window_state,
+move_cursor, wait 等操作）在 macOS、Windows 和 Linux 上的表现完全一致——
+cua-driver 的 PARITY 对比矩阵已在跨平台的 Rust 移植版本（`cua-driver-rs`）中，
+将 macOS 和 Windows 上的动作工具标记为“已验证（VERIFIED）”。
+
+Linux 是最新支持的运行时平台（目前支持 X11，以及通过 XWayland 支持 Wayland；
+纯 Wayland 支持的进度正在上游追踪）。
+它与 macOS 和 Windows 一起，在 `check_computer_use_requirements` 中被启用。
+本文件中的底层代码逻辑是与操作系统无关的；
+各个主机环境的差异和缺失项（如没有 DISPLAY 环境变量、缺少 AT-SPI 等），
+会通过 `hermes computer-use doctor` 作为特定的阻塞检查项暴露出来，
+而不是直接静默失败。
+
+安装：
+  - **macOS**：
+      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh)"
+  - **Windows** (PowerShell)：
+      irm https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.ps1 | iex
+
+安装完成后，`cua-driver` 会被添加到 $PATH 环境变量中，
+并且支持 `cua-driver mcp`（stdio 传输模式），
+这也是我们正在调用的命令。
+
+macOS 路径使用了私有的 SkyLight SPIs
+（如 SLEventPostToPid, SLPSPostEventRecordTo, _AXObserverAddNotificationAndCheckRemote），
+这些并非 Apple 公开的接口，可能会在操作系统更新时失效崩溃。
+而 `cua-driver-rs` 中的 Windows 路径使用的是稳定的 Win32 APIs
+（SendInput + UI Automation）——
+因此不受此类 SPI 接口失效问题的影响。
+
+
+
+
+------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+Cua-driver 后端（macOS、Windows、Linux）：
+通过 stdio 使用 MCP 协议连接到 `cua-driver`。
+
+异步的 `mcp` SDK 运行在一个后台循环中（`cua_backend_session`）；
+相同的工具接口层可以在所有三个平台上工作，
+并且各个主机的环境缺失或差异（例如没有 DISPLAY 变量、缺少 AT-SPI、TCC 权限问题等），
+都会通过 `hermes computer-use doctor` 暴露出来，而不是直接静默失败。
+
+请使用 `hermes computer-use install` 命令进行安装。
+
+macOS 路径使用了私有的 SkyLight SPI 接口，
+这些接口可能会在操作系统更新时失效崩溃。
+
+兄弟模块（Siblings）包括：
+- `cua_backend_driver`（处理二进制文件/契约/更新）
+- `cua_backend_capture` + `cua_backend_input`（混入类）
+- `cua_backend_parse`
+- `cua_backend_session`（桥接 + 会话 + CLI 降级回退）
+- `cua_backend_daemon`（私有守护进程 + macOS 应用身份标识）
+
+这些兄弟模块会延迟查找（lazily look up）并调用本模块的配置/策略辅助工具。
+"""
+
 
 from __future__ import annotations
 

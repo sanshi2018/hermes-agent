@@ -4,9 +4,9 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="kanban done">
+    <list default="true" id="3fac7840-3eb9-4201-80c8-47768dcdf0e1" name="Changes" comment="add coputer">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/computer_use/cua_backend.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/computer_use/cua_backend.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/uv.lock" beforeDir="false" afterPath="$PROJECT_DIR$/uv.lock" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -159,7 +159,7 @@
       <recent name="C:\Users\Administrator\PycharmProjects\example\hermes-agent\plugins\platforms\HerEmail" />
     </key>
   </component>
-  <component name="RunManager" selected="Python.gateway">
+  <component name="RunManager" selected="Python.Hermes (Desktop Backend Debug)">
     <configuration name="mcp_startup" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="hermes-agent" />
       <option name="ENV_FILES" value="" />
@@ -277,14 +277,7 @@
       <workItem from="1787926139998" duration="23273000" />
       <workItem from="1788067851554" duration="11931000" />
       <workItem from="1789116830305" duration="10939000" />
-    </task>
-    <task id="LOCAL-00010" summary="api service启动">
-      <option name="closed" value="true" />
-      <created>1784600418126</created>
-      <option name="number" value="00010" />
-      <option name="presentableId" value="LOCAL-00010" />
-      <option name="project" value="LOCAL" />
-      <updated>1784600418126</updated>
+      <workItem from="1789652906510" duration="314000" />
     </task>
     <task id="LOCAL-00011" summary="工具执行逻辑梳理">
       <option name="closed" value="true" />
@@ -670,7 +663,15 @@
       <option name="project" value="LOCAL" />
       <updated>1788108873388</updated>
     </task>
-    <option name="localTasksCounter" value="59" />
+    <task id="LOCAL-00059" summary="add coputer">
+      <option name="closed" value="true" />
+      <created>1789306707577</created>
+      <option name="number" value="00059" />
+      <option name="presentableId" value="LOCAL-00059" />
+      <option name="project" value="LOCAL" />
+      <updated>1789306707578</updated>
+    </task>
+    <option name="localTasksCounter" value="60" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -748,7 +749,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="mcp server部分" />
     <MESSAGE value="sandbox" />
     <MESSAGE value="调用sandbox也是通过tool工具来实现" />
     <MESSAGE value="sandbox 执行命令" />
@@ -773,7 +773,8 @@
     <MESSAGE value="配置" />
     <MESSAGE value="gateway配置" />
     <MESSAGE value="kanban done" />
-    <option name="LAST_COMMIT_MESSAGE" value="kanban done" />
+    <MESSAGE value="add coputer" />
+    <option name="LAST_COMMIT_MESSAGE" value="add coputer" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -860,7 +861,7 @@
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/hermes_agent$skills_tool.coverage" NAME="skills_tool Coverage Results" MODIFIED="1785496463670" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tools" />
-    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__Desktop_Backend_Debug_.coverage" NAME="Hermes (Desktop Backend Debug) Coverage Results" MODIFIED="1787844885153" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/hermes_agent$Hermes__Desktop_Backend_Debug_.coverage" NAME="Hermes (Desktop Backend Debug) Coverage Results" MODIFIED="1789652916203" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes__TUI_.coverage" NAME="Hermes (TUI) Coverage Results" MODIFIED="1784550044047" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$Hermes_Desktop.coverage" NAME="Hermes Desktop Coverage Results" MODIFIED="1787333319919" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/hermes_agent$mcp_startup.coverage" NAME="mcp_startup Coverage Results" MODIFIED="1787333135080" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/hermes_cli" />

@@ -10,7 +10,8 @@ import contextlib
 import threading
 
 from .method_ctx import bind_module
-
+from .server import _load_interim_assistant_messages, _tour_request
+from .tool_progress import _on_tool_start, _on_tool_complete, _on_tool_progress
 
 # Child-session live mirror: a delegated child's activity reaches the gateway only as
 # relayed ``subagent.*`` events on the PARENT sid; translate them into native stream

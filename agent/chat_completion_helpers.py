@@ -942,14 +942,17 @@ class _InlineRequest:
 
 
 def direct_api_call(agent, api_kwargs: dict):
-    """Run a non-streaming LLM call inline on the conversation thread (cron turns,
-    delegated children — see ``should_use_direct_api_call``): no interrupt worker,
-    so the nested-pool deadlock cannot occur. An activity heartbeat keeps
-    ``last_activity_ts`` advancing (else the stall monitor interrupts a healthy
-    wait at ~450s). A stale-call watchdog bounds the request (#80759): the timer
-    aborts in-flight sockets via the registered hook, and a per-call ``timeout``
-    equal to the stale budget is the backstop when the abort finds nothing (#85252).
-    Both surface a retryable ``TimeoutError`` for the outer retry loop."""
+    """在对话线程中内联执行非流式的 LLM 调用（适用于定时任务轮次、受委托的子流程 —— 详见 ``should_use_direct_api_call``）：
+    由于不使用中断工作线程 (interrupt worker)，因此不会发生嵌套池死锁。
+
+    活动心跳会确保 ``last_activity_ts`` 持续更新
+    （否则，停滞监视器将会在约 450 秒时误中断正常的等待状态）。
+
+    僵死调用看门狗 (stale-call watchdog) 会对请求进行时间限制（#80759）：
+    计时器将通过已注册的钩子 (hook) 来中止正在传输的套接字 (in-flight sockets)；
+    如果中止操作未找到任何目标，一个与僵死时间预算相等的单次调用 ``timeout`` 会作为最后的保底机制（#85252）。
+
+    这两种超时机制都会向外层重试循环抛出一个可重试的 ``TimeoutError`` 异常。"""
     _check_stale_giveup(agent)
     agent._touch_activity("waiting for non-streaming API response")
     # Resolve the budget BEFORE the heartbeat starts: the resolver may raise

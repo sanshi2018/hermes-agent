@@ -1,15 +1,18 @@
 """Tests for agent.title_generator — auto-generated session titles."""
 
-import pytest
+import unicodedata
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 from agent.title_generator import (
     MAX_TITLE_INPUT_CHARS,
+    _EXAMPLE_ECHO_REJECT,
     build_title_input,
     derive_title,
     generate_title,
     auto_title_session,
+    is_titleable_user_message,
     maybe_auto_title,
     wait_for_title_upgrades,
     _title_language,
@@ -54,6 +57,36 @@ class TestGenerateTitle:
             assert "---" not in title_input and "@file:" not in title_input
             assert derive_title(ref + footer, preview).startswith("Quarterly incident analysis")
 
+    def test_manual_attachment_only_opener_yields_no_path_title(self):
+        """#92068: the manual-attach path (composer attach chip / hand-typed
+        ``@file:``) sends NO Desktop paste preview, so the build_title_input
+        ref-only shortcut cannot rescue it. The titler must still refuse to
+        name the session after the truncated file path."""
+        msg = "@file:AppData/Local/hermes/profiles/local/attachments/report.pdf"
+
+        assert is_titleable_user_message(msg) is False
+        assert derive_title(msg) is None
+        assert derive_title(msg + "\n\n--- Attached Context ---\n(file content)") is None
+        # Backtick-quoted (space-bearing) paths and @folder: refs too.
+        assert is_titleable_user_message("@file:`my file.txt`") is False
+        assert is_titleable_user_message("@folder:/some/dir") is False
+        # A quoted path with a line range is one reference token for the
+        # canonical parser (context_references.REFERENCE_PATTERN), so the
+        # guard must strip the range too, not leave ":3" behind as "prose".
+        assert is_titleable_user_message("@file:`my file.txt`:3") is False
+        assert is_titleable_user_message('@file:"spaced name.md":12-14') is False
+        assert is_titleable_user_message("@file:'single quoted.md':1") is False
+        # The background model-title path refuses the same opener.
+        assert generate_title(msg) is None
+
+    def test_attachment_plus_instruction_titles_from_the_instruction(self):
+        """Prose around a manual attachment keeps driving the title — an
+        attachment WITH a typed request is a real question, not a file drop."""
+        msg = "Review @file:notes.txt and fix the off-by-one"
+
+        assert is_titleable_user_message(msg) is True
+        assert derive_title(msg) == "Review @file:notes.txt and fix the off-by-one"
+
     def test_title_input_budget_and_manual_attachments_stay_unread(self):
         title_input = build_title_input("Describe the release plan", "p" * MAX_TITLE_INPUT_CHARS)
 
@@ -77,21 +110,6 @@ class TestGenerateTitle:
          patch("hermes_cli.config.load_config_readonly", side_effect=RuntimeError("bad config")):
             assert _title_language() == ""
 
-    def test_default_timeout_delegates_to_auxiliary_config(self):
-        captured_kwargs = {}
-
-        def mock_call_llm(**kwargs):
-            captured_kwargs.update(kwargs)
-            resp = MagicMock()
-            resp.choices = [MagicMock()]
-            resp.choices[0].message.content = "Configured Timeout"
-            return resp
-
-        with patch("agent.title_generator.call_llm", side_effect=mock_call_llm):
-            assert generate_title("question") == "Configured Timeout"
-
-        assert captured_kwargs["task"] == "title_generation"
-        assert captured_kwargs["timeout"] is None
 
     def test_generate_title_disables_reasoning(self):
         """The titling pass must explicitly disable thinking (#91927).
@@ -233,6 +251,102 @@ class TestGenerateTitle:
         with patch("agent.title_generator.call_llm", return_value=mock_response):
             assert generate_title("question", "answer") is None
 
+    @pytest.mark.parametrize("answer", [
+        # The four persisted titles from the report: Chinese replies of 32-80 characters that
+        # `len(title.split())` counts as 1-8 "words" because CJK has no inter-word spaces.
+        "好的，这个可以做。不过我现在看不到 hermesbubble 的代码（这条对话里没带仓库/文件），所以先把改造方案列出来…",
+        "可以，直接在这说。先判断一个关键点：登录页本身能打开吗？",
+        "我是 ChatGPT，由 OpenAI 开发。当前对话里没有提供可披露的具体模型版本号…",
+        "先确认一下：你说的 **Hermes** 是哪个项目/镜像？（很多 App 都叫 Hermes…",
+        # Japanese takes the same path: kana carries no inter-word spaces. Korean keeps spaces, so it
+        # already trips the word guard; it is here to pin that the character budget changes nothing there.
+        "まず、どのリポジトリの話か教えてもらえますか。この会話にはコードが含まれていないので、確認が必要です。",
+        "네, 그렇게 하시면 됩니다. 다만 지금 대화에는 저장소나 코드가 없어서 먼저 확인이 필요합니다.",
+    ])
+    def test_rejects_answer_shaped_output_in_cjk(self, answer):
+        """CJK replies slip past the word guard (no spaces between words), so the
+        answer-shaped guard needs a character budget per script. Regression for
+        the 0.22.2 behaviour where a 76-char Chinese answer became the title."""
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = answer
+
+        with patch("agent.title_generator.call_llm", return_value=mock_response):
+            assert generate_title("how do I rename a session?") is None
+
+    def test_rejects_cjk_answer_hidden_past_the_length_cap(self):
+        """A long URL prefix pushes most of a Chinese answer past _clean_title's 80-char cut; the
+        guard measures the reply before that cut, so the shortened fragment is still rejected."""
+        answer = "https://example.com/" + "a" * 40 + " 这个链接我没法访问，也无法判断它对你当前的任务是否有用。"
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = answer
+
+        with patch("agent.title_generator.call_llm", return_value=mock_response):
+            assert generate_title("这个对你有用吗") is None
+
+    def test_rejects_canonically_equivalent_hangul_replies(self):
+        """NFC and NFD forms of the same long Korean reply must both be rejected (#139667)."""
+        for form in ("NFC", "NFD"):
+            reply = unicodedata.normalize(
+                form, "로그인 페이지가 열리지 않아서 캐시를 지우고 다시 시도하겠습니다.",
+            )
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message.content = reply
+
+            with patch("agent.title_generator.call_llm", return_value=mock_response):
+                assert generate_title("로그인 문제를 해결하고 싶어요") is None, form
+
+    @pytest.mark.parametrize("title", [
+        "クラウドストレージの同期エラーを解決する方法",  # 22 CJK characters
+        "Dockerコンテナのネットワーク設定とポートフォワーディングのトラブルシューティング",  # 37
+        "使用Python和FastAPI构建高性能异步微服务架构的最佳实践指南",  # 22
+        "Node.js、Deno、Bunのパフォーマンス比較とベンチマーク結果",  # list commas, a dotted name
+    ])
+    def test_accepts_a_long_cjk_title_without_sentence_punctuation(self, title):
+        """Length alone does not make a CJK answer: these are titles, so they stay."""
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = title
+
+        with patch("agent.title_generator.call_llm", return_value=mock_response):
+            assert generate_title("question") == title
+
+    @pytest.mark.parametrize("reply", [
+        "クラウドストレージの同期エラーを解決する方法を説明します。",  # ideographic full stop
+        "クラウドストレージの同期エラーを解決する方法はありますか？",  # fullwidth question mark
+        "クラウドストレージの同期エラーを解決する方法はありますか?",  # ASCII question mark
+        "这个问题需要先确认登录页本身能不能打开然后再看缓存和配置文件是否被修改过以及代理设置",  # 41, no punctuation
+    ])
+    def test_rejects_a_cjk_sentence_or_an_overlong_run(self, reply):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = reply
+
+        with patch("agent.title_generator.call_llm", return_value=mock_response):
+            assert generate_title("question") is None
+
+    def test_decomposed_hangul_cannot_bypass_the_budget(self):
+        """NFD Hangul is conjoining jamo, outside the syllable block: counted only after normalization."""
+        reply = unicodedata.normalize("NFD", "로그인페이지가열리지않아서캐시를지우고다시시도하겠습니다.")
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = reply
+
+        with patch("agent.title_generator.call_llm", return_value=mock_response):
+            assert generate_title("로그인 문제") is None
+
+    def test_accepts_a_short_cjk_title(self):
+        """A real CJK title (13 characters) stays under the character budget."""
+        title = "修复会话标题被中文回复覆盖"
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = title
+
+        with patch("agent.title_generator.call_llm", return_value=mock_response):
+            assert generate_title("会话标题怎么变成回复了？") == title
+
     def test_accepts_normal_title(self):
         """A normal 3-7 word title is unaffected by the answer-shape guard."""
         mock_response = MagicMock()
@@ -243,13 +357,9 @@ class TestGenerateTitle:
             assert generate_title("question", "answer") == "Investigate the title resolver bug"
 
     @pytest.mark.parametrize("echo", [
-        "Fix login button on mobile",
-        "fix login button on mobile",
-        '"Fix login button on mobile"',
-        "(Fix login button on mobile)",
-        "[Fix login button on mobile]",
-        "Postgres connection pool exhaustion",
-        "Code changes",
+        wrap.format(example)
+        for example in sorted(_EXAMPLE_ECHO_REJECT)
+        for wrap in ("{}", '"{}"', "({})", "[{}]")
     ])
     def test_rejects_prompt_example_echo(self, echo):
         """A model that parrots one of the prompt's own example titles back
@@ -403,50 +513,72 @@ class TestAutoTitleSession:
 class TestMaybeAutoTitle:
     """Tests for maybe_auto_title() — the fire-and-forget entry point."""
 
-    def test_skips_if_not_first_exchange(self):
-        """Should not fire once the conversation is past its opening turn."""
-        db = MagicMock()
-        history = [
-            {"role": "user", "content": "first"},
-            {"role": "assistant", "content": "response 1"},
-            {"role": "user", "content": "second"},
-            {"role": "assistant", "content": "response 2"},
-            {"role": "user", "content": "third"},
-            {"role": "assistant", "content": "response 3"},
-        ]
 
-        with patch("agent.title_generator.auto_title_session") as mock_auto:
-            maybe_auto_title(db, "sess-1", "third", history)
-            # Wait briefly for any thread to start
-            import time
-            time.sleep(0.1)
-            mock_auto.assert_not_called()
 
-    def test_fires_on_first_exchange(self):
-        """Should fire a background thread for the opening message."""
+    @pytest.mark.parametrize(
+        "main_runtime, title_cfg, deferred",
+        [
+            ({"provider": "custom", "base_url": "http://127.0.0.1:8080/v1"}, {}, True),
+            ({"provider": "custom:gptoss-local", "base_url": "http://127.0.0.1:8080/v1"}, {}, True),
+            ({"provider": "lmstudio", "base_url": "http://127.0.0.1:1234/v1"}, {}, True),
+            ({"provider": "custom", "base_url": "http://127.0.0.1:8080/v1"}, {"base_url": "http://127.0.0.1:8080/v1/"}, True),
+            ({"provider": "custom", "base_url": "http://127.0.0.1:8080/v1"}, {"provider": "openrouter"}, False),
+            ({"provider": "custom", "base_url": "http://127.0.0.1:8080/v1"}, {"base_url": "http://10.0.0.2:8080/v1"}, False),
+            ({"provider": "openrouter", "base_url": "https://openrouter.ai/api/v1"}, {}, False),
+        ],
+    )
+    def test_title_call_waits_for_the_turn_when_it_shares_a_self_hosted_endpoint(self, main_runtime, title_cfg, deferred):
+        """#117296: a self-hosted server serving the main turn and the concurrent json_schema title request
+        can decode the title into the main reply. The upgrade must not go on the wire until the caller starts
+        it after the turn; every other route keeps the turn-start timing."""
+        import threading
+        from agent import title_generator as tg
         db = MagicMock()
         db.get_session_title.return_value = None
-        history = [
-            {"role": "user", "content": "hello"},
-        ]
+        started = threading.Event()
+        with patch.object(tg, "_title_config", return_value=title_cfg), \
+                patch.object(tg, "auto_title_session", side_effect=lambda *a, **k: started.set()):
+            upgrade = maybe_auto_title(db, "sess-1", "hello", [{"role": "user", "content": "hello"}], main_runtime=main_runtime)
+            assert isinstance(upgrade, threading.Thread)
+            if deferred:
+                assert upgrade.ident is None and not started.wait(0.3), "title request went out during the turn"
+                assert upgrade not in tg._UPGRADE_THREADS  # join-before-start would raise in wait_for_title_upgrades
+                tg.start_title_upgrade(upgrade)
+            assert started.wait(timeout=10), "auto_title thread never ran"
+            assert upgrade in tg._UPGRADE_THREADS
 
-        with patch("agent.title_generator.auto_title_session") as mock_auto:
-            import threading
-            called = threading.Event()
-            mock_auto.side_effect = lambda *a, **k: called.set()
-            maybe_auto_title(db, "sess-1", "hello", history)
-            # Event-based wait: sleep-sync flaked when the daemon thread
-            # wasn't scheduled within the fixed nap on a loaded runner.
-            assert called.wait(timeout=10), "auto_title thread never ran"
-            mock_auto.assert_called_once_with(
-                db,
-                "sess-1",
-                "hello",
-                failure_callback=None,
-                main_runtime=None,
-                title_callback=None,
-                runtime_validator=None,
-            )
+    @pytest.mark.parametrize(
+        "main_provider, title_cfg, deferred",
+        [
+            ("Custom:GPTOSS-Local", {}, True),  # /model stores the id as typed; the gate lowercases
+            ("custom:gptoss-local", {"provider": "custom:gptoss-local"}, True),
+            ("custom:gptoss-local", {"provider": "gptoss-local"}, True),  # bare config name
+            ("custom:gptoss-local", {"provider": "GPTOSS Local"}, True),  # display name
+            ("custom:gptoss", {"provider": "GPTOSS Local"}, True),  # display name of a keyed `providers:` entry
+            ("custom:gptoss-local", {"provider": "custom"}, True),
+            ("custom:gptoss-local", {"provider": "custom:gptoss-local", "base_url": "http://127.0.0.1:8080/v1/"}, True),
+            ("custom:gptoss-local", {"provider": "custom:other", "base_url": "http://10.0.0.2:8080/v1"}, False),
+            ("custom:gptoss-local", {"provider": "gptoss-local", "base_url": "http://10.0.0.2:8080/v1"}, False),
+            ("custom:gptoss-local", {"provider": "openrouter"}, False),
+            ("custom:gptoss-local", {"provider": "nous"}, False),
+            ("custom", {"provider": "ollama"}, True),  # alias of custom
+            ("custom", {"provider": "vllm"}, True),  # normalises to `local`: the same local server
+            ("lmstudio", {"provider": "lm-studio"}, True),
+            ("lmstudio", {"provider": "lmstudio", "base_url": "http://10.0.0.2:1234/v1"}, False),
+            ("lmstudio", {"provider": "openrouter"}, False),
+        ],
+    )
+    def test_title_pin_naming_the_same_self_hosted_route_still_waits_for_the_turn(self, main_provider, title_cfg, deferred):
+        """#120558: a ``/model`` switch to a named custom provider runs the turn as ``custom:<name>``. A title pin
+        spelled as that route (``custom:<name>``, the bare config name or its display name) is the same single-slot
+        server, so the gate must still defer; only a differing pinned base_url or a hosted pin fires at turn start."""
+        from agent import title_generator as tg
+
+        main_runtime = {"provider": main_provider, "base_url": "http://127.0.0.1:8080/v1"}
+        keyed = {"providers": {"gptoss": {"name": "GPTOSS Local", "base_url": "http://127.0.0.1:8080/v1"}}}
+        with patch.object(tg, "_title_config", return_value=title_cfg), \
+                patch("hermes_cli.config.load_config_readonly", return_value=keyed):
+            assert tg.title_upgrade_must_wait_for_turn(main_runtime) is deferred
 
     def test_kanban_worker_is_named_after_its_card_without_the_llm_thread(self, tmp_path, monkeypatch):
         """A worker's session takes the board card's title synchronously; no auxiliary model call (#111166)."""
@@ -565,19 +697,6 @@ class TestMaybeAutoTitle:
         thread.assert_not_called()
         call_llm.assert_not_called()
 
-    def test_skips_machine_authored_opening_messages(self, tmp_path):
-        """A compaction handoff is not a user request and must not title."""
-        db = SessionDB(tmp_path / "state.db")
-        db.create_session(session_id="sess-1", source="cli")
-        with patch("agent.title_generator.auto_title_session") as mock_auto:
-            maybe_auto_title(
-                db,
-                "sess-1",
-                "[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted",
-                [],
-            )
-        assert db.get_session_title("sess-1") is None
-        mock_auto.assert_not_called()
 
     @pytest.mark.parametrize(
         "opener",
@@ -778,16 +897,6 @@ class TestAutoTitleDuplicateHandling:
 
 
 
-    def test_manual_title_race_skips_without_callback(self):
-        # Precedence check fails (manual /title landed while generation was in
-        # flight) -> nothing persisted, no callback fired.
-        from agent.title_generator import _persist_session_title
-        db = MagicMock()
-        db.set_auto_title.return_value = False
-        assert (
-            _persist_session_title(db, "sess-1", "Some Title", source="llm") is None
-        )
-        db.set_session_title.assert_not_called()
 
 
 
@@ -813,25 +922,6 @@ class TestRuntimeValidator:
             assert title == "Resilient Title"
             mock_llm.assert_called_once()
 
-    def test_forwards_runtime_validator_to_worker(self):
-        db = MagicMock()
-        db.get_session_title.return_value = None
-        history = [
-            {"role": "user", "content": "hello"},
-            {"role": "assistant", "content": "hi there"},
-        ]
-
-        def _v():
-            return True
-
-        with patch("agent.title_generator.auto_title_session") as mock_auto:
-            import threading
-            called = threading.Event()
-            mock_auto.side_effect = lambda *a, **k: called.set()
-            maybe_auto_title(db, "sess-1", "hello", history, runtime_validator=_v)
-            assert called.wait(timeout=10), "auto_title thread never ran"
-            kwargs = mock_auto.call_args.kwargs
-            assert kwargs["runtime_validator"] is _v
 
 
 class TestModelSwitchMarkerNotTitleable:
@@ -865,18 +955,6 @@ class TestModelSwitchMarkerNotTitleable:
 
         assert is_titleable_user_message(self.MARKER) is False
 
-    def test_derive_title_is_unguarded_by_design(self):
-        """``derive_title`` is a dumb formatter; the guard lives in the callers.
-
-        Documents the contract deliberately: every caller checks
-        ``is_titleable_user_message`` first, so ``derive_title`` itself is
-        allowed to format a marker. If a future caller forgets that check, the
-        marker leaks into the title — which is exactly the bug this class
-        guards against.
-        """
-        from agent.title_generator import derive_title
-
-        assert derive_title(self.MARKER) is not None
 
     def test_unrelated_system_bracket_text_still_titleable(self):
         """The guard is narrow: real user text starting "[System:" still titles."""

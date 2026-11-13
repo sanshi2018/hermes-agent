@@ -54,6 +54,34 @@ is documented as a known limitation at the end of this document.
   a plain module global, not a contextvar: it describes the deployment mode,
   not a per-task value. Its only job is to arm the fail-closed behavior in
   `get_secret()`.
+- The dashboard / remote-Desktop backend (`hermes serve`) has no such flag, so
+  `hermes_cli/web_server.py::start_server` calls
+  `tui_gateway.launch_profile_policy.activate_multi_profile_hosting_eagerly()`
+  as its LAST boot step: the host arms the guard when the machine has more than
+  one servable profile home, instead of waiting for the first
+  `?profile=<other>` request. Activation is one-way, and anything the backend
+  had already done by then (idle-reaper transcript flushes, hosted rooms, cron)
+  was never re-scoped. It runs last because activation also freezes
+  `os.environ` as the launch profile's credentials, and that snapshot is the
+  only source for launch keys with no `.env` to rebuild from (systemd
+  `Environment=`, `op run`, Compose) — a key injected or rotated after the
+  freeze is invisible for the process lifetime. A genuinely single-profile
+  host never activates; `gateway.multiplex_profiles: false` is retired and
+  deliberately NOT consulted here (honouring it would serve a second profile
+  with the launch profile's credentials); an unreadable `profiles/` directory
+  fails closed (it activates) and logs a WARNING.
+- With the guard armed the **launch profile is a tenant too**: a body with no
+  routed profile binds `launch_profile_scope_if_multiplexed()` rather than
+  running unscoped on ambient `os.environ`. Note the precedence inside that
+  scope: the launch home's **`.env` wins over the frozen env**, so activation is
+  not purely stricter for the launch tenant — for a key set in BOTH
+  `os.environ` and `<launch home>/.env`, an unscoped read returned the ambient
+  value before activation and returns the `.env` value after. Env-only keys are
+  unaffected.
+- A body whose routed profile name no longer resolves (deleted or renamed
+  mid-run) binds **nothing**: its credential reads raise `UnscopedSecretError`
+  instead of falling back to the launch profile's. "Whose is this?" with no
+  answer is a fail-closed condition, never a borrow.
 
 ## Scope composition
 
@@ -90,6 +118,56 @@ Both scopes are `contextvars`, so they propagate into executor worker threads
 via `copy_context()` and unwind deterministically — nothing is written to
 `os.environ`, ever.
 
+### One scope value
+
+The scope, the home override, the secret scope and the terminal policy are one
+immutable value, `hermes_scope.ScopeState`, in a single contextvar. The scope is
+`hermes_scope.Scope(tenant, agent, actor, owner=, can_administer=)`:
+
+- `actor` is `Principal(id)` (a person) or `System(reason)` (cron, kanban,
+  housekeeping).
+- `owner` is the agent's one owner: a `Principal` for a personal agent or a
+  `Group` for a shared one. Other people may use a personal agent when its owner
+  shares it.
+- `can_administer` says whether the activity may change the agent itself (keys,
+  settings, plugins, cron, deletion). Every turn still updates the agent's memory
+  and skills. A hosted scope must name both, from the signed claim; a local scope
+  defaults to the local person as owner, administering.
+- A `TurnScope` adds `session`, `turn` and `fence`: the `Fence(epoch, generation)`
+  the turn's admission was claimed under (`agent.runtime_scope.claim_fence(row)`).
+
+`agent/runtime_scope.py` is the only module that turns a scope into profile
+state:
+
+- `bind_profile_scope(home)` binds the scope plus all three pieces as
+  one change and removes it on exit. The process's own home keeps its launch
+  semantics; any other home is hydrated from that profile's sources and stamped
+  as routed. It refuses inside a hosted scope.
+- `bind_state(scope, ...)` returns the change's token, for a host that holds it
+  across calls (the TUI turn, the managed worker) or deliberately binds less.
+- `bind_turn(session_id, turn_id, fence)` marks a turn inside a bound scope.
+
+Inside a hosted scope, a bind must keep the tenant, agent, actor, owner and
+administration right; anything else raises `ScopeSwitchRefused`.
+
+A reset removes its own change and replays the later ones, except those made
+inside a scope the result no longer has. A reset that is stale, repeated, out of
+order or made from a copied context therefore lands on a state that whole binds
+produce, never one profile's home beside another's secrets. Leaving a hosted
+agent by any reset other than the bind that entered it raises
+`ScopeSwitchRefused`.
+
+The legacy setters (`set_hermes_home_override`, `set_secret_scope`,
+`set_terminal_scope`, `install_profile_terminal_scope`) keep working. Inside a
+bound scope, a call naming another profile moves the whole scope in a local
+install and raises `ScopeSwitchRefused` in a hosted one. Clearing one piece of a
+bound scope (`set_secret_scope(None)`, `set_terminal_scope(None)`) refuses. A
+raw terminal policy (a session's frozen policy) goes through
+`bind_terminal_policy(policy, profile_home=...)`, which inside a bound scope
+accepts only a policy owned by the bound agent. The code-health rule HX016 blocks new direct calls, including
+through relative imports; existing ones migrate when their function is next
+edited.
+
 ## Workstream A: context-local secret scope
 
 `agent/secret_scope.py` exists because the obvious implementation — union all
@@ -110,6 +188,13 @@ B's turns and into every subprocess spawned with `env=dict(os.environ)`.
 - A small allowlist (`HERMES_HOME`, `HERMES_PROFILE`, proxy settings,
   `API_SERVER_*` listener settings — but deliberately not `API_SERVER_KEY`)
   stays global because those describe the process, not a profile.
+- Cloud SDK *default credential chains* are ambient by construction
+  (`google.auth.default()`, `DefaultAzureCredential`, `boto3.Session()` with
+  no keys): every source they walk — process env, CLI caches, instance
+  metadata — is the launch context's identity. Under multiplexing a served
+  profile without a complete credential of its own is **refused** by the
+  Vertex, Entra ID and Bedrock adapters rather than minting that identity
+  against its own `base_url`; standalone runs keep the chain.
 
 Because the per-turn `.env` reload is a no-op under multiplexing, rotated
 credentials are picked up through the profile scope on the next turn — never
@@ -258,6 +343,17 @@ HERMES_HOME override. Asset writes are atomic, type- and size-capped.
 - Fail-closed: unscoped `get_secret()` under multiplexing raises; a routed
   event targeting an unserved profile is dropped; an unscoped `/p/` request
   enters the default profile's scope (`#61276`) rather than an undefined one.
+- Fail-closed, per profile: a remote MCP server whose `url` / `headers` still
+  carry a literal `${VAR}` after rendering under its owner profile's scope does
+  not connect (`MCP server 'x': ${VAR} in url/headers is not set in this
+  profile's .env or secret source`); the reference is re-rendered under the
+  owner's fresh scope at every connect and reconnect, so it heals once that
+  profile's `.env` or secret source supplies the value. The launch profile's
+  mapping still includes its frozen launch env (systemd `Environment=` /
+  `op run` credentials resolve); a secondary resolves from its own files only.
+- Scoped platform gates: A2A (`A2A_PORT`) and Buzz enablement are read through
+  the profile's own scope / `platforms.<name>` section, so a launch-profile
+  env var no longer enables an inbound listener in every secondary.
 - Fallback: an external `cron.provider` does not support multiplexing and
   falls back to the built-in ticker with a warning.
 

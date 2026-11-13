@@ -15,13 +15,13 @@ Agent payments via Stripe Link — cards, SPT, approvals.
 | | |
 |---|---|
 | Source | Optional — install with `hermes skills install official/payments/stripe-link-cli` |
-| Path | `optional-skills/payments\stripe-link-cli` |
+| Path | `optional-skills/payments/stripe-link-cli` |
 | Version | `0.1.0` |
 | Author | Teknium (teknium1), Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos |
 | Tags | `Payments`, `Stripe`, `Link`, `Checkout`, `MPP` |
-| Related skills | [`mpp-agent`](./payments-mpp-agent.md), [`stripe-projects`](./payments-stripe-projects.md) |
+| Related skills | [`stripe-projects`](../../optional/payments/payments-stripe-projects.md) |
 
 ## Reference: full SKILL.md
 
@@ -44,7 +44,7 @@ Trigger phrases:
 - "log in to Link", "connect my Link wallet"
 - HTTP 402 response from a merchant API with `www-authenticate: ... method="stripe"`
 
-If the user wants a paid API call (HTTP 402, no checkout form), the `card` path is wrong — use SPT via this same skill, or hand off to the `mpp-agent` skill.
+If the user wants a paid API call (HTTP 402, no checkout form), the `card` path is wrong — use SPT via this same skill, or install the `pay` plugin (`hermes plugins install pay`) for x402/MPP payments.
 
 ## Prerequisites
 

@@ -1,8 +1,0 @@
-```yaml
-name: honcho
-version: 1.0.0
-description: "Honcho AI 原生记忆 —— 支持辩证问答、语义搜索与持久化结论的跨会话用户建模。"
-pip_dependencies:
-  - honcho-ai
-hooks:
-  - on_session_end
